@@ -1,4 +1,5 @@
 # pacman_bench
+set(benchmark /home/wanghanshuo/pacman/benchmarks)
 find_package(benchmark)
 if (NOT benchmark_FOUND)
   include(FetchContent)
@@ -16,8 +17,11 @@ set(BENCHMARK_FILES
   ${PROJECT_SOURCE_DIR}/benchmarks/histogram.cpp
 )
 
+link_libraries(stdc++fs)
+
 add_executable(pacman_bench ${BENCHMARK_FILES} ${DB_FILES})
-target_link_libraries(pacman_bench benchmark::benchmark ${PMEM} ${PMEMOBJ} jemalloc)
+# target_link_libraries(pacman_bench benchmark::benchmark ${PMEM} ${PMEMOBJ} jemalloc)
+target_link_libraries(pacman_bench benchmark::benchmark ${PMEM} ${PMEMOBJ} /home/wanghanshuo/jemalloc_build/lib/libjemalloc.so)
 if (INDEX_TYPE EQUAL 1)
   target_link_libraries(pacman_bench cceh)
 elseif (INDEX_TYPE EQUAL 2)

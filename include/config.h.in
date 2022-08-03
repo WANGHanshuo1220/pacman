@@ -4,10 +4,10 @@
 
 #include <cstddef>
 
-static constexpr char PMEM_DIR[] = "/mnt/pmem@USE_NUMA_NODE@/";
+static constexpr char PMEM_DIR[] = "/mnt/aep0/";
 static constexpr size_t IDX_POOL_SIZE = 40ul << 30;
 
-static constexpr int USE_NUMA_NODE = @USE_NUMA_NODE@;
+static constexpr int USE_NUMA_NODE = 0;
 // CPU cores information
 static constexpr int CORES_PER_SOCKET = 18;
 static constexpr int NUM_SOCKETS = 4;
@@ -19,6 +19,7 @@ static constexpr int CPU_BIND_BEGIN_CORE = USE_NUMA_NODE * CORES_PER_SOCKET;
 #cmakedefine IDX_PERSISTENT
 #cmakedefine LOG_PERSISTENT
 #cmakedefine USE_PMDK
+#cmakedefine GC_EVAL
 
 #define INDEX_TYPE @INDEX_TYPE@
 

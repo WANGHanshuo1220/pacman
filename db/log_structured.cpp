@@ -4,6 +4,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <algorithm>
+#include <iostream>
 
 #include "config.h"
 #include "log_structured.h"
@@ -91,6 +92,20 @@ LogStructured::~LogStructured() {
   munmap(pool_start_, total_log_size_);
   free_list_lock_.report();
 }
+
+#ifdef GC_EVAL
+std::pair<int, long> *LogStructured::get_cleaners_info()
+{
+  int num_cleaners = get_num_cleaners();
+  std::pair<int, long> *p = (std::pair<int, long>*)malloc(sizeof(std::pair<int, long>) * num_cleaners);
+  for(int i = 0; i < num_cleaners; i ++)
+  {
+    p[i].first = log_cleaners_[i]->show_GC_times();
+    p[i].second = log_cleaners_[i]->show_GC_timecost();
+  }
+  return p;
+}
+#endif
 
 LogSegment *LogStructured::NewSegment(bool hot) {
   LogSegment *ret = nullptr;

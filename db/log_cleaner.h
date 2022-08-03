@@ -12,6 +12,19 @@
 class LogCleaner {
  public:
   std::atomic<size_t> cleaner_garbage_bytes_{0};
+#ifdef GC_EVAL
+  std::atomic<int> GC_times = 0;
+  std::atomic<long> GC_timecost = 0; // us
+  int get_cleaner_id() { return cleaner_id_; }
+  int show_GC_times() 
+  { 
+    return GC_times.load(std::memory_order_relaxed);
+  }
+  long show_GC_timecost()
+  { 
+    return GC_timecost.load(std::memory_order_relaxed);
+  }
+#endif
 
   // clean statistics
 #ifdef LOGGING
@@ -57,7 +70,6 @@ class LogCleaner {
   }
 
   ~LogCleaner() {
-    StopThread();
 #ifdef BATCH_COMPACTION
     delete volatile_segment_;
 #endif
@@ -147,7 +159,6 @@ class LogCleaner {
   std::vector<ValidItem> valid_items_;
   std::vector<size_t> tmp_cleaner_garbage_bytes_;
   double last_update_time_ = 0.;
-
   std::list<SegmentInfo> closed_cold_segments_;
   std::list<SegmentInfo> to_compact_cold_segments_;
   std::list<LogSegment *> closed_hot_segments_;
@@ -168,7 +179,6 @@ class LogCleaner {
     return TaggedPointer(val).GetAddr() != reinterpret_cast<char *>(kv);
 #endif
   }
-
   void LockUsedList() { list_lock_.lock(); }
   void UnlockUsedList() { list_lock_.unlock(); }
 

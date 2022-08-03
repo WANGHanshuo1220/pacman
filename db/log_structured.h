@@ -14,7 +14,6 @@
 #include "util/lock.h"
 #include "util/util.h"
 
-
 class DB;
 class LogCleaner;
 
@@ -40,8 +39,13 @@ class LogStructured {
   void RecoveryInfo(DB *db);
   void RecoveryAll(DB *db);
 
-  // char *get_pool_start() { return pool_start_; }
+  // GC_EVAL
+#ifdef GC_EVAL
+  std::pair<int, long> *get_cleaners_info();
+  int get_num_cleaners() { return num_cleaners_; }
+#endif
 
+  // char *get_pool_start() { return pool_start_; }
  private:
   const int num_workers_;
   const int num_cleaners_;
@@ -83,6 +87,7 @@ class LogStructured {
   void UnlockFreeList() { free_list_lock_.unlock(); }
   void UpdateCleanThreshold();
 
+
   // LogSegment *NewReservedSegment() {
   //   std::lock_guard<SpinLock> guard(reserved_list_lock_);
   //   LogSegment *segment = nullptr;
@@ -106,6 +111,8 @@ class LogStructured {
   // }
 
   friend class LogCleaner;
+  
+
 
   DISALLOW_COPY_AND_ASSIGN(LogStructured);
 };

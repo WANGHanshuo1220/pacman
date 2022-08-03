@@ -13,7 +13,6 @@
 #include "util/thread_status.h"
 #include "util/index_arena.h"
 
-
 // index operations
 class Index {
  public:
@@ -42,6 +41,7 @@ class DB {
     void Put(const Slice &key, const Slice &value);
     size_t Scan(const Slice &key, int cnt);
     bool Delete(const Slice &key);
+    // int show_ID() {return worker_id_; };
 
    private:
     int worker_id_;
@@ -89,6 +89,11 @@ class DB {
   void RecoveryAll();
   void NewIndexForRecoveryTest();
 
+  // GC_EVAL
+#ifdef GC_EVAL
+  LogStructured *get_log_() { return log_; }
+#endif
+
  private:
   Index *index_;
   LogStructured *log_;
@@ -118,6 +123,9 @@ class DB {
     size_t idx = i_key % EPOCH_MAP_SIZE;
     return epoch_map_[idx].fetch_add(1, std::memory_order_relaxed);
   }
+
+
+
 
   friend class LogCleaner;
   friend class HotKeySet;

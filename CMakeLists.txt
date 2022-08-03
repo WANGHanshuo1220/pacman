@@ -20,6 +20,8 @@ option(REDUCE_PM_ACCESS "REDUCE_PM_ACCESS" OFF)
 option(HOT_COLD_SEPARATE "HOT_COLD_SEPARATE" OFF)
 option(GC_SHORTCUT "GC_SHORTCUT" OFF)
 option(BATCH_COMPACTION "BATCH_COMPACTION" OFF)
+option(INTERLEAVED "INTERLEAVED" OFF)
+option(GC_EVAL "GC_EVAL" OFF)
 
 option(PACMAN "PACMAN" OFF)
 if (PACMAN)
@@ -33,6 +35,14 @@ if (PACMAN)
   endif()
 endif()
 
+if (INTERLEAVED)
+  set(INTERLEAVED ON)
+endif()
+
+if (GC_EVAL)
+  set(GC_EVAL ON)
+endif()
+
 message(STATUS "SET USE_NUMA_NODE ${USE_NUMA_NODE}")
 message(STATUS "SET INDEX_TYPE ${INDEX_TYPE}")
 message(STATUS "SET IDX_PERSISTENT ${IDX_PERSISTENT}")
@@ -41,6 +51,8 @@ message(STATUS "SET REDUCE_PM_ACCESS ${REDUCE_PM_ACCESS}")
 message(STATUS "SET HOT_COLD_SEPARATE ${HOT_COLD_SEPARATE}")
 message(STATUS "SET GC_SHORTCUT ${GC_SHORTCUT}")
 message(STATUS "SET BATCH_COMPACTION ${BATCH_COMPACTION}")
+message(STATUS "SET INTERLEAVED ${INTERLEAVED}")
+message(STATUS "SET GC_EVAL ${GC_EVAL}")
 
 configure_file(
   "${PROJECT_SOURCE_DIR}/include/config.h.in"
@@ -70,7 +82,7 @@ configure_file(
 
 ############
 
-option(EVAL_OTHER_SYSTEMS "build and evaluate other systems" ON)
+option(EVAL_OTHER_SYSTEMS "build and evaluate other systems" OFF)
 if (EVAL_OTHER_SYSTEMS)
   message(STATUS "Will build and evaluate other systems")
 endif()
@@ -90,9 +102,12 @@ if (LOGGING)
 endif()
 
 #################################################################
+#include_directories(/home/wanghanshuo/pmdk_install/lib)
+#link_directories(/home/wanghanshuo/pmdk_install/lib)
 
 find_library(PMEM pmem)
 find_library(PMEMOBJ pmemobj)
+# find_library(JEMALLOC ~/jemalloc_build/lib)
 
 include_directories(
   "${PROJECT_SOURCE_DIR}/include"

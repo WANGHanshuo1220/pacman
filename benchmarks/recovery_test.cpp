@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <mutex>
 #include <condition_variable>
-#include <filesystem>
+#include <experimental/filesystem>
 
 #include "zipf.h"
 #include "db.h"
@@ -270,8 +270,8 @@ int main(int argc, char **argv) {
   }
   DB *db = nullptr;
   std::string db_path = std::string(PMEM_DIR) + "log_kvs";
-  std::filesystem::remove_all(db_path);
-  std::filesystem::create_directory(db_path);
+  std::experimental::filesystem::remove_all(db_path);
+  std::experimental::filesystem::create_directory(db_path);
   db = new DB(db_path, FLAGS_log_size, FLAGS_threads, FLAGS_gc_threads);
   // initialize
   std::vector<KeyType> keys;

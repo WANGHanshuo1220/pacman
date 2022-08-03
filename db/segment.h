@@ -95,6 +95,10 @@ class BaseSegment {
   void set_has_shortcut(bool has_shortcut) { has_shortcut_ = has_shortcut; }
 
  protected:
+#ifdef INTERLEVED
+  char *last_valid_kv;
+  int length_last_invalid_kvs;
+#endif
   union {
     char *const segment_start_; // const
     Header *header_;

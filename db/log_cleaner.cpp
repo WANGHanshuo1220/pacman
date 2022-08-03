@@ -1,11 +1,17 @@
 #include <algorithm>
 #include <unistd.h>
 #include <libpmem.h>
-
 #include "config.h"
 #include "log_cleaner.h"
 #if INDEX_TYPE == 3
 #include "index_masstree.h"
+#endif
+
+#ifdef GC_EVAL
+  #include <sys/time.h>
+  #define TIMEDIFF(s, e) (e.tv_sec - s.tv_sec) * 1000000 + (e.tv_usec - s.tv_usec) //us
+#else
+  #define TIMEDIFF(s, e) 1
 #endif
 
 void LogCleaner::CleanerEntry() {
@@ -14,15 +20,25 @@ void LogCleaner::CleanerEntry() {
   reinterpret_cast<MasstreeIndex *>(db_->index_)
       ->MasstreeThreadInit(log_->num_workers_ + cleaner_id_);
 #endif
-
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning()) {
       Timer timer(clean_time_ns_);
+#ifdef GC_EVAL
+      GC_times.fetch_add(1, std::memory_order_relaxed);
+      struct timeval start;
+      gettimeofday(&start, NULL);
+#endif
       DoMemoryClean();
+#ifdef GC_EVAL
+      struct timeval end;
+      gettimeofday(&end, NULL);
+      GC_timecost.fetch_add(TIMEDIFF(start, end), std::memory_order_relaxed);
+#endif
     } else {
       usleep(10);
     }
   }
+  std::cout << "exit CleanerEnrty" << std::endl;
 }
 
 bool LogCleaner::NeedCleaning() {
@@ -351,6 +367,7 @@ void LogCleaner::DoMemoryClean() {
                        (1 - cur_garbage_proportion) *
                        (cur_time - (*it)->get_close_time());
     if (cur_score > max_score) {
+      // to record the segment with the most garbage proportion
       max_score = cur_score;
       max_garbage_proportion = cur_garbage_proportion;
       gc_it = it;
@@ -428,6 +445,7 @@ void LogCleaner::DoMemoryClean() {
 #else
   CompactSegment(segment);
 #endif
+
 }
 
 void LogCleaner::MarkGarbage(ValueType tagged_val) {

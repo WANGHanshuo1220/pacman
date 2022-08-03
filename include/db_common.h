@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <tuple>
+#include <iostream>
 
 #include "config.h"
 #include "slice.h"
