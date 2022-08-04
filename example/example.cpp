@@ -80,6 +80,7 @@ void job1()
 void (*jobs[])() = {job0, job1};
 
 int main(int argc, char **argv) {
+  printf("in branch interleaved_GC\n");
 #ifdef GC_EVAL
   printf("in main: GC_EVAL ON\n");
 #endif
