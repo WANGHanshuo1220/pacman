@@ -82,7 +82,7 @@ fi
 ls | grep -v _deps | xargs rm -rf
 
 # disable cpu scaling
-sudo cpupower frequency-set --governor performance > /dev/null
+# sudo cpupower frequency-set --governor performance > /dev/null
 
 for workload in "${WORKLOAD_TYPE[@]}"; do
   echo | tee -a ${OUTPUT_FILE}
@@ -95,7 +95,7 @@ for workload in "${WORKLOAD_TYPE[@]}"; do
   make ${TARGET} -j
 
   # clean cache
-  sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
+  # sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
 
   numactl --membind=${NUMA_AFFINITY} --cpunodebind=${NUMA_AFFINITY} \
     ${TARGET_CMD} --benchmark_repetitions=1 ${FILTER} \
@@ -106,4 +106,4 @@ for workload in "${WORKLOAD_TYPE[@]}"; do
 done
 rm ${TMP_OUTPUT}
 
-sudo cpupower frequency-set --governor powersave > /dev/null
+# sudo cpupower frequency-set --governor powersave > /dev/null

@@ -74,6 +74,12 @@ class LogStructured {
   std::mutex rec_mu_;
   std::condition_variable rec_cv_;
 
+  // interleaved_GC
+#ifdef INTERLEAVED
+  int cur_segment;
+  int get_cur_segment() { return cur_segment; }
+#endif
+
   // statistics
 #ifdef LOGGING
   std::atomic<int> num_new_segment_{0};

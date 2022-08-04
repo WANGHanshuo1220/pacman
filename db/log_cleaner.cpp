@@ -38,7 +38,6 @@ void LogCleaner::CleanerEntry() {
       usleep(10);
     }
   }
-  std::cout << "exit CleanerEnrty" << std::endl;
 }
 
 bool LogCleaner::NeedCleaning() {
