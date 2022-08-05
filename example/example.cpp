@@ -10,7 +10,8 @@
 #define TIMEDIFF(s, e) (e.tv_sec - s.tv_sec) * 1000000 + (e.tv_usec - s.tv_usec) //us
 
 // size_t log_size = 1ul << 30;
-#define log_size 3 * SEGMENT_SIZE
+// #define log_size 8 * SEGMENT_SIZE
+#define log_size 1ul << 30
 #define num_workers 1
 #define num_cleaners 1
 std::string db_path = std::string(PMEM_DIR) + "log_kvs";
@@ -21,6 +22,7 @@ struct timeval start, checkpoint1, checkpoint2;
 
 void job0()
 { 
+  printf("in job0\n");
   uint64_t key = 0x1234;
   std::string value = "hello world";
   worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
@@ -36,6 +38,7 @@ int dup_rate = 10;
 
 void job1()
 {
+  printf("NUM_KVS = %d, key dup_rate = %d\n", NUM_KVS, dup_rate);
   std::string val;
   std::string res;
   uint64_t key, key_;
@@ -80,10 +83,12 @@ void job1()
 void (*jobs[])() = {job0, job1};
 
 int main(int argc, char **argv) {
-  printf("in branch interleaved_GC\n");
-#ifdef GC_EVAL
-  printf("in main: GC_EVAL ON\n");
-#endif
+// #ifdef GC_EVAL
+//   printf("in main: GC_EVAL ON\n");
+// #endif
+// #ifdef INTERLEAVED
+//   printf("in main: INTERLEAVED ON\n");
+// #endif
   int job = 0;
   char *arg;
   if(argc == 1)
@@ -100,12 +105,12 @@ int main(int argc, char **argv) {
     }
     else if(argc == 3)
     {
-      char *arg = argv[1];
+      arg = argv[1];
       NUM_KVS = atoi(argv[2]);
     }
     else if(argc == 4)
     {
-      char *arg = argv[1];
+      arg = argv[1];
       NUM_KVS = atoi(argv[2]);
       dup_rate = atoi(argv[3]);
     }

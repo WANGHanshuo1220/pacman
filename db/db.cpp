@@ -107,6 +107,10 @@ DB::Worker::Worker(DB *db) : db_(db) {
   reinterpret_cast<MasstreeIndex *>(db_->index_)
       ->MasstreeThreadInit(worker_id_);
 #endif
+#ifdef INTERLEAVED
+  num_hot_segments_ = db->log_->get_num_hot_segments_();
+  num_cold_segments_ = db->log_->get_num_cold_segments_();
+#endif
 }
 
 DB::Worker::~Worker() {
@@ -144,6 +148,7 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
 #else
   hot = true;
 #endif
+
   ValueType val = MakeKVItem(key, value, hot);
 #ifndef LOG_BATCHING
   UpdateIndex(key, val, hot);
@@ -223,7 +228,25 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
   uint32_t epoch = db_->GetKeyEpoch(i_key);
 
 #ifdef HOT_COLD_SEPARATE
+#ifdef INTERLEAVED
+  // printf("cur_hot_sengment_ : %d -> ", cur_cold_segment_);
+  LogSegment *&segment = hot ? 
+                          *(db_->log_->get_hot_segment_(cur_hot_segment_ ++)): 
+                          *(db_->log_->get_cold_segment_(cur_cold_segment_ ++));
+  if(hot)
+  {
+    if(cur_hot_segment_ >= num_hot_segments_) 
+      cur_hot_segment_ -= num_hot_segments_;
+  }
+  else
+  {
+    if(cur_cold_segment_ >= num_cold_segments_) 
+      cur_cold_segment_ -= num_cold_segments_;
+  }
+  // printf("%d\n", cur_cold_segment_);
+#else
   LogSegment *&segment = hot ? log_head_ : cold_log_head_;
+#endif
 #else
   LogSegment *&segment = log_head_;
 #endif
@@ -266,22 +289,38 @@ void DB::Worker::UpdateIndex(const Slice &key, ValueType val, bool hot) {
 
 void DB::Worker::MarkGarbage(ValueType tagged_val) {
   TaggedPointer tp(tagged_val);
+  KVItem *kv = tp.GetKVItem();
 #ifdef REDUCE_PM_ACCESS
   uint32_t sz = tp.size;
   if (sz == 0) {
     ERROR_EXIT("size == 0");
-    KVItem *kv = tp.GetKVItem();
+    kv = tp.GetKVItem();
     sz = sizeof(KVItem) + kv->key_size + kv->val_size;
   }
 #else
-  KVItem *kv = tp.GetKVItem();
+  kv = tp.GetKVItem();
   uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
 #endif
   int segment_id = db_->log_->GetSegmentID(tp.GetAddr());
   LogSegment *segment = db_->log_->GetSegment(segment_id);
   segment->MarkGarbage(tp.GetAddr(), sz);
+
+  bool roll_back = false;
+#ifdef INTERLEAVED
+  // printf("roll_back:\n");
+  // printf("  seg_start = %p\n", segment->get_segment_start());
+  // printf("  old_tail  = %p\n", segment->get_tail());
+  // printf("  kv + sz = %p + %d = %p\n", kv, sz, kv + sz);
+  if(segment->get_tail() == (char *)kv + sz)
+  {
+    segment->roll_back_tail(sz);
+    roll_back = true;
+  }
+  // printf("  new_tail  = %p\n", segment->get_tail());
+#endif
+
   // update temp cleaner garbage bytes
-  if (db_->num_cleaners_ > 0) {
+  if (db_->num_cleaners_ > 0 && !roll_back) {
     int cleaner_id = db_->log_->GetSegmentCleanerID(tp.GetAddr());
     tmp_cleaner_garbage_bytes_[cleaner_id] += sz;
   }

@@ -89,13 +89,15 @@ class BaseSegment {
 
   char *get_tail() { return tail_; }
 
+  void roll_back_tail(int sz) { tail_ -= sz; }
+
   char *get_end() { return end_; }
 
   bool HasShortcut() { return has_shortcut_; }
   void set_has_shortcut(bool has_shortcut) { has_shortcut_ = has_shortcut; }
 
  protected:
-#ifdef INTERLEVED
+#ifdef INTERLEAVED
   char *last_valid_kv;
   int length_last_invalid_kvs;
 #endif
@@ -232,6 +234,9 @@ class LogSegment : public BaseSegment {
       return INVALID_VALUE;
     }
     KVItem *kv = new (tail_) KVItem(key, value, epoch);
+    // printf("Append kv:");
+    // printf("  seg_start = %p\n", get_segment_start());
+    // printf("  old_tail  = %p\n", get_tail());
     kv->Flush();
     tail_ += sz;
     ++cur_cnt_;

@@ -10,6 +10,7 @@
 #ifdef GC_EVAL
   #include <sys/time.h>
   #define TIMEDIFF(s, e) (e.tv_sec - s.tv_sec) * 1000000 + (e.tv_usec - s.tv_usec) //us
+  #define TEST_CPU_TIME 1 // 1 for cpu time, 0 for real time
 #else
   #define TIMEDIFF(s, e) 1
 #endif

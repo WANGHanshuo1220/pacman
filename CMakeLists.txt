@@ -36,7 +36,7 @@ if (PACMAN)
 endif()
 
 if (INTERLEAVED)
-  set(INTERLEAVED ON)
+  set(HOT_COLD_SEPARATE ON)
 endif()
 
 if (GC_EVAL)

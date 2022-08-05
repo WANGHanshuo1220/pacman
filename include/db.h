@@ -43,6 +43,13 @@ class DB {
     bool Delete(const Slice &key);
     // int show_ID() {return worker_id_; };
 
+#ifdef INTERLEAVED
+    int cur_hot_segment_ = 0;
+    int cur_cold_segment_ = 0;
+    int num_hot_segments_;
+    int num_cold_segments_;
+#endif
+  
    private:
     int worker_id_;
     DB *db_;

@@ -38,19 +38,48 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
                              MAP_SHARED | MAP_ANONYMOUS, -1, 0);
   madvise(pool_start_, total_log_size_, MADV_HUGEPAGE);
 #endif
+
+#ifdef INTERLEAVED
+  num_cold_segments_ = num_segments_ / 2;
+  num_free_segments_ = (num_segments_ - num_cleaners - num_cold_segments_) / 2;
+  num_hot_segments_  = num_segments_ - num_cold_segments_ 
+                      - num_cleaners - num_free_segments_;
+#else
+  num_free_segments_ = num_segments_ - num_cleaners_;
+#endif
+
+#ifdef INTERLEAVED
+  printf("num_seg = %d, num_cold_seg = %d, " 
+         "num_hot_seg = %d, num_free_seg = %d, num_cleaner_seg = %d\n",
+          num_segments_, num_cold_segments_, num_hot_segments_,
+          num_free_segments_.load(), num_cleaners_);
+#endif
+
   if (pool_start_ == nullptr || pool_start_ == MAP_FAILED) {
     ERROR_EXIT("mmap failed");
   }
   LOG("Log: pool_start %p total segments: %d  cleaners: %d\n", pool_start_,
       num_segments_, num_cleaners_);
+
   all_segments_.resize(num_segments_, nullptr);
+
   int i = 0;
   for (i = 0; i < num_segments_ - num_cleaners_; i++) {
     all_segments_[i] =
         new LogSegment(pool_start_ + i * SEGMENT_SIZE, SEGMENT_SIZE);
+#ifdef INTERLEAVED
+    if(i < num_cold_segments_) cold_segments_.push_back(all_segments_[i]);
+    else if(i < num_cold_segments_ + num_hot_segments_)
+    {
+      hot_segments_.push_back(all_segments_[i]);
+    }else
+    {
+      free_segments_.push(all_segments_[i]);
+    }
+#else
     free_segments_.push(all_segments_[i]);
+#endif
   }
-  num_free_segments_ = num_segments_ - num_cleaners_;
 
   log_cleaners_.resize(num_cleaners_, nullptr);
   for (int j = 0; i < num_segments_; i++, j++) {

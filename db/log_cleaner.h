@@ -71,8 +71,8 @@ class LogCleaner {
 
   ~LogCleaner() {
 #ifdef GC_EVAL
-    printf("%dth cleaner: GC_times = %d, GC_timecost = %ldus\n",
-      get_cleaner_id(), show_GC_times(), show_GC_timecost());
+    printf("%dth cleaner: GC_times = %d, GC_timecost = %ldus, clean_time_ns_ = %ld\n",
+      get_cleaner_id(), show_GC_times(), show_GC_timecost(), clean_time_ns_);
 #endif
 #ifdef BATCH_COMPACTION
     delete volatile_segment_;

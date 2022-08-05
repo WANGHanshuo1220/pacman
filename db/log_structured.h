@@ -39,6 +39,13 @@ class LogStructured {
   void RecoveryInfo(DB *db);
   void RecoveryAll(DB *db);
 
+#ifdef INTERLEAVED
+  int get_num_hot_segments_() { return num_hot_segments_; }
+  int get_num_cold_segments_() { return num_cold_segments_; }
+  LogSegment **get_hot_segment_(int i) {return &hot_segments_[i]; } 
+  LogSegment **get_cold_segment_(int i) {return &cold_segments_[i]; } 
+#endif
+
   // GC_EVAL
 #ifdef GC_EVAL
   std::pair<int, long> *get_cleaners_info();
@@ -60,6 +67,12 @@ class LogStructured {
   std::vector<LogSegment *> all_segments_;
   std::vector<LogCleaner *> log_cleaners_;
   std::queue<LogSegment *> free_segments_;
+#ifdef INTERLEAVED
+  int num_hot_segments_;
+  int num_cold_segments_ = 2;
+  std::vector<LogSegment *> cold_segments_;
+  std::vector<LogSegment *> hot_segments_;
+#endif
   // std::queue<LogSegment *> reserved_segments_;
 
   std::atomic<int> num_free_segments_{0};
