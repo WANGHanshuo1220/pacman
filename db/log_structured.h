@@ -78,7 +78,11 @@ class LogStructured {
   std::atomic<int> num_free_segments_{0};
   std::atomic<int> alloc_counter_{0};
   const int num_limit_free_segments_;
+#ifdef INTERLEAVED
+  volatile int clean_threshold_ = 20;
+#else
   volatile int clean_threshold_ = 10;
+#endif
 
   volatile FreeStatus free_status_ = FS_Sufficient;
   std::atomic_flag FS_flag_{ATOMIC_FLAG_INIT};

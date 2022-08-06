@@ -15,8 +15,8 @@ using KeyType = uint64_t;
 using ValueType = uint64_t;
 static constexpr ValueType INVALID_VALUE = 0;
 
-static constexpr uint64_t SEGMENT_SIZE = 4ul << 20;
-// static constexpr uint64_t SEGMENT_SIZE = 1ul << 20;
+// static constexpr uint64_t SEGMENT_SIZE = 4ul << 20;
+static constexpr uint64_t SEGMENT_SIZE = 1ul << 19;
 
 // shortcut
 class __attribute__((__packed__)) Shortcut {

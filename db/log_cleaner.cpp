@@ -41,6 +41,23 @@ void LogCleaner::CleanerEntry() {
   }
 }
 
+#ifdef INTERLEAVED
+bool LogCleaner::NeedCleaning()
+{
+  uint64_t org_num_free_segments = log_->num_segments_ - log_->num_hot_segments_
+                            - log_->num_cold_segments_ - log_->num_cleaners_;
+  uint64_t org_free_per_cleaner = 
+      org_num_free_segments *
+      LogSegment::SEGMENT_DATA_SIZE / log_->num_cleaners_;
+  uint64_t free_per_cleaner = 
+      log_->num_free_segments_ *
+      LogSegment::SEGMENT_DATA_SIZE / log_->num_cleaners_;
+  
+  double threshold = (double)log_->clean_threshold_ / 100;
+
+  return ((double)free_per_cleaner / org_free_per_cleaner) < threshold;
+}
+#else
 bool LogCleaner::NeedCleaning() {
   int total_segments = log_->num_segments_ - log_->num_cleaners_;
   int local_segments = total_segments / log_->num_cleaners_;
@@ -55,9 +72,11 @@ bool LogCleaner::NeedCleaning() {
   double threshold = (double)log_->clean_threshold_ / 100;
   // from RAMCloud'FAST14
   threshold = std::min(threshold, (double)Available / Total / 2);
-
-  return ((double)Free / Total) < threshold;
+  
+  // free < 10% of total storage and cleanr_garbage_btyes > free
+  return ((double)Free / Total) < threshold;  
 }
+#endif
 
 void LogCleaner::BatchFlush() {
   uint32_t sz =

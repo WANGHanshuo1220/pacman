@@ -33,8 +33,12 @@ void HotKeySet::Record(const Slice &key, int worker_id, bool hit) {
   } else if (need_count_hit_) {
     record.hit_cnt += hit;
     ++record.total_cnt;
-    if (record.total_cnt == RECORD_BATCH_CNT) {
-      if (record.hit_cnt < RECORD_BATCH_CNT * 0.5) {
+    if (record.total_cnt == RECORD_BATCH_CNT) { // sampling rate
+      if (record.hit_cnt < RECORD_BATCH_CNT * 0.5) { /* means many keys that has been accessed 
+                                                      * frequently in a sampling period have not 
+                                                      * been add in to current_set_, so current_set
+                                                      * need to be updated. 
+                                                      */
         // LOG("hit ratio = %.1lf%%", 100. * record.hit_cnt / record.total_cnt);
         if (!update_schedule_flag_.test_and_set()) {
           BeginUpdateHotKeySet();
