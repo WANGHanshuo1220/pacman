@@ -44,9 +44,16 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
   // init log-structured
   log_ =
       new LogStructured(db_path, log_size, this, num_workers_, num_cleaners_);
+#ifdef INTERLEAVED
+  StartRBThread();
+#endif
 };
 
 DB::~DB() {
+#ifdef INTERLEAVED
+  stop_flag_RB.store(true, std::memory_order_release);
+  StopRBThread();
+#endif
   delete log_;
   delete index_;
   delete g_index_allocator;
@@ -99,6 +106,44 @@ void DB::NewIndexForRecoveryTest() {
   index_ = new MasstreeIndex();
 #endif
 }
+
+#ifdef INTERLEAVED
+void DB::roll_back_()
+{
+  while (!stop_flag_RB.load(std::memory_order_relaxed))
+  {
+    if(!is_roll_back_list_empty())
+    {
+      LogSegment *seg = get_front_roll_back_list();
+
+      uint32_t roll_back_sz = 0;
+      bool roll_back = false;
+      uint32_t n = seg->num_kvs;
+      for(int i = n - 1; i >= 0; i--)
+      {
+        if(seg->roll_back_map[i].first == true)
+        {
+          roll_back_sz += seg->roll_back_map[i].second;
+          roll_back = true;
+          seg->num_kvs --;
+          seg->roll_back_map.pop_back();
+        }
+        else{
+          break;
+        }
+      }
+
+      if(roll_back)
+      {
+        seg->roll_back_tail(roll_back_sz);
+      }
+
+      pop_front_roll_back_list();
+    }
+  }
+  
+}
+#endif
 
 // class DB::Worker
 
@@ -172,19 +217,27 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
   hot = true;
 #endif
 
+#ifdef GC_EVAL
   struct timeval insert_begin;
   gettimeofday(&insert_begin, NULL);
+#endif
   ValueType val = MakeKVItem(key, value, hot);
+#ifdef GC_EVAL
   struct timeval insert_end;
   gettimeofday(&insert_end, NULL);
   insert_time += TIMEDIFF(insert_begin, insert_end);
+#endif
 #ifndef LOG_BATCHING
+#ifdef GC_EVAL
   struct timeval update_index_begin;
   gettimeofday(&update_index_begin, NULL);
+#endif
   UpdateIndex(key, val, hot);
+#ifdef GC_EVAL
   struct timeval update_index_end;
   gettimeofday(&update_index_end, NULL);
   update_index_time += TIMEDIFF(update_index_begin, update_index_end);
+#endif
 #endif
 
 // #ifdef INTERLEAVED
@@ -268,8 +321,10 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
   ValueType ret = INVALID_VALUE;
   uint64_t i_key = *(uint64_t *)key.data();
   uint32_t epoch = db_->GetKeyEpoch(i_key);
+#ifdef GC_EVAL
   struct timeval MakeKVItem_start, MakeKVItem_end, append_start, append_end;
   gettimeofday(&MakeKVItem_start, NULL);
+#endif
 #ifdef INTERLEAVED
   uint32_t sz = sizeof(KVItem) + key.size() + value.size();
   if(hot) accumulative_sz_hot += sz;
@@ -309,17 +364,21 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 #else
   LogSegment *&segment = log_head_;
 #endif
+#ifdef GC_EVAL
   gettimeofday(&MakeKVItem_end, NULL);
   change_seg_time += TIMEDIFF(MakeKVItem_start, MakeKVItem_end);
 
   gettimeofday(&append_start, NULL);
+#endif
   while (segment == nullptr ||
          (ret = segment->Append(key, value, epoch)) == INVALID_VALUE) {
     FreezeSegment(segment);
     segment = db_->log_->NewSegment(hot);
   }
+#ifdef GC_EVAL
   gettimeofday(&append_end, NULL);
   append_time += TIMEDIFF(append_start, append_end);
+#endif
   assert(ret);
   return ret;
 }
@@ -354,11 +413,12 @@ void DB::Worker::UpdateIndex(const Slice &key, ValueType val, bool hot) {
 void DB::Worker::MarkGarbage(ValueType tagged_val) {
   TaggedPointer tp(tagged_val);
   KVItem *kv = tp.GetKVItem();
+  uint32_t sz;
 #ifdef INTERLEAVED
   uint16_t num_ = kv->num;
 #endif
 #ifdef REDUCE_PM_ACCESS
-  uint32_t sz = tp.size;
+  sz = tp.size;
   if (sz == 0) {
     ERROR_EXIT("size == 0");
     kv = tp.GetKVItem();
@@ -366,61 +426,62 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
   }
 #else
   kv = tp.GetKVItem();
-  uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
+  sz = sizeof(KVItem) + kv->key_size + kv->val_size;
 #endif
   int segment_id = db_->log_->GetSegmentID(tp.GetAddr());
   LogSegment *segment = db_->log_->GetSegment(segment_id);
   segment->MarkGarbage(tp.GetAddr(), sz);
 #ifdef INTERLEAVED
   segment->roll_back_map[num_].first = true;
+  db_->push_back_roll_back_list(segment);
 
-  bool roll_back = false;
-  uint32_t roll_back_sz = 0;
-  uint32_t n = segment->num_kvs;
-  // printf("roll_back:\n");
-  // printf("  seg_start = %p\n", segment->get_segment_start());
-  // printf("  old_tail  = %p\n", segment->get_tail());
-  // printf("  kv + sz = %p + %d = %p\n", kv, sz, kv + sz);
-  // if(segment->get_tail() == (char *)kv + sz)
-  // {
-  //   segment->roll_back_tail(sz);
-  //   roll_back = true;
-  // }
-  for(int i = n - 1; i >= 0; i--)
-  {
-    if(segment->roll_back_map[i].first == true)
-    {
-      roll_back_sz += segment->roll_back_map[i].second;
-      roll_back = true;
-      segment->num_kvs --;
-      segment->roll_back_map.pop_back();
-    }
-    else{
-      break;
-    }
-  }
-  // printf("  new_tail  = %p\n", segment->get_tail());
-
-  if(roll_back)
-  {
-    segment->roll_back_tail(roll_back_sz);
-    if (db_->num_cleaners_ > 0 ) {
-      int cleaner_id = db_->log_->GetSegmentCleanerID(tp.GetAddr());
-      tmp_cleaner_garbage_bytes_[cleaner_id] -= roll_back_sz;
-    }
-  }
-  else
-  {
-    if (db_->num_cleaners_ > 0 ) {
-      int cleaner_id = db_->log_->GetSegmentCleanerID(tp.GetAddr());
-      tmp_cleaner_garbage_bytes_[cleaner_id] += sz;
-    }
-  }
-  // for(int i = 0; i < segment->roll_back_map.size(); i++)
-  // {
-  //   printf("%d, %d\n", segment->roll_back_map[i].first, segment->roll_back_map[i].second);
-  // }
-  // printf("after put:\n");
+//   bool roll_back = false;
+//   uint32_t roll_back_sz = 0;
+//   uint32_t n = segment->num_kvs;
+//   // printf("roll_back:\n");
+//   // printf("  seg_start = %p\n", segment->get_segment_start());
+//   // printf("  old_tail  = %p\n", segment->get_tail());
+//   // printf("  kv + sz = %p + %d = %p\n", kv, sz, kv + sz);
+//   // if(segment->get_tail() == (char *)kv + sz)
+//   // {
+//   //   segment->roll_back_tail(sz);
+//   //   roll_back = true;
+//   // }
+//   for(int i = n - 1; i >= 0; i--)
+//   {
+//     if(segment->roll_back_map[i].first == true)
+//     {
+//       roll_back_sz += segment->roll_back_map[i].second;
+//       roll_back = true;
+//       segment->num_kvs --;
+//       segment->roll_back_map.pop_back();
+//     }
+//     else{
+//       break;
+//     }
+//   }
+//   // printf("  new_tail  = %p\n", segment->get_tail());
+// 
+//   if(roll_back)
+//   {
+//     segment->roll_back_tail(roll_back_sz);
+//     // if (db_->num_cleaners_ > 0 ) {
+//     //   int cleaner_id = db_->log_->GetSegmentCleanerID(tp.GetAddr());
+//     //   tmp_cleaner_garbage_bytes_[cleaner_id] -= (roll_back_sz - sz);
+//     // }
+//   }
+//   // else
+//   // {
+//   //   if (db_->num_cleaners_ > 0 ) {
+//   //     int cleaner_id = db_->log_->GetSegmentCleanerID(tp.GetAddr());
+//   //     tmp_cleaner_garbage_bytes_[cleaner_id] += sz;
+//   //   }
+//   // }
+//   // for(int i = 0; i < segment->roll_back_map.size(); i++)
+//   // {
+//   //   printf("%d, %d\n", segment->roll_back_map[i].first, segment->roll_back_map[i].second);
+//   // }
+//   // printf("after put:\n");
 #else
   // update temp cleaner garbage bytes
   if (db_->num_cleaners_ > 0 ) {

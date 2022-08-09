@@ -136,6 +136,7 @@ class LogStructured {
   // }
 
   friend class LogCleaner;
+  friend class DB;
   
 
 

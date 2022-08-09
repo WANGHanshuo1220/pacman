@@ -42,7 +42,9 @@ class BaseSegment {
       (SEGMENT_DATA_SIZE / BYTES_PER_BIT + 7) / 8;
 
   int cur_cnt_ = 0;
+#ifdef GC_EVAL
   long make_new_kv_time = 0;
+#endif
 
 #ifdef INTERLEAVED
   uint16_t num_kvs = 0;

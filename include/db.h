@@ -5,6 +5,7 @@
 #include <vector>
 #include <queue>
 #include <utility>
+#include <thread>
 
 #include "config.h"
 #include "slice.h"
@@ -43,10 +44,12 @@ class DB {
     bool Delete(const Slice &key);
     // int show_ID() {return worker_id_; };
 
+#ifdef GC_EVAL
     long insert_time = 0;
     long update_index_time = 0;
     long change_seg_time= 0;
     long append_time = 0;
+#endif
 #ifdef INTERLEAVED
     int cur_hot_segment_ = 0;
     int cur_cold_segment_ = 0;
@@ -106,12 +109,35 @@ class DB {
   void RecoveryAll();
   void NewIndexForRecoveryTest();
 
+#ifdef INTERLEAVED
+  void StopRBThread() {
+    if (roll_back_thread_.joinable()) {
+      roll_back_thread_.join();
+    }
+  }
+
+  void StartRBThread() {
+    // StopRBThread();
+    roll_back_thread_ = std::thread(&DB::roll_back_, this);
+  }
+
+  bool is_roll_back_list_empty() { return roll_back_list.empty(); }
+  LogSegment *get_front_roll_back_list() { return roll_back_list.front(); }
+  void pop_front_roll_back_list() { roll_back_list.pop(); }
+  void push_back_roll_back_list(LogSegment *seg) { roll_back_list.push(seg); }
+#endif
+
   // GC_EVAL
 #ifdef GC_EVAL
   LogStructured *get_log_() { return log_; }
 #endif
 
  private:
+#ifdef INTERLEAVED
+  std::queue<LogSegment *> roll_back_list;
+  std::thread roll_back_thread_;
+  std::atomic<bool> stop_flag_RB{false};
+#endif
   Index *index_;
   LogStructured *log_;
   const int num_workers_;
@@ -141,8 +167,9 @@ class DB {
     return epoch_map_[idx].fetch_add(1, std::memory_order_relaxed);
   }
 
-
-
+#ifdef INTERLEAVED
+  void roll_back_();
+#endif
 
   friend class LogCleaner;
   friend class HotKeySet;
