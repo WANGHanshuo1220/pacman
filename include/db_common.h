@@ -16,7 +16,7 @@ using ValueType = uint64_t;
 static constexpr ValueType INVALID_VALUE = 0;
 
 // static constexpr uint64_t SEGMENT_SIZE = 4ul << 20;
-static constexpr uint64_t SEGMENT_SIZE = 1ul << 19;
+static constexpr uint64_t SEGMENT_SIZE = 1ul << 10;
 
 // shortcut
 class __attribute__((__packed__)) Shortcut {
@@ -60,6 +60,9 @@ struct KVItem {
   volatile uint16_t is_garbage : 1;
 #endif
   uint16_t val_size;
+#ifdef INTERLEAVED
+  uint16_t num; // max kvs in a segment = 2^16
+#endif
   // uint32_t checksum = 0;
   // uint64_t epoch;
   uint32_t epoch;
@@ -80,6 +83,19 @@ struct KVItem {
     memcpy(kv_pair + key_size, _val.data(), val_size);
     // CalcChecksum();
   }
+
+#ifdef INTERLEAVED
+  KVItem(const Slice &_key, const Slice &_val, uint32_t _epoch, uint16_t _num)
+      : key_size(_key.size()), val_size(_val.size()), epoch(_epoch), num(_num) {
+#ifndef REDUCE_PM_ACCESS
+    is_garbage = false;
+#endif
+    assert(val_size >= 8);
+    memcpy(kv_pair, _key.data(), key_size);
+    memcpy(kv_pair + key_size, _val.data(), val_size);
+    // CalcChecksum();
+  }
+#endif
 
   Slice GetKey() {
     return Slice((char *)kv_pair, key_size);

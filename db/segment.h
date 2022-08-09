@@ -42,6 +42,13 @@ class BaseSegment {
       (SEGMENT_DATA_SIZE / BYTES_PER_BIT + 7) / 8;
 
   int cur_cnt_ = 0;
+  long make_new_kv_time = 0;
+
+#ifdef INTERLEAVED
+  uint16_t num_kvs = 0;
+  // vector for pairs <IsGarbage, kv_size>
+  std::vector<std::pair<bool, uint32_t>> roll_back_map;
+#endif
 
   BaseSegment(char *start_addr, size_t size)
       : segment_start_(start_addr),
@@ -89,7 +96,7 @@ class BaseSegment {
 
   char *get_tail() { return tail_; }
 
-  void roll_back_tail(int sz) { tail_ -= sz; }
+  void roll_back_tail(uint32_t sz) { tail_ -= sz; }
 
   char *get_end() { return end_; }
 
@@ -97,10 +104,6 @@ class BaseSegment {
   void set_has_shortcut(bool has_shortcut) { has_shortcut_ = has_shortcut; }
 
  protected:
-#ifdef INTERLEAVED
-  char *last_valid_kv;
-  int length_last_invalid_kvs;
-#endif
   union {
     char *const segment_start_; // const
     Header *header_;
@@ -233,7 +236,20 @@ class LogSegment : public BaseSegment {
     if (!HasSpaceFor(sz)) {
       return INVALID_VALUE;
     }
+    struct timeval make_new_kv_start;
+    struct timeval make_new_kv_end;
+#ifdef INTERLEAVED
+    KVItem *kv = new (tail_) KVItem(key, value, epoch, num_kvs);
+    num_kvs ++;
+    gettimeofday(&make_new_kv_start, NULL);
+    roll_back_map.push_back(std::pair<bool, uint32_t>(false, sz));
+    gettimeofday(&make_new_kv_end, NULL);
+#else
+    gettimeofday(&make_new_kv_start, NULL);
     KVItem *kv = new (tail_) KVItem(key, value, epoch);
+    gettimeofday(&make_new_kv_end, NULL);
+#endif
+    make_new_kv_time += (make_new_kv_end.tv_sec - make_new_kv_start.tv_sec) * 1000000 + (make_new_kv_end.tv_usec - make_new_kv_start.tv_usec);
     // printf("Append kv:");
     // printf("  seg_start = %p\n", get_segment_start());
     // printf("  old_tail  = %p\n", get_tail());

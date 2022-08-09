@@ -66,6 +66,7 @@ class DBFixture : public BaseFixture {
       std::experimental::filesystem::remove_all(db_path);
       std::experimental::filesystem::create_directory(db_path);
 
+      // printf("db size = %ld\n", total_size);
       db_ = new DB(db_path, total_size, num_threads, num_gc_threads);
     }
 

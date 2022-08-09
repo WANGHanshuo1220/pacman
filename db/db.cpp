@@ -13,6 +13,8 @@
 static_assert(false, "error index kind");
 #endif
 
+#define TIMEDIFF(s, e) (e.tv_sec - s.tv_sec) * 1000000 + (e.tv_usec - s.tv_usec) //us
+
 // class DB
 
 DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
@@ -114,6 +116,19 @@ DB::Worker::Worker(DB *db) : db_(db) {
 }
 
 DB::Worker::~Worker() {
+#ifdef GC_EVAL
+  printf("\nlatency breakdown:\n");
+  printf("  insert time = %ld\n", insert_time);
+  printf("    change_seg_time = %ld\n",change_seg_time);
+  printf("    append_time= %ld\n",append_time);
+  long a = 0;
+  for(int i = 0; i < db_->get_log_()->get_num_segments_(); i++)
+  {
+    a += db_->get_log_()->get_segments_(i)->make_new_kv_time;
+  }
+  printf("      vector_push_back_time= %ld\n", a);
+  printf("  update time = %ld\n", update_index_time);
+#endif
 #ifdef LOG_BATCHING
   BatchIndexInsert(buffer_queue_.size(), true);
 #ifdef HOT_COLD_SEPARATE
@@ -142,6 +157,14 @@ bool DB::Worker::Get(const Slice &key, std::string *value) {
 }
 
 void DB::Worker::Put(const Slice &key, const Slice &value) {
+// #ifdef INTERLEAVED
+//   printf("before put:\n");
+//   for(int i = 0; i < db_->get_log_()->get_num_cold_segments_(); i++)
+//   {
+//     LogSegment * l = *db_->get_log_()->get_cold_segment_(i);
+//     printf("  %dth segment: tail = %p\n", i, l->get_tail());
+//   }
+// #endif
   bool hot;
 #ifdef HOT_COLD_SEPARATE
   hot = db_->hot_key_set_->Exist(key);
@@ -149,10 +172,29 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
   hot = true;
 #endif
 
+  struct timeval insert_begin;
+  gettimeofday(&insert_begin, NULL);
   ValueType val = MakeKVItem(key, value, hot);
+  struct timeval insert_end;
+  gettimeofday(&insert_end, NULL);
+  insert_time += TIMEDIFF(insert_begin, insert_end);
 #ifndef LOG_BATCHING
+  struct timeval update_index_begin;
+  gettimeofday(&update_index_begin, NULL);
   UpdateIndex(key, val, hot);
+  struct timeval update_index_end;
+  gettimeofday(&update_index_end, NULL);
+  update_index_time += TIMEDIFF(update_index_begin, update_index_end);
 #endif
+
+// #ifdef INTERLEAVED
+//   for(int i = 0; i < db_->get_log_()->get_num_cold_segments_(); i++)
+//   {
+//     LogSegment * l = *db_->get_log_()->get_cold_segment_(i);
+//     printf("  %dth segment: tail = %p\n", i, l->get_tail());
+//   }
+//   printf("\n");
+// #endif
 }
 
 size_t DB::Worker::Scan(const Slice &key, int cnt) {
@@ -226,20 +268,37 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
   ValueType ret = INVALID_VALUE;
   uint64_t i_key = *(uint64_t *)key.data();
   uint32_t epoch = db_->GetKeyEpoch(i_key);
+  struct timeval MakeKVItem_start, MakeKVItem_end, append_start, append_end;
+  gettimeofday(&MakeKVItem_start, NULL);
+#ifdef INTERLEAVED
+  uint32_t sz = sizeof(KVItem) + key.size() + value.size();
+  if(hot) accumulative_sz_hot += sz;
+  else accumulative_sz_cold += sz;
+#endif
 
 #ifdef HOT_COLD_SEPARATE
 #ifdef INTERLEAVED
-  // printf("cur_hot_sengment_ : %d -> ", cur_cold_segment_);
+  // printf("cur_cold_sengment_ : %d -> ", cur_cold_segment_);
   LogSegment *&segment = hot ? 
-                          *(db_->log_->get_hot_segment_(cur_hot_segment_ ++)): 
-                          *(db_->log_->get_cold_segment_(cur_cold_segment_ ++));
+                          *(db_->log_->get_hot_segment_(cur_hot_segment_)): 
+                          *(db_->log_->get_cold_segment_(cur_cold_segment_));
   if(hot)
   {
-    if(cur_hot_segment_ >= num_hot_segments_) 
+    if(accumulative_sz_hot + 32 > change_seg_threshold)
+    {
+      accumulative_sz_hot = 0;
+      cur_hot_segment_ ++;
+    }
+    if(cur_hot_segment_ >= num_hot_segments_)
       cur_hot_segment_ -= num_hot_segments_;
   }
   else
   {
+    if(accumulative_sz_cold + 32 > change_seg_threshold)
+    {
+      accumulative_sz_cold = 0;
+      cur_cold_segment_ ++;
+    }
     if(cur_cold_segment_ >= num_cold_segments_) 
       cur_cold_segment_ -= num_cold_segments_;
   }
@@ -250,12 +309,17 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 #else
   LogSegment *&segment = log_head_;
 #endif
+  gettimeofday(&MakeKVItem_end, NULL);
+  change_seg_time += TIMEDIFF(MakeKVItem_start, MakeKVItem_end);
 
+  gettimeofday(&append_start, NULL);
   while (segment == nullptr ||
          (ret = segment->Append(key, value, epoch)) == INVALID_VALUE) {
     FreezeSegment(segment);
     segment = db_->log_->NewSegment(hot);
   }
+  gettimeofday(&append_end, NULL);
+  append_time += TIMEDIFF(append_start, append_end);
   assert(ret);
   return ret;
 }
@@ -290,6 +354,9 @@ void DB::Worker::UpdateIndex(const Slice &key, ValueType val, bool hot) {
 void DB::Worker::MarkGarbage(ValueType tagged_val) {
   TaggedPointer tp(tagged_val);
   KVItem *kv = tp.GetKVItem();
+#ifdef INTERLEAVED
+  uint16_t num_ = kv->num;
+#endif
 #ifdef REDUCE_PM_ACCESS
   uint32_t sz = tp.size;
   if (sz == 0) {
@@ -304,26 +371,63 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
   int segment_id = db_->log_->GetSegmentID(tp.GetAddr());
   LogSegment *segment = db_->log_->GetSegment(segment_id);
   segment->MarkGarbage(tp.GetAddr(), sz);
+#ifdef INTERLEAVED
+  segment->roll_back_map[num_].first = true;
 
   bool roll_back = false;
-#ifdef INTERLEAVED
+  uint32_t roll_back_sz = 0;
+  uint32_t n = segment->num_kvs;
   // printf("roll_back:\n");
   // printf("  seg_start = %p\n", segment->get_segment_start());
   // printf("  old_tail  = %p\n", segment->get_tail());
   // printf("  kv + sz = %p + %d = %p\n", kv, sz, kv + sz);
-  if(segment->get_tail() == (char *)kv + sz)
+  // if(segment->get_tail() == (char *)kv + sz)
+  // {
+  //   segment->roll_back_tail(sz);
+  //   roll_back = true;
+  // }
+  for(int i = n - 1; i >= 0; i--)
   {
-    segment->roll_back_tail(sz);
-    roll_back = true;
+    if(segment->roll_back_map[i].first == true)
+    {
+      roll_back_sz += segment->roll_back_map[i].second;
+      roll_back = true;
+      segment->num_kvs --;
+      segment->roll_back_map.pop_back();
+    }
+    else{
+      break;
+    }
   }
   // printf("  new_tail  = %p\n", segment->get_tail());
-#endif
 
+  if(roll_back)
+  {
+    segment->roll_back_tail(roll_back_sz);
+    if (db_->num_cleaners_ > 0 ) {
+      int cleaner_id = db_->log_->GetSegmentCleanerID(tp.GetAddr());
+      tmp_cleaner_garbage_bytes_[cleaner_id] -= roll_back_sz;
+    }
+  }
+  else
+  {
+    if (db_->num_cleaners_ > 0 ) {
+      int cleaner_id = db_->log_->GetSegmentCleanerID(tp.GetAddr());
+      tmp_cleaner_garbage_bytes_[cleaner_id] += sz;
+    }
+  }
+  // for(int i = 0; i < segment->roll_back_map.size(); i++)
+  // {
+  //   printf("%d, %d\n", segment->roll_back_map[i].first, segment->roll_back_map[i].second);
+  // }
+  // printf("after put:\n");
+#else
   // update temp cleaner garbage bytes
-  if (db_->num_cleaners_ > 0 && !roll_back) {
+  if (db_->num_cleaners_ > 0 ) {
     int cleaner_id = db_->log_->GetSegmentCleanerID(tp.GetAddr());
     tmp_cleaner_garbage_bytes_[cleaner_id] += sz;
   }
+#endif
 }
 
 void DB::Worker::FreezeSegment(LogSegment *segment) {

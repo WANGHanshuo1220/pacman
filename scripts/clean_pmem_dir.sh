@@ -3,6 +3,7 @@
 PMEM_DIR="/mnt/pmem0"
 
 DB_PATH=(
+  #"${PMEM_DIR}"/log_kvs
   "${PMEM_DIR}"/log_kvs
   "${PMEM_DIR}"/viper
   "${PMEM_DIR}"/chameleondb

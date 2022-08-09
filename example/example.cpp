@@ -12,9 +12,9 @@
 
 #define TIMEDIFF(s, e) (e.tv_sec - s.tv_sec) * 1000000 + (e.tv_usec - s.tv_usec) //us
 
-size_t log_size = 1ul << 30;
-// #define log_size 9 * SEGMENT_SIZE
-// #define log_size 1ul << 30
+// size_t log_size = 1ul << 30;
+// #define log_size 5 * SEGMENT_SIZE
+#define log_size 1ul << 30
 #define num_workers 1
 #define num_cleaners 1
 std::string db_path = std::string(PMEM_DIR) + "log_kvs";
@@ -27,6 +27,14 @@ std::uniform_int_distribution<> distrib(0, 1);
 
 struct timeval start, checkpoint1, checkpoint2;
 int zipf();
+void init_zipf();
+
+uint64_t NUM_KVS = 200000000;
+uint64_t dup_rate = 10;
+
+double c = 0;          // Normalization constant
+double *sum_probs;     // Pre-calculated sum of probabilities
+double alpha = 0.99;
 
 void job0()
 { 
@@ -43,10 +51,6 @@ void job0()
 #endif
 }
 
-
-uint64_t NUM_KVS = 200000000;
-uint64_t dup_rate = 10;
-
 void job1()
 {
   printf("NUM_KVS = %ld, key dup_rate = %ld\n", NUM_KVS, dup_rate);
@@ -57,7 +61,7 @@ void job1()
   for(uint64_t i = 0; i < NUM_KVS; i++)
   {
     key = i%dup_rate;
-    std::string value = "hello world" + i%dup_rate;
+    std::string value = "hello world"+ std::to_string(i%dup_rate);
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
   }
 
@@ -80,7 +84,7 @@ void job2()
   for(uint64_t i = 0; i < NUM_KVS; i++)
   {
     key = zipf();
-    std::string value = "hello world" + key;
+    std::string value = "hello world" + std::to_string(key);
     gettimeofday(&start, NULL);
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
     gettimeofday(&checkpoint1, NULL);
@@ -136,36 +140,31 @@ int main(int argc, char **argv) {
       return 0;
     }
   }
+  init_zipf();
   (*jobs[atoi(arg)])();
   return 0;
 }
 
+void init_zipf()
+{
+  
+  // Compute normalization constant on first call only
+  for (int i=1; i<= dup_rate; i++)
+    c = c + (1.0 / pow((double) i, alpha));
+  c = 1.0 / c;
+
+  sum_probs = (double *)malloc(( dup_rate + 1)*sizeof(*sum_probs));
+  sum_probs[0] = 0;
+  for (int i=1; i<= dup_rate; i++) {
+    sum_probs[i] = sum_probs[i-1] + c / pow((double) i, alpha);
+  }
+}
+
 int zipf()
 {
-  static int first = true;      // Static first time flag
-  static double c = 0;          // Normalization constant
-  static double *sum_probs;     // Pre-calculated sum of probabilities
   double z;                     // Uniform random number (0 < z < 1)
   int zipf_value;               // Computed exponential value to be returned
-  int    i;                     // Loop counter
   int low, high, mid;           // Binary-search bounds
-  int n = NUM_KVS;
-  double alpha = 0.99;
-
-  // Compute normalization constant on first call only
-  if (first == true)
-  {
-    for (i=1; i<=n; i++)
-      c = c + (1.0 / pow((double) i, alpha));
-    c = 1.0 / c;
-
-    sum_probs = (double *)malloc((n+1)*sizeof(*sum_probs));
-    sum_probs[0] = 0;
-    for (i=1; i<=n; i++) {
-      sum_probs[i] = sum_probs[i-1] + c / pow((double) i, alpha);
-    }
-    first = false;
-  }
 
   // Pull a uniform random number (0 < z < 1)
   do
@@ -175,7 +174,7 @@ int zipf()
   while ((z == 0) || (z == 1));
 
   // Map z to the value
-  low = 1, high = n, mid;
+  low = 1, high = dup_rate, mid;
   do {
     mid = floor((low+high)/2);
     if (sum_probs[mid] >= z && sum_probs[mid-1] < z) {
@@ -189,7 +188,7 @@ int zipf()
   } while (low <= high);
 
   // Assert that zipf_value is between 1 and N
-  assert((zipf_value >=1) && (zipf_value <= n));
+  assert((zipf_value >=1) && (zipf_value <= dup_rate));
 
   return(zipf_value);
 }

@@ -43,12 +43,22 @@ class DB {
     bool Delete(const Slice &key);
     // int show_ID() {return worker_id_; };
 
+    long insert_time = 0;
+    long update_index_time = 0;
+    long change_seg_time= 0;
+    long append_time = 0;
 #ifdef INTERLEAVED
     int cur_hot_segment_ = 0;
     int cur_cold_segment_ = 0;
     int num_hot_segments_;
     int num_cold_segments_;
+    const int change_seg_threshold = 256;
+    int accumulative_sz_hot = 0;
+    int accumulative_sz_cold = 0;
 #endif
+
+  // only for test
+  // int test_count = 0;
   
    private:
     int worker_id_;

@@ -50,6 +50,8 @@ class LogStructured {
 #ifdef GC_EVAL
   std::pair<int, long> *get_cleaners_info();
   int get_num_cleaners() { return num_cleaners_; }
+  int get_num_segments_() { return num_segments_; }
+  LogSegment *get_segments_(int i) { return all_segments_[i]; }
 #endif
 
   // char *get_pool_start() { return pool_start_; }

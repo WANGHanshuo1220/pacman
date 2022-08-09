@@ -175,6 +175,10 @@ LogSegment *LogStructured::NewSegment(bool hot) {
   }
 
   UpdateCleanThreshold();
+#ifdef INTERLEAVED
+  ret->num_kvs = 0;
+  ret->roll_back_map.clear();
+#endif
   return ret;
 }
 
