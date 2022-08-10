@@ -49,13 +49,15 @@ class DB {
     long update_index_time = 0;
     long change_seg_time= 0;
     long append_time = 0;
+    long check_hotcold_time = 0;
+    long MarkGarbage_time = 0;
 #endif
 #ifdef INTERLEAVED
     int cur_hot_segment_ = 0;
     int cur_cold_segment_ = 0;
     int num_hot_segments_;
     int num_cold_segments_;
-    const int change_seg_threshold = 256;
+    const int change_seg_threshold = SEGMENT_SIZE / 2;
     int accumulative_sz_hot = 0;
     int accumulative_sz_cold = 0;
 #endif

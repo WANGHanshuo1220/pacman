@@ -23,7 +23,7 @@ std::unique_ptr<DB::Worker> worker = db->GetWorker();
 
 std::random_device rd;  //Will be used to obtain a seed for the random number engine
 std::mt19937 gen(rd()); //Standard mersenne_twister_engine seeded with rd()
-std::uniform_int_distribution<> distrib(0, 1);
+std::uniform_real_distribution<> distrib(0, 1);
 
 struct timeval start, checkpoint1, checkpoint2;
 int zipf();
@@ -57,25 +57,25 @@ void job1()
   std::string val;
   std::string res;
   uint64_t key, key_;
-  gettimeofday(&start, NULL);
+  long insert_time = 0;
   for(uint64_t i = 0; i < NUM_KVS; i++)
   {
     key = i%dup_rate;
     std::string value = "hello world"+ std::to_string(i%dup_rate);
+    gettimeofday(&start, NULL);
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
+    gettimeofday(&checkpoint1, NULL);
+    insert_time += TIMEDIFF(start, checkpoint1);
   }
 
-  gettimeofday(&checkpoint1, NULL);
-  long insert_time = TIMEDIFF(start, checkpoint1);
-  printf("insert time : %ld us\n", insert_time);
-#ifdef GC_EVAL
+  printf("job1: insert time : %ld us\n", insert_time);
   worker.reset();
   delete db;
-#endif
 }
 
 void job2()
 {
+  init_zipf();
   printf("NUM_KVS = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS);
   std::string val;
   std::string res;
@@ -84,7 +84,7 @@ void job2()
   for(uint64_t i = 0; i < NUM_KVS; i++)
   {
     key = zipf();
-    std::string value = "hello world" + std::to_string(key);
+    std::string value = "hello world";
     gettimeofday(&start, NULL);
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
     gettimeofday(&checkpoint1, NULL);
@@ -140,14 +140,13 @@ int main(int argc, char **argv) {
       return 0;
     }
   }
-  init_zipf();
   (*jobs[atoi(arg)])();
   return 0;
 }
 
 void init_zipf()
 {
-  
+  printf("init zipf...\n");
   // Compute normalization constant on first call only
   for (int i=1; i<= dup_rate; i++)
     c = c + (1.0 / pow((double) i, alpha));
@@ -158,6 +157,7 @@ void init_zipf()
   for (int i=1; i<= dup_rate; i++) {
     sum_probs[i] = sum_probs[i-1] + c / pow((double) i, alpha);
   }
+  printf("fineshed...\n");
 }
 
 int zipf()

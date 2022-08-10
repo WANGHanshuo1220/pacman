@@ -49,7 +49,8 @@ class BaseSegment {
 #ifdef INTERLEAVED
   uint16_t num_kvs = 0;
   // vector for pairs <IsGarbage, kv_size>
-  std::vector<std::pair<bool, uint32_t>> roll_back_map;
+  std::vector<std::pair<bool, uint16_t>> roll_back_map
+    = std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE/32);
 #endif
 
   BaseSegment(char *start_addr, size_t size)
@@ -98,7 +99,9 @@ class BaseSegment {
 
   char *get_tail() { return tail_; }
 
+#ifdef INTERLEAVED
   void roll_back_tail(uint32_t sz) { tail_ -= sz; }
+#endif
 
   char *get_end() { return end_; }
 
@@ -219,6 +222,13 @@ class LogSegment : public BaseSegment {
     header_->objects_tail_offset = 0;
     header_->has_shortcut = false;
     header_->Flush();
+#ifdef INTERLEAVED
+    num_kvs = 0;
+    roll_back_map.clear();
+#endif
+#ifdef GC_EVAL
+    make_new_kv_time = 0;
+#endif
 #ifdef LOG_BATCHING
     not_flushed_cnt_ = 0;
     flush_tail_ = data_start_;
@@ -236,22 +246,26 @@ class LogSegment : public BaseSegment {
   ValueType Append(const Slice &key, const Slice &value, uint32_t epoch) {
     uint32_t sz = sizeof(KVItem) + key.size() + value.size();
     if (!HasSpaceFor(sz)) {
+      // printf("segment has no space\n");
       return INVALID_VALUE;
     }
+#ifdef GC_EVAL
     struct timeval make_new_kv_start;
     struct timeval make_new_kv_end;
+    gettimeofday(&make_new_kv_start, NULL);
+#endif
 #ifdef INTERLEAVED
     KVItem *kv = new (tail_) KVItem(key, value, epoch, num_kvs);
+    // roll_back_map.push_back(std::pair<bool, uint32_t>(false, sz));
+    roll_back_map[num_kvs] = std::pair<bool, uint32_t>(false, sz);
     num_kvs ++;
-    gettimeofday(&make_new_kv_start, NULL);
-    roll_back_map.push_back(std::pair<bool, uint32_t>(false, sz));
-    gettimeofday(&make_new_kv_end, NULL);
 #else
-    gettimeofday(&make_new_kv_start, NULL);
     KVItem *kv = new (tail_) KVItem(key, value, epoch);
-    gettimeofday(&make_new_kv_end, NULL);
 #endif
+#ifdef GC_EVAL
+    gettimeofday(&make_new_kv_end, NULL);
     make_new_kv_time += (make_new_kv_end.tv_sec - make_new_kv_start.tv_sec) * 1000000 + (make_new_kv_end.tv_usec - make_new_kv_start.tv_usec);
+#endif
     // printf("Append kv:");
     // printf("  seg_start = %p\n", get_segment_start());
     // printf("  old_tail  = %p\n", get_tail());
