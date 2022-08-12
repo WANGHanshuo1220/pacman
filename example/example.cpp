@@ -5,6 +5,7 @@
 #include <string>
 #include <experimental/filesystem>
 #include <sys/time.h>
+#include <map>
 
 #include "config.h"
 #include "db.h"
@@ -15,12 +16,10 @@
 // size_t log_size = 1ul << 30;
 // #define log_size 5 * SEGMENT_SIZE
 #define log_size 1ul << 30
-#define num_workers 1
-#define num_cleaners 1
+int num_workers = 1;
+int num_cleaners = 1;
 std::string db_path = std::string(PMEM_DIR) + "log_kvs";
-DB *db = new DB(db_path, log_size, num_workers, num_cleaners);
-std::unique_ptr<DB::Worker> worker = db->GetWorker();
-
+DB *db;
 std::random_device rd;  //Will be used to obtain a seed for the random number engine
 std::mt19937 gen(rd()); //Standard mersenne_twister_engine seeded with rd()
 std::uniform_real_distribution<> distrib(0, 1);
@@ -38,6 +37,8 @@ double alpha = 0.99;
 
 void job0()
 { 
+  db = new DB(db_path, log_size, num_workers, num_cleaners);
+  std::unique_ptr<DB::Worker> worker = db->GetWorker();
   uint64_t key = 0x1234;
   std::string value = "hello world";
   worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
@@ -53,6 +54,8 @@ void job0()
 
 void job1()
 {
+  db = new DB(db_path, log_size, num_workers, num_cleaners);
+  std::unique_ptr<DB::Worker> worker = db->GetWorker();
   printf("NUM_KVS = %ld, key dup_rate = %ld\n", NUM_KVS, dup_rate);
   std::string val;
   std::string res;
@@ -75,16 +78,20 @@ void job1()
 
 void job2()
 {
+  db = new DB(db_path, log_size, num_workers, num_cleaners);
+  std::unique_ptr<DB::Worker> worker = db->GetWorker();
   init_zipf();
+  std::map<uint64_t, std::string> kvs;
   printf("NUM_KVS = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS);
   std::string val;
   std::string res;
-  uint64_t key, key_;
+  uint64_t key;
   long insert_time = 0;
   for(uint64_t i = 0; i < NUM_KVS; i++)
   {
     key = zipf();
-    std::string value = "hello world";
+    std::string value = "hello world" + std::to_string(i%100);
+    kvs[key] = value;
     gettimeofday(&start, NULL);
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
     gettimeofday(&checkpoint1, NULL);
@@ -92,14 +99,115 @@ void job2()
   }
 
   printf("insert time : %ld us\n", insert_time);
-#ifdef GC_EVAL
+
+  printf("\nstart checking...\n");
+  std::string val_;
+  uint64_t key_;
+  int find_kvs = 0;
+  for(uint64_t i = 1; i <= dup_rate; i++)
+  {
+    key_ = i;
+    worker->Get(Slice((const char *)&key_, sizeof(uint64_t)), &val_);
+    if( kvs.find(key_) != kvs.end())
+    {
+      find_kvs ++;
+      if(kvs[key_].compare(val_) != 0)
+      {
+        // printf("kvs not equal, key_ = %d\n", key_);
+        std::cout << "  kvs not equal. key_ = " << key_ << std::endl;
+        std::cout << "    right_val = " << kvs[key_] << std::endl;
+        std::cout << "    db_val = " << val_ << std::endl;
+        exit(0);
+      }
+    }
+  }
+
+  std::cout << "all kvs correct: " << find_kvs << std::endl;
   worker.reset();
   delete db;
-#endif
+}
+
+std::map<uint64_t, std::string> kvs;
+
+void *put_KVS(void *)
+{
+  uint64_t key;
+  long insert_time = 0;
+  std::unique_ptr<DB::Worker> worker = db->GetWorker();
+
+  for(uint64_t i = 0; i < NUM_KVS; i++)
+  {
+    key = zipf();
+    std::string value = "hello world" + std::to_string(i%100);
+    kvs[key] = value;
+    gettimeofday(&start, NULL);
+    worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
+    gettimeofday(&checkpoint1, NULL);
+    insert_time += TIMEDIFF(start, checkpoint1);
+  }
+
+  printf("%d thread-> insert time : %ld us\n", getpid(), insert_time);
+
   worker.reset();
 }
 
-void (*jobs[])() = {job0, job1, job2};
+void job3()
+{
+  num_cleaners = 4;
+  num_workers = 8;
+  int num_threads = 8;
+  pthread_t *tid = new pthread_t[num_threads];
+  int ret;
+
+  db = new DB(db_path, log_size, num_workers, num_cleaners);
+  
+  init_zipf();
+  printf("NUM_KVS = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS);
+
+  for(int i = 0; i < num_threads; i++)
+  {
+    ret = pthread_create(&tid[i], NULL, &put_KVS, NULL); 
+    if(ret != 0)
+    {
+      printf("%dth thread create error\n", i);
+      exit(0);
+    }
+  }
+
+  for(int i = 0; i < num_threads; i++)
+  {
+    pthread_join(tid[i], NULL);
+  }
+
+  printf("\nstart checking...\n");
+  std::string val_;
+  uint64_t key_;
+  int find_kvs = 0;
+  std::unique_ptr<DB::Worker> worker = db->GetWorker();
+  for(uint64_t i = 1; i <= dup_rate; i++)
+  {
+    key_ = i;
+    worker->Get(Slice((const char *)&key_, sizeof(uint64_t)), &val_);
+    if( kvs.find(key_) != kvs.end())
+    {
+      find_kvs ++;
+      if(kvs[key_].compare(val_) != 0)
+      {
+        // printf("kvs not equal, key_ = %d\n", key_);
+        std::cout << "  kvs not equal. key_ = " << key_ << std::endl;
+        std::cout << "    right_val = " << kvs[key_] << std::endl;
+        std::cout << "    db_val = " << val_ << std::endl;
+        exit(0);
+      }
+    }
+  }
+
+  std::cout << "all kvs correct: " << find_kvs << std::endl;
+  worker.reset();
+  delete db;
+}
+
+void (*jobs[])() = {job0, job1, job2, job3};
 
 int main(int argc, char **argv) {
 // #ifdef GC_EVAL
@@ -157,7 +265,7 @@ void init_zipf()
   for (int i=1; i<= dup_rate; i++) {
     sum_probs[i] = sum_probs[i-1] + c / pow((double) i, alpha);
   }
-  printf("fineshed...\n");
+  printf("finished...\n");
 }
 
 int zipf()

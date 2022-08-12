@@ -152,6 +152,10 @@ class LogCleaner {
     UnlockUsedList();
   }
 
+#ifdef INTERLEAVED
+  bool is_closed_hotcold_segment_empty() { return closed_hot_segments_.empty(); }
+#endif
+
  private:
   DB *db_;
   int cleaner_id_;

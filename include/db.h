@@ -45,21 +45,27 @@ class DB {
     // int show_ID() {return worker_id_; };
 
 #ifdef GC_EVAL
-    long insert_time = 0;
-    long update_index_time = 0;
-    long change_seg_time= 0;
-    long append_time = 0;
     long check_hotcold_time = 0;
-    long MarkGarbage_time = 0;
+    long insert_time = 0;
+    long   change_seg_time= 0;
+    long   append_time = 0;
+    long update_index_time = 0;
+    long   update_idx_p1 = 0;
+    long   MarkGarbage_time = 0;
+    long     markgarbage_p1 = 0;
+    long     markgarbage_p2 = 0;
+    int max_kv_sz = 0;
 #endif
 #ifdef INTERLEAVED
+    int num_workers = 1;
     int cur_hot_segment_ = 0;
     int cur_cold_segment_ = 0;
     int num_hot_segments_;
     int num_cold_segments_;
-    const int change_seg_threshold = SEGMENT_SIZE / 2;
+    int change_seg_threshold = (SEGMENT_SIZE / 2) / num_workers;
     int accumulative_sz_hot = 0;
     int accumulative_sz_cold = 0;
+    int roll_back_count = 0;
 #endif
 
   // only for test

@@ -23,7 +23,8 @@ void LogCleaner::RecoverySegments() {
       seg->InitShortcutBuffer();
     }
 #endif
-    seg->tail_ = seg->data_start_ + seg->header_->offset;
+    // seg->tail_ = seg->data_start_ + seg->header_->offset;
+    seg->tail_ = seg->data_start_ + seg->get_offset();
 
     if (seg->header_->status == StatusAvailable) {
       tmp_free_queue.push(seg);

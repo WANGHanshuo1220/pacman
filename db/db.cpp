@@ -45,6 +45,7 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
   log_ =
       new LogStructured(db_path, log_size, this, num_workers_, num_cleaners_);
 #ifdef INTERLEAVED
+  // printf("start RB Thread\n");
   // StartRBThread();
 #endif
 };
@@ -120,7 +121,7 @@ void DB::roll_back_()
       bool roll_back = false;
       uint32_t n = seg->num_kvs;
 
-      if(seg->roll_back_map[n-1].first == true)
+      if(seg->roll_back_map[n-1].first == true && !seg->is_segment_closed() != 2)
       {
         for(int i = n - 2; i >= 0; i--)
         {
@@ -139,6 +140,7 @@ void DB::roll_back_()
           }
         }
         seg->roll_back_tail(roll_back_sz);
+        seg->update_Bitmap();
       }
 
       pop_front_roll_back_list();
@@ -160,24 +162,32 @@ DB::Worker::Worker(DB *db) : db_(db) {
 #ifdef INTERLEAVED
   num_hot_segments_ = db->log_->get_num_hot_segments_();
   num_cold_segments_ = db->log_->get_num_cold_segments_();
+  num_workers = db_->num_workers_;
 #endif
 }
 
 DB::Worker::~Worker() {
 #ifdef GC_EVAL
   printf("\nlatency breakdown: %ld\n", insert_time + update_index_time + check_hotcold_time);
-  printf("  check_hotcold_time = %ld\n",check_hotcold_time);
-  printf("  insert time = %ld\n", insert_time);
-  printf("    change_seg_time = %ld\n",change_seg_time);
-  printf("    append_time= %ld\n",append_time);
+  printf("max_kv_sz = %d\n", max_kv_sz);
+  printf("  check_hotcold_time = \t%ld us \t(%ld s)\n",check_hotcold_time, check_hotcold_time/1000000);
+  printf("  insert time        = \t%ld us \t(%ld s)\n", insert_time, insert_time/1000000);
+  printf("    change_seg_time  = \t%ld us \t(%ld s)\n",change_seg_time, change_seg_time/1000000);
+  printf("    append_time      = \t%ld us \t(%ld s)\n",append_time, append_time/1000000);
   long a = 0;
   for(int i = 0; i < db_->get_log_()->get_num_segments_(); i++)
   {
     a += db_->get_log_()->get_segments_(i)->make_new_kv_time;
   }
-  printf("      vector_push_back_time= %ld\n", a);
-  printf("  update time = %ld\n", update_index_time);
-  printf("      Markgarbage_time = %ld\n", MarkGarbage_time);
+  printf("      vector_pb_time = \t%ld us \t(%ld s)\n", a, a/1000000);
+  printf("  update time        = \t%ld us \t(%ld s)\n", update_index_time, update_index_time/1000000);
+  printf("    update idx time  = \t%ld us \t(%ld s)\n", update_idx_p1, update_idx_p1/1000000);
+  printf("    markgarbage time = \t%ld us \t(%ld s)\n",MarkGarbage_time, MarkGarbage_time/1000000);
+  printf("      Markgarbage_p1 = \t%ld us \t(%ld s)\n", markgarbage_p1, markgarbage_p1/1000000);
+  printf("      Markgarbage_p2 = \t%ld us \t(%ld s)\n", markgarbage_p2, markgarbage_p2/1000000);
+#endif
+#ifdef INTERLEAVED
+  printf("%dth worker: roll_back_times = %d\n", worker_id_, roll_back_count);
 #endif
 #ifdef LOG_BATCHING
   BatchIndexInsert(buffer_queue_.size(), true);
@@ -233,11 +243,11 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
 
 #ifdef GC_EVAL
   struct timeval insert_begin;
+  struct timeval insert_end;
   gettimeofday(&insert_begin, NULL);
 #endif
   ValueType val = MakeKVItem(key, value, hot);
 #ifdef GC_EVAL
-  struct timeval insert_end;
   gettimeofday(&insert_end, NULL);
   insert_time += TIMEDIFF(insert_begin, insert_end);
 #endif
@@ -336,45 +346,43 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 #ifdef GC_EVAL
   struct timeval change_seg_start, change_seg_end, append_start, append_end;
   gettimeofday(&change_seg_start, NULL);
+  uint32_t sz_ = sizeof(KVItem) + key.size() + value.size();
+  if (sz_ > max_kv_sz) max_kv_sz = sz_;
 #endif
+
   ValueType ret = INVALID_VALUE;
   uint64_t i_key = *(uint64_t *)key.data();
   uint32_t epoch = db_->GetKeyEpoch(i_key);
-#ifdef INTERLEAVED
-  uint32_t sz = sizeof(KVItem) + key.size() + value.size();
-  if(hot) accumulative_sz_hot += sz;
-  else accumulative_sz_cold += sz;
-#endif
+
+// #ifdef INTERLEAVED
+//   uint32_t sz = sizeof(KVItem) + key.size() + value.size();
+//   if(hot) accumulative_sz_hot += sz;
+//   else accumulative_sz_cold += sz;
+// #endif
 
 #ifdef HOT_COLD_SEPARATE
 #ifdef INTERLEAVED
   // printf("cur_cold_sengment_ : %d -> ", cur_cold_segment_);
   LogSegment *&segment = hot ? 
-    *(db_->log_->get_hot_segment_(cur_hot_segment_)): 
-    *(db_->log_->get_cold_segment_(cur_cold_segment_));
-  // cur_hot_segment_ = (cur_hot_segment_ == num_hot_segments_) ?
-  //   (cur_hot_segment_ - num_hot_segments_) :
-  //   (cur_hot_segment_);
-  // cur_cold_segment_ = (cur_cold_segment_ == num_cold_segments_) ?
-  //   (cur_cold_segment_ - num_cold_segments_) :
-  //   (cur_cold_segment_);
+    *(db_->log_->get_hot_segment_(cur_hot_segment_++)): 
+    *(db_->log_->get_cold_segment_(cur_cold_segment_++));
   if(hot)
   {
-    if(accumulative_sz_hot > change_seg_threshold)
-    {
-      accumulative_sz_hot = 0;
-      cur_hot_segment_ ++;
-    }
+    // if(accumulative_sz_hot > change_seg_threshold)
+    // {
+    //   accumulative_sz_hot = 0;
+    //   cur_hot_segment_ ++;
+    // }
     if(cur_hot_segment_ >= num_hot_segments_)
       cur_hot_segment_ -= num_hot_segments_;
   }
   else
   {
-    if(accumulative_sz_cold > change_seg_threshold)
-    {
-      accumulative_sz_cold = 0;
-      cur_cold_segment_ ++;
-    }
+    // if(accumulative_sz_cold > change_seg_threshold)
+    // {
+    //   accumulative_sz_cold = 0;
+    //   cur_cold_segment_ ++;
+    // }
     if(cur_cold_segment_ >= num_cold_segments_) 
       cur_cold_segment_ -= num_cold_segments_;
   }
@@ -388,7 +396,9 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 #ifdef GC_EVAL
   gettimeofday(&change_seg_end, NULL);
   change_seg_time += TIMEDIFF(change_seg_start, change_seg_end);
+#endif
 
+#ifdef GC_EVAL
   gettimeofday(&append_start, NULL);
 #endif
   while (segment == nullptr ||
@@ -396,16 +406,20 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     FreezeSegment(segment);
     segment = db_->log_->NewSegment(hot);
   }
+  assert(ret);
 #ifdef GC_EVAL
   gettimeofday(&append_end, NULL);
   append_time += TIMEDIFF(append_start, append_end);
 #endif
-  assert(ret);
   return ret;
 }
 #endif
 
 void DB::Worker::UpdateIndex(const Slice &key, ValueType val, bool hot) {
+#ifdef GC_EVAL
+    struct timeval start, end1, end2;
+    gettimeofday(&start, NULL);
+#endif
   LogEntryHelper le_helper(val);
   db_->index_->Put(key, le_helper);
 #ifdef GC_SHORTCUT
@@ -427,11 +441,26 @@ void DB::Worker::UpdateIndex(const Slice &key, ValueType val, bool hot) {
     db_->hot_key_set_->Record(key, worker_id_, hot);
     db_->thread_status_.rcu_exit(worker_id_);
 #endif
+#ifdef GC_EVAL
+    gettimeofday(&end1, NULL);
+    update_idx_p1 += TIMEDIFF(start, end1);
+#endif
+
     MarkGarbage(le_helper.old_val);
+#ifdef GC_EVAL
+    gettimeofday(&end2, NULL);
+    MarkGarbage_time += TIMEDIFF(end1, end2);
+#endif
   }
 }
 
 void DB::Worker::MarkGarbage(ValueType tagged_val) {
+#ifdef GC_EVAL
+    struct timeval start, end;
+    struct timeval p2_start;
+    struct timeval p2_end;
+    gettimeofday(&start, NULL);
+#endif
   TaggedPointer tp(tagged_val);
   KVItem *kv = tp.GetKVItem();
   uint32_t sz;
@@ -453,9 +482,12 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
   LogSegment *segment = db_->log_->GetSegment(segment_id);
   segment->MarkGarbage(tp.GetAddr(), sz);
 #ifdef GC_EVAL
-    struct timeval MarkGarbage_start;
-    struct timeval MarkGarbage_end;
-    gettimeofday(&MarkGarbage_start, NULL);
+    gettimeofday(&end, NULL);
+    markgarbage_p1 += TIMEDIFF(start, end);
+#endif
+
+#ifdef GC_EVAL
+    gettimeofday(&p2_start, NULL);
 #endif
 #ifdef INTERLEAVED
   segment->roll_back_map[num_].first = true;
@@ -473,27 +505,32 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
   //   segment->roll_back_tail(sz);
   //   // roll_back = true;
   // }
-  if(segment->roll_back_map[n-1].first == true)
+  if( n-1 == num_)
   {
-    roll_back_sz += segment->roll_back_map[n-1].second;
-    roll_back = true;
-    segment->num_kvs --;
-    segment->roll_back_map.pop_back();
-    for(int i = n - 2; i >= 0; i--)
+    if(!segment->is_segment_closed() != 2)
     {
-      if(segment->roll_back_map[i].first == true)
+      roll_back_count ++;
+      roll_back_sz += segment->roll_back_map[n-1].second;
+      roll_back = true;
+      segment->num_kvs --;
+      segment->roll_back_map.pop_back();
+      for(int i = n - 2; i >= 0; i--)
       {
-        roll_back_sz += segment->roll_back_map[i].second;
-        segment->num_kvs --;
-        segment->roll_back_map.pop_back();
+        if(segment->roll_back_map[i].first == true)
+        {
+          roll_back_sz += segment->roll_back_map[i].second;
+          segment->num_kvs --;
+          segment->roll_back_map.pop_back();
+        }
+        else{
+          break;
+        }
       }
-      else{
-        break;
-      }
-    }
-    // printf("  new_tail  = %p\n", segment->get_tail());
+      // printf("  new_tail  = %p\n", segment->get_tail());
 
-    segment->roll_back_tail(roll_back_sz);
+      segment->roll_back_tail(roll_back_sz);
+      segment->update_Bitmap();
+    }
   }
 #else
   // update temp cleaner garbage bytes
@@ -503,8 +540,8 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
   }
 #endif
 #ifdef GC_EVAL
-  gettimeofday(&MarkGarbage_end, NULL);
-  MarkGarbage_time += (MarkGarbage_end.tv_sec - MarkGarbage_start.tv_sec) * 1000000 + (MarkGarbage_end.tv_usec - MarkGarbage_start.tv_usec);
+  gettimeofday(&p2_end, NULL);
+  markgarbage_p2 += TIMEDIFF(p2_start, p2_end);
 #endif
 }
 

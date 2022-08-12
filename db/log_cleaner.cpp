@@ -16,6 +16,7 @@
 #endif
 
 void LogCleaner::CleanerEntry() {
+  int a = 0;
   // bind_core_on_numa(log_->num_workers_ + cleaner_id_);
 #if INDEX_TYPE == 3
   reinterpret_cast<MasstreeIndex *>(db_->index_)
@@ -23,12 +24,14 @@ void LogCleaner::CleanerEntry() {
 #endif
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning()) {
+      a ++;
       Timer timer(clean_time_ns_);
 #ifdef GC_EVAL
       GC_times.fetch_add(1, std::memory_order_relaxed);
       struct timeval start;
       gettimeofday(&start, NULL);
 #endif
+      // printf("%dth cleaning\n", a);
       DoMemoryClean();
 #ifdef GC_EVAL
       struct timeval end;
@@ -56,6 +59,7 @@ bool LogCleaner::NeedCleaning()
   double threshold = (double)log_->clean_threshold_ / 100;
 
   return ((double)free_per_cleaner / org_free_per_cleaner) < threshold;
+  // return !is_closed_hotcold_segment_empty();
 }
 #else
 bool LogCleaner::NeedCleaning() {
@@ -243,6 +247,7 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment) {
 
 // CompactSegment is used if not defined BATCH_COMPACTION
 void LogCleaner::CompactSegment(LogSegment *segment) {
+  // printf("in compactsegment\n");
   char *p = segment->get_data_start();
   char *tail = segment->get_tail();
   std::vector<char *> flush_addr;
@@ -250,6 +255,7 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
   bool has_shortcut = segment->HasShortcut();
   Shortcut *shortcuts = (Shortcut *)tail;
 #endif
+  // printf("11111\n");
   while (p < tail) {
     KVItem *kv = reinterpret_cast<KVItem *>(p);
     uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
@@ -322,6 +328,7 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
     }
     p += sz;
   }
+  // printf("??????\n");
 
 #ifdef LOG_BATCHING
   TIMER_START_LOGGING(copy_time_);
@@ -349,6 +356,7 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
     log_->free_segments_.push(segment);
     ++log_->num_free_segments_;
   }
+  // printf("end compactsegment\n");
 }
 
 void LogCleaner::FreezeReservedAndGetNew() {
@@ -367,6 +375,7 @@ void LogCleaner::FreezeReservedAndGetNew() {
 }
 
 void LogCleaner::DoMemoryClean() {
+  // printf("in domemoryclean\n");
   TIMER_START_LOGGING(pick_time_);
   LockUsedList();
   to_compact_hot_segments_.splice(to_compact_hot_segments_.end(),
@@ -392,6 +401,7 @@ void LogCleaner::DoMemoryClean() {
       gc_it = it;
     }
   }
+  // printf("1111\n");
 
   double cold_score = 0.;
 #ifdef HOT_COLD_SEPARATE
@@ -420,6 +430,7 @@ void LogCleaner::DoMemoryClean() {
                  (cur_time - seg->get_close_time());
   }
 #endif
+  // printf("2222\n");
 
   if (cold_score > max_score) {
     segment = to_compact_cold_segments_.begin()->segment;
@@ -459,12 +470,13 @@ void LogCleaner::DoMemoryClean() {
   COUNTER_ADD_LOGGING(hot_clean_total_bytes_, segment->get_offset());
 #endif
 
+  // printf("3333\n");
 #ifdef BATCH_COMPACTION
   BatchCompactSegment(segment);
 #else
   CompactSegment(segment);
 #endif
-
+  // printf("end domemoryclean\n");
 }
 
 void LogCleaner::MarkGarbage(ValueType tagged_val) {

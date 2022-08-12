@@ -9,7 +9,11 @@
 #include "util/util.h"
 
 // static constexpr int NUM_HEADERS = 1;
+#ifdef INTERLEAVED
+static constexpr int HEADER_ALIGN_SIZE = 2;
+#else
 static constexpr int HEADER_ALIGN_SIZE = 256;
+#endif
 // weird slow when 4 * 64
 // rotating counter with multi logs reduce performance
 
@@ -23,9 +27,13 @@ class BaseSegment {
  public:
 
   struct alignas(HEADER_ALIGN_SIZE) Header {
+#ifdef INTERLEAVED
+    uint8_t status;
+#else
     uint32_t offset; // only valid when status is closed
     uint32_t status;
     uint32_t objects_tail_offset;
+#endif
     bool has_shortcut;
 
     void Flush() {
@@ -50,7 +58,7 @@ class BaseSegment {
   uint16_t num_kvs = 0;
   // vector for pairs <IsGarbage, kv_size>
   std::vector<std::pair<bool, uint16_t>> roll_back_map
-    = std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE/32);
+    = std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE/20);
 #endif
 
   BaseSegment(char *start_addr, size_t size)
@@ -116,6 +124,7 @@ class BaseSegment {
   char *const data_start_;
   char *const end_; // const
   char *tail_;
+  
   bool has_shortcut_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(BaseSegment);
@@ -131,10 +140,14 @@ class LogSegment : public BaseSegment {
     }
   }
 
+#ifdef INTERLEAVED
+  bool is_segment_closed() { return header_->status == StatusClosed; }
+#endif
+
   void Init() {
     tail_ = data_start_;
     // header_->offset = 0;
-    header_->objects_tail_offset = 0;
+    // header_->objects_tail_offset = 0;
     header_->status = StatusAvailable;
     header_->Flush();
     InitBitmap();
@@ -152,6 +165,45 @@ class LogSegment : public BaseSegment {
     memset(volatile_tombstone_, 0, BITMAP_SIZE);
 #endif
   }
+
+#ifdef INTERLEAVED
+  void update_Bitmap()
+  {
+#ifdef REDUCE_PM_ACCESS
+  char *t = tail_;
+  int idx = (t - data_start_) / BYTES_PER_BIT;
+  int byte = idx / 8;
+  int bit = idx % 8;
+  uint8_t a = 0b11111111 >> (8 - bit);
+  uint8_t old_val = volatile_tombstone_[byte];
+  printf("tail old val = %d\n", old_val);
+  uint8_t new_val = old_val & a;
+  printf("tail new val = %d\n", new_val);
+  while (true) {
+    if (__atomic_compare_exchange_n(&volatile_tombstone_[byte], &old_val,
+                                    new_val, true, __ATOMIC_ACQ_REL,
+                                    __ATOMIC_ACQUIRE)) {
+      break;
+    }
+  }
+  new_val = 0b00000000;
+  for(int i = byte + 1; i < BITMAP_SIZE; i++)
+  {
+    old_val = volatile_tombstone_[i];
+    printf("old val = %d\n", volatile_tombstone_[i]);
+    while (true) {
+      if (__atomic_compare_exchange_n(&volatile_tombstone_[i], &old_val,
+                                      new_val, true, __ATOMIC_ACQ_REL,
+                                      __ATOMIC_ACQUIRE)) {
+        break;
+      }
+    }
+    printf("new val = %d\n", volatile_tombstone_[i]);
+  }
+  printf("-----------------------\n");
+#endif
+  }
+#endif
 
   void InitShortcutBuffer() {
 #ifdef GC_SHORTCUT
@@ -207,9 +259,9 @@ class LogSegment : public BaseSegment {
     }
 #endif
     close_time_ = NowMicros();
-    header_->offset = get_offset();
+    // header_->offset = get_offset();
     header_->status = StatusClosed;
-    header_->objects_tail_offset = get_offset();
+    // header_->objects_tail_offset = get_offset();
     header_->has_shortcut = has_shortcut_;
     header_->Flush();
   }
@@ -219,7 +271,7 @@ class LogSegment : public BaseSegment {
     garbage_bytes_ = 0;
     is_hot_ = false;
     header_->status = StatusAvailable;
-    header_->objects_tail_offset = 0;
+    // header_->objects_tail_offset = 0;
     header_->has_shortcut = false;
     header_->Flush();
 #ifdef INTERLEAVED
