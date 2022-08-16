@@ -16,6 +16,7 @@ class DBFixture : public BaseFixture {
   DB *db_ = nullptr;
 
   virtual void OpenDB(benchmark::State &st) override {
+    printf("OpenDB\n");
     if (st.thread_index() == 0) {
       if (db_ != nullptr) {
         ERROR_EXIT("barrier error");
@@ -71,6 +72,7 @@ class DBFixture : public BaseFixture {
     }
 
     barrier.Wait(st.threads());
+    printf("get worker\n");
     worker = db_->GetWorker();
   }
 

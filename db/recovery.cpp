@@ -95,7 +95,7 @@ void LogCleaner::RecoveryInfo() {
         if (sz == sizeof(KVItem)) {
           break;
         }
-        ValueType val = TaggedPointer((char *)kv, sz);
+        ValueType val = TaggedPointer((char *)kv, sz, 0);
         Slice key = kv->GetKey();
         ValueType real_val = db_->index_->Get(key);
         if (val != real_val) {
@@ -157,14 +157,14 @@ void LogCleaner::RecoveryAll() {
       // temp tail_ for MarkGarbage
       seg->tail_ = end;
       log_->all_segments_[i] = seg;
-      
+      int i = 0; 
       while (p < end) {
         KVItem *kv = reinterpret_cast<KVItem *>(p);
         uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
         if (sz == sizeof(KVItem)) {
           break;
         }
-        ValueType val = TaggedPointer((char *)kv, sz);
+        ValueType val = TaggedPointer((char *)kv, sz, i++);
         Slice key = kv->GetKey();
         LogEntryHelper le_helper(val);
         db_->index_->Put(key, le_helper);

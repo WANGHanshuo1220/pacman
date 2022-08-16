@@ -149,12 +149,24 @@ struct TaggedPointer {
     uint64_t data = 0;
     struct {
       uint64_t addr : 48;
+#ifdef INTERLEAVED
+      uint64_t size : 8;
+      uint64_t num  : 8;
+#else
       uint64_t size : 16;
+#endif
     };
   };
 
-  TaggedPointer(char *ptr, uint64_t sz) {
-#ifdef REDUCE_PM_ACCESS
+  TaggedPointer(char *ptr, uint64_t sz, uint64_t num_) {
+#if defined(REDUCE_PM_ACCESS) && defined(INTERLEAVED) 
+    addr = (uint64_t)ptr;
+    size = sz <= 0xFF ? sz : 0;
+    if(num_ >= 0) {
+      num = num_ < 0xFF ? num_ : -1;
+      // printf("TaggedPointer: num = %ld\n", num);
+    }
+#elif defined(REDUCE_PM_ACCESS) && !defined(INTERLEAVED)
     addr = (uint64_t)ptr;
     size = sz <= 0xFFFF ? sz : 0;
 #else

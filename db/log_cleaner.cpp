@@ -16,7 +16,6 @@
 #endif
 
 void LogCleaner::CleanerEntry() {
-  int a = 0;
   // bind_core_on_numa(log_->num_workers_ + cleaner_id_);
 #if INDEX_TYPE == 3
   reinterpret_cast<MasstreeIndex *>(db_->index_)
@@ -24,14 +23,12 @@ void LogCleaner::CleanerEntry() {
 #endif
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning()) {
-      a ++;
       Timer timer(clean_time_ns_);
 #ifdef GC_EVAL
       GC_times.fetch_add(1, std::memory_order_relaxed);
       struct timeval start;
       gettimeofday(&start, NULL);
 #endif
-      // printf("%dth cleaning\n", a);
       DoMemoryClean();
 #ifdef GC_EVAL
       struct timeval end;
@@ -213,8 +210,8 @@ void LogCleaner::CopyValidItemToBuffer(LogSegment *segment) {
       uint64_t offset = cur - volatile_segment_->get_data_start();
       char *new_addr = reserved_segment_->get_data_start() + offset;
       Slice key_slice = ((KVItem *)cur)->GetKey();
-      valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz),
-                                TaggedPointer(new_addr, sz), sz, sc);
+      valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz, -1),
+                                TaggedPointer(new_addr, sz, -1), sz, sc);
     }
     p += sz;
   }
@@ -293,7 +290,7 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
       ValueType val = reserved_segment_->Append(key, data, kv->epoch);
       TIMER_STOP_LOGGING(copy_time_);
       LogEntryHelper le_helper(val);
-      le_helper.old_val = TaggedPointer(p, sz);
+      le_helper.old_val = TaggedPointer(p, sz, -1);
       le_helper.shortcut = sc;
       TIMER_START_LOGGING(update_index_time_);
       db_->index_->GCMove(key, le_helper);

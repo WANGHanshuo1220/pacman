@@ -8,6 +8,8 @@
 #include "db_common.h"
 #include "util/util.h"
 
+#define TIMEDIFF(s, e) (e.tv_sec - s.tv_sec) * 1000000 + (e.tv_usec - s.tv_usec) //us
+
 // static constexpr int NUM_HEADERS = 1;
 #ifdef INTERLEAVED
 static constexpr int HEADER_ALIGN_SIZE = 2;
@@ -52,14 +54,12 @@ class BaseSegment {
   int cur_cnt_ = 0;
 #ifdef GC_EVAL
   long make_new_kv_time = 0;
+  long b1 = 0;
+  long b2 = 0;
+  long b3 = 0;
+  long b4 = 0;
 #endif
 
-#ifdef INTERLEAVED
-  uint16_t num_kvs = 0;
-  // vector for pairs <IsGarbage, kv_size>
-  std::vector<std::pair<bool, uint16_t>> roll_back_map
-    = std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE/20);
-#endif
 
   BaseSegment(char *start_addr, size_t size)
       : segment_start_(start_addr),
@@ -123,7 +123,11 @@ class BaseSegment {
   };
   char *const data_start_;
   char *const end_; // const
+// #ifdef INTERLEAVED
+//   std::atomic<char *> tail_;
+// #else
   char *tail_;
+// #endif
   
   bool has_shortcut_ = false;
 
@@ -142,6 +146,11 @@ class LogSegment : public BaseSegment {
 
 #ifdef INTERLEAVED
   bool is_segment_closed() { return header_->status == StatusClosed; }
+  uint16_t num_kvs = 0;
+  uint32_t roll_back_c = 0;
+  // vector for pairs <IsGarbage, kv_size>
+  std::vector<std::pair<bool, uint16_t>> roll_back_map
+    = std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE/32);
 #endif
 
   void Init() {
@@ -176,9 +185,9 @@ class LogSegment : public BaseSegment {
   int bit = idx % 8;
   uint8_t a = 0b11111111 >> (8 - bit);
   uint8_t old_val = volatile_tombstone_[byte];
-  printf("tail old val = %d\n", old_val);
+  // printf("tail old val = %d\n", old_val);
   uint8_t new_val = old_val & a;
-  printf("tail new val = %d\n", new_val);
+  // printf("tail new val = %d\n", new_val);
   while (true) {
     if (__atomic_compare_exchange_n(&volatile_tombstone_[byte], &old_val,
                                     new_val, true, __ATOMIC_ACQ_REL,
@@ -190,7 +199,7 @@ class LogSegment : public BaseSegment {
   for(int i = byte + 1; i < BITMAP_SIZE; i++)
   {
     old_val = volatile_tombstone_[i];
-    printf("old val = %d\n", volatile_tombstone_[i]);
+    // printf("old val = %d\n", volatile_tombstone_[i]);
     while (true) {
       if (__atomic_compare_exchange_n(&volatile_tombstone_[i], &old_val,
                                       new_val, true, __ATOMIC_ACQ_REL,
@@ -198,9 +207,9 @@ class LogSegment : public BaseSegment {
         break;
       }
     }
-    printf("new val = %d\n", volatile_tombstone_[i]);
+    // printf("new val = %d\n", volatile_tombstone_[i]);
   }
-  printf("-----------------------\n");
+  // printf("-----------------------\n");
 #endif
   }
 #endif
@@ -302,21 +311,39 @@ class LogSegment : public BaseSegment {
       return INVALID_VALUE;
     }
 #ifdef GC_EVAL
-    struct timeval make_new_kv_start;
+    struct timeval make_new_kv_start, p1, p2, p3;
     struct timeval make_new_kv_end;
     gettimeofday(&make_new_kv_start, NULL);
 #endif
 #ifdef INTERLEAVED
-    KVItem *kv = new (tail_) KVItem(key, value, epoch, num_kvs);
+    uint16_t cur_num = num_kvs;
+#ifdef GC_EVAL
+    gettimeofday(&p1, NULL);
+#endif
+    KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
+#ifdef GC_EVAL
+    gettimeofday(&p2, NULL);
+#endif
     // roll_back_map.push_back(std::pair<bool, uint32_t>(false, sz));
-    roll_back_map[num_kvs] = std::pair<bool, uint32_t>(false, sz);
+    // roll_back_map[cur_num] = std::pair<bool, uint32_t>(false, sz);
+    roll_back_map[cur_num].first = false;
+    roll_back_map[cur_num].second = sz;
+#ifdef GC_EVAL
+    gettimeofday(&p3, NULL);
     num_kvs ++;
+#endif
 #else
     KVItem *kv = new (tail_) KVItem(key, value, epoch);
 #endif
 #ifdef GC_EVAL
     gettimeofday(&make_new_kv_end, NULL);
     make_new_kv_time += (make_new_kv_end.tv_sec - make_new_kv_start.tv_sec) * 1000000 + (make_new_kv_end.tv_usec - make_new_kv_start.tv_usec);
+#ifdef INTERLEAVED
+    b1 += TIMEDIFF(make_new_kv_start, p1);
+    b2 += TIMEDIFF(p1, p2);
+    b3 += TIMEDIFF(p2, p3);
+    b4 += TIMEDIFF(p3, make_new_kv_end);
+#endif
 #endif
     // printf("Append kv:");
     // printf("  seg_start = %p\n", get_segment_start());
@@ -324,7 +351,11 @@ class LogSegment : public BaseSegment {
     kv->Flush();
     tail_ += sz;
     ++cur_cnt_;
-    return TaggedPointer((char *)kv, sz);
+#ifdef INTERLEAVED
+    return TaggedPointer((char *)kv, sz, cur_num);
+#else
+    return TaggedPointer((char *)kv, sz, -1);
+#endif
   }
 
 #ifdef LOG_BATCHING
@@ -342,12 +373,25 @@ class LogSegment : public BaseSegment {
     if (!HasSpaceFor(sz)) {
       return INVALID_VALUE;
     }
+#ifdef INTERLEAVED
+    KVItem *kv = new (tail_) KVItem(key, value, epoch, num_kvs);
+    // roll_back_map.push_back(std::pair<bool, uint32_t>(false, sz));
+    roll_back_map[num_kvs] = std::pair<bool, uint32_t>(false, sz);
+    num_kvs ++;
+#else
     KVItem *kv = new (tail_) KVItem(key, value, epoch);
+#endif
     ++not_flushed_cnt_;
     tail_ += sz;
     ++cur_cnt_;
     char *align_addr = (char *)((uint64_t)tail_ & ~(LOG_BATCHING_SIZE - 1));
     if (align_addr - flush_tail_ >= LOG_BATCHING_SIZE) {
+#ifdef INTERLEAVED
+      clwb_fence(flush_tail_, tail_ - flush_tail_);
+      flush_tail_ = tail_;
+      *persist_cnt = not_flushed_cnt_;
+      not_flushed_cnt_ = 0;
+#else
       clwb_fence(flush_tail_, align_addr - flush_tail_);
       flush_tail_ = align_addr;
       if (tail_ == align_addr) {
@@ -357,6 +401,7 @@ class LogSegment : public BaseSegment {
         *persist_cnt = not_flushed_cnt_ - 1;
         not_flushed_cnt_ = 1;
       }
+#endif
     } else {
       *persist_cnt = 0;
     }
@@ -393,6 +438,22 @@ class LogSegment : public BaseSegment {
 
   void MarkGarbage(char *p, uint32_t sz) {
 #ifdef WRITE_TOMBSTONE
+    // char *t = tail_;
+    // if((uint64_t)p < (uint64_t)data_start_ || (uint64_t)p >= (uint64_t)t)
+    // {
+    //   int idx = (p - data_start_) / BYTES_PER_BIT;
+    //   int byte = idx / 8;
+    //   int bit = idx % 8;
+    //   // printf("roll_bac   = %d\n", roll_back_c);
+    //   printf("p          = %p\n", p);
+    //   printf("data_start = %p\n", data_start_);
+    //   printf("t          = %p\n", t);
+    //   printf("tail_      = %p\n", tail_);
+    //   printf("idx        = %d\n", idx); 
+    //   printf("byte       = %d\n", byte);
+    //   printf("v_tomb     = %d\n", volatile_tombstone_[byte]);
+    //   printf("bit        = %d\n", bit);
+    // }
     assert(p >= data_start_ && p < tail_);
 #ifdef REDUCE_PM_ACCESS
     int idx = (p - data_start_) / BYTES_PER_BIT;

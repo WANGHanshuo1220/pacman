@@ -58,6 +58,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
   if (pool_start_ == nullptr || pool_start_ == MAP_FAILED) {
     ERROR_EXIT("mmap failed");
   }
+  // printf("pool_start = %p\n", pool_start_);
   LOG("Log: pool_start %p total segments: %d  cleaners: %d\n", pool_start_,
       num_segments_, num_cleaners_);
 

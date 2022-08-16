@@ -44,6 +44,8 @@ class LogStructured {
   int get_num_cold_segments_() { return num_cold_segments_; }
   LogSegment **get_hot_segment_(int i) {return &hot_segments_[i]; } 
   LogSegment **get_cold_segment_(int i) {return &cold_segments_[i]; } 
+  void set_hot_segment_(int i, LogSegment *s) { hot_segments_[i] = s; } 
+  void set_cold_segment_(int i, LogSegment *s) { cold_segments_[i] = s; } 
 #endif
 
   // GC_EVAL
@@ -71,7 +73,7 @@ class LogStructured {
   std::queue<LogSegment *> free_segments_;
 #ifdef INTERLEAVED
   int num_hot_segments_;
-  int num_cold_segments_ = 2;
+  int num_cold_segments_;
   std::vector<LogSegment *> cold_segments_;
   std::vector<LogSegment *> hot_segments_;
 #endif

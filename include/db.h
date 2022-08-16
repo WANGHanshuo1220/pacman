@@ -13,6 +13,7 @@
 #include "util/util.h"
 #include "util/thread_status.h"
 #include "util/index_arena.h"
+#include "../db/log_structured.h"
 
 // index operations
 class Index {
@@ -55,14 +56,21 @@ class DB {
     long     markgarbage_p1 = 0;
     long     markgarbage_p2 = 0;
     int max_kv_sz = 0;
+    long get_kv_num = 0;
+    long get_kv_sz = 0;
 #endif
 #ifdef INTERLEAVED
-    int num_workers = 1;
-    int cur_hot_segment_ = 0;
-    int cur_cold_segment_ = 0;
-    int num_hot_segments_;
-    int num_cold_segments_;
-    int change_seg_threshold = (SEGMENT_SIZE / 2) / num_workers;
+    // int num_hot_segments_;
+    // int num_cold_segments_;
+    int hot_seg_working_on;
+    int cold_seg_working_on;
+#ifdef LOG_BATCHING
+    int change_seg_threshold = LOG_BATCHING_SIZE;
+    bool hot_batch_persistent = false;
+    bool cold_batch_persistent = false;
+#else
+    int change_seg_threshold = SEGMENT_SIZE / 2;
+#endif
     int accumulative_sz_hot = 0;
     int accumulative_sz_cold = 0;
     int roll_back_count = 0;
@@ -133,6 +141,35 @@ class DB {
   LogSegment *get_front_roll_back_list() { return roll_back_list.front(); }
   void pop_front_roll_back_list() { roll_back_list.pop(); }
   void push_back_roll_back_list(LogSegment *seg) { roll_back_list.push(seg); }
+
+
+  std::pair<int, LogSegment **> get_hot_segment()
+  {
+    std::lock_guard<SpinLock> guard(hot_segment_list);
+    std::pair<int, LogSegment **> ret;
+    ret.second = log_->get_hot_segment_(next_hot_segment_);
+    ret.first = next_hot_segment_;
+    next_hot_segment_ ++;
+    if(next_hot_segment_ == db_num_hot_segs)
+    {
+      next_hot_segment_ = 0;
+    }
+    return ret;
+  }
+
+  std::pair<int, LogSegment **> get_cold_segment()
+  {
+    std::lock_guard<SpinLock> guard(cold_segment_list);
+    std::pair<int, LogSegment **> ret;
+    ret.second = log_->get_cold_segment_(next_cold_segment_);
+    ret.first = next_cold_segment_;
+    next_cold_segment_ ++;
+    if(next_cold_segment_ == db_num_cold_segs)
+    {
+      next_cold_segment_ = 0;
+    }
+    return ret;
+  }
 #endif
 
   // GC_EVAL
@@ -155,6 +192,16 @@ class DB {
   HotKeySet *hot_key_set_ = nullptr;
 #endif
   ThreadStatus thread_status_;
+#ifdef INTERLEAVED
+  std::atomic<int> next_hot_segment_;
+  std::atomic<int> next_cold_segment_;
+  SpinLock hot_segment_list;
+  SpinLock cold_segment_list;
+  int db_num_hot_segs = 0;
+  int db_num_cold_segs = 0;
+  int hot_lock = 0;
+  int cold_lock = 0;
+#endif
 
   static constexpr int EPOCH_MAP_SIZE = 1024;
   std::array<std::atomic_uint_fast32_t, EPOCH_MAP_SIZE> epoch_map_{};

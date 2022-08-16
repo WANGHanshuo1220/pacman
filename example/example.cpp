@@ -82,7 +82,7 @@ void job2()
   std::unique_ptr<DB::Worker> worker = db->GetWorker();
   init_zipf();
   std::map<uint64_t, std::string> kvs;
-  printf("NUM_KVS = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS);
+  printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
   std::string val;
   std::string res;
   uint64_t key;
@@ -90,7 +90,7 @@ void job2()
   for(uint64_t i = 0; i < NUM_KVS; i++)
   {
     key = zipf();
-    std::string value = "hello world" + std::to_string(i%100);
+    std::string value = "hello world 22-08-16:" + std::to_string(i%100);
     kvs[key] = value;
     gettimeofday(&start, NULL);
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
@@ -98,12 +98,14 @@ void job2()
     insert_time += TIMEDIFF(start, checkpoint1);
   }
 
-  printf("insert time : %ld us\n", insert_time);
+  printf("insert time : \t%ld us \t(%ld s)\n", insert_time, insert_time/1000000);
 
   printf("\nstart checking...\n");
   std::string val_;
   uint64_t key_;
   int find_kvs = 0;
+  int false_kv = 0;
+  bool c = true;
   for(uint64_t i = 1; i <= dup_rate; i++)
   {
     key_ = i;
@@ -114,15 +116,22 @@ void job2()
       if(kvs[key_].compare(val_) != 0)
       {
         // printf("kvs not equal, key_ = %d\n", key_);
-        std::cout << "  kvs not equal. key_ = " << key_ << std::endl;
-        std::cout << "    right_val = " << kvs[key_] << std::endl;
-        std::cout << "    db_val = " << val_ << std::endl;
-        exit(0);
+        // std::cout << "  kvs not equal. key_ = " << key_ << std::endl;
+        // std::cout << "    right_val = " << kvs[key_] << std::endl;
+        // std::cout << "    db_val = " << val_ << std::endl;
+        false_kv ++;
+        c = false;
       }
     }
   }
 
-  std::cout << "all kvs correct: " << find_kvs << std::endl;
+  if(c)
+  {
+    std::cout << "all kvs correct: " << find_kvs << std::endl;
+  }else
+  {
+    std::cout << "some kvs incorrect: " << false_kv << std::endl;
+  }
   worker.reset();
   delete db;
 }
@@ -134,6 +143,7 @@ void *put_KVS(void *)
   uint64_t key;
   long insert_time = 0;
   std::unique_ptr<DB::Worker> worker = db->GetWorker();
+  // printf("worker ptr = %p\n", &worker);
 
   for(uint64_t i = 0; i < NUM_KVS; i++)
   {
@@ -146,25 +156,24 @@ void *put_KVS(void *)
     insert_time += TIMEDIFF(start, checkpoint1);
   }
 
-  printf("%d thread-> insert time : %ld us\n", getpid(), insert_time);
+  printf("%ld thread-> insert time : %ld us\n", pthread_self(), insert_time);
 
   worker.reset();
 }
 
 void job3()
 {
-  num_cleaners = 4;
-  num_workers = 8;
-  int num_threads = 8;
-  pthread_t *tid = new pthread_t[num_threads];
+  num_cleaners = 2;
+  num_workers = 4;
+  pthread_t *tid = new pthread_t[num_workers];
   int ret;
 
   db = new DB(db_path, log_size, num_workers, num_cleaners);
   
   init_zipf();
-  printf("NUM_KVS = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS);
+  printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
 
-  for(int i = 0; i < num_threads; i++)
+  for(int i = 0; i < num_workers; i++)
   {
     ret = pthread_create(&tid[i], NULL, &put_KVS, NULL); 
     if(ret != 0)
@@ -174,7 +183,7 @@ void job3()
     }
   }
 
-  for(int i = 0; i < num_threads; i++)
+  for(int i = 0; i < num_workers; i++)
   {
     pthread_join(tid[i], NULL);
   }
@@ -183,6 +192,8 @@ void job3()
   std::string val_;
   uint64_t key_;
   int find_kvs = 0;
+  int false_kv = 0;
+  bool c = true;
   std::unique_ptr<DB::Worker> worker = db->GetWorker();
   for(uint64_t i = 1; i <= dup_rate; i++)
   {
@@ -194,15 +205,22 @@ void job3()
       if(kvs[key_].compare(val_) != 0)
       {
         // printf("kvs not equal, key_ = %d\n", key_);
-        std::cout << "  kvs not equal. key_ = " << key_ << std::endl;
-        std::cout << "    right_val = " << kvs[key_] << std::endl;
-        std::cout << "    db_val = " << val_ << std::endl;
-        exit(0);
+        // std::cout << "  kvs not equal. key_ = " << key_ << std::endl;
+        // std::cout << "    right_val = " << kvs[key_] << std::endl;
+        // std::cout << "    db_val = " << val_ << std::endl;
+        false_kv ++;
+        c = false;
       }
     }
   }
 
-  std::cout << "all kvs correct: " << find_kvs << std::endl;
+  if(c)
+  {
+    std::cout << "all kvs correct: " << find_kvs << std::endl;
+  }else
+  {
+    std::cout << "some kvs incorrect: " << false_kv << std::endl;
+  }
   worker.reset();
   delete db;
 }
