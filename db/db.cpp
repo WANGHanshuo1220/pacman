@@ -452,7 +452,7 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
       std::pair<int, LogSegment **> hot = db_->get_hot_segment();
       log_head_ = *hot.second;
       hot_seg_working_on = hot.first;
-      accumulative_sz_hot = 0;
+      accumulative_sz_hot = sz;
     }
   }
   else {
@@ -462,7 +462,7 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
       std::pair<int, LogSegment **> cold = db_->get_cold_segment();
       cold_log_head_ = *cold.second;
       cold_seg_working_on = cold.first;
-      accumulative_sz_cold = 0;
+      accumulative_sz_cold = sz;
     }
   }
 #endif
