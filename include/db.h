@@ -14,6 +14,7 @@
 #include "util/thread_status.h"
 #include "util/index_arena.h"
 #include "../db/log_structured.h"
+#include "../db/CircleQueue.h"
 
 // index operations
 class Index {
@@ -50,6 +51,7 @@ class DB {
     long insert_time = 0;
     long   change_seg_time= 0;
     long   append_time = 0;
+    long     set_seg_time = 0;
     long update_index_time = 0;
     long   update_idx_p1 = 0;
     long   MarkGarbage_time = 0;
@@ -73,7 +75,7 @@ class DB {
 #endif
     int accumulative_sz_hot = 0;
     int accumulative_sz_cold = 0;
-    int roll_back_count = 0;
+    // int roll_back_count = 0;
 #endif
 
   // only for test
@@ -133,14 +135,13 @@ class DB {
   }
 
   void StartRBThread() {
-    // StopRBThread();
+    StopRBThread();
     roll_back_thread_ = std::thread(&DB::roll_back_, this);
   }
 
-  bool is_roll_back_list_empty() { return roll_back_list.empty(); }
-  LogSegment *get_front_roll_back_list() { return roll_back_list.front(); }
-  void pop_front_roll_back_list() { roll_back_list.pop(); }
-  void push_back_roll_back_list(LogSegment *seg) { roll_back_list.push(seg); }
+  // bool is_roll_back_list_empty() { return roll_back_list.empty(); }
+  void enque_roll_back_queue(LogSegment * s) { roll_back_queue.enque(s); }
+  LogSegment *deque_roll_back_queue() { roll_back_queue.deque(); }
 
 
   std::pair<int, LogSegment **> get_hot_segment()
@@ -182,6 +183,7 @@ class DB {
   std::queue<LogSegment *> roll_back_list;
   std::thread roll_back_thread_;
   std::atomic<bool> stop_flag_RB{false};
+  CircleQueue roll_back_queue; 
 #endif
   Index *index_;
   LogStructured *log_;
@@ -201,6 +203,7 @@ class DB {
   int db_num_cold_segs = 0;
   int hot_lock = 0;
   int cold_lock = 0;
+  long roll_back_count = 0;
 #endif
 
   static constexpr int EPOCH_MAP_SIZE = 1024;

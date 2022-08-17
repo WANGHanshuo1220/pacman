@@ -90,7 +90,8 @@ void job2()
   for(uint64_t i = 0; i < NUM_KVS; i++)
   {
     key = zipf();
-    std::string value = "hello world 22-08-16:" + std::to_string(i%100);
+    // std::string value = "hello world 22-08-16:" + std::to_string(i%100);
+    std::string value = "hello world     " + std::to_string(i%100);
     kvs[key] = value;
     gettimeofday(&start, NULL);
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));

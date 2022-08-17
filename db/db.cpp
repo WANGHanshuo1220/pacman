@@ -2,6 +2,7 @@
 #include "db_common.h"
 #include "log_structured.h"
 #include "hotkeyset.h"
+// #include "circlequeue.h"
 
 #if INDEX_TYPE <= 1
 #include "index_cceh.h"
@@ -49,15 +50,17 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
   db_num_cold_segs = log_->num_cold_segments_;
   next_hot_segment_.store(0);
   next_cold_segment_.store(0);
-  // printf("start RB Thread\n");
-  // StartRBThread();
+  roll_back_queue.init(2 * num_workers);
+  printf("start RB Thread\n");
+  StartRBThread();
 #endif
 };
 
 DB::~DB() {
 #ifdef INTERLEAVED
-  // stop_flag_RB.store(true, std::memory_order_release);
-  // StopRBThread();
+  stop_flag_RB.store(true, std::memory_order_release);
+  StopRBThread();
+  // printf("roll_back_queue full times = %ld\n", roll_back_queue.get_full_times());
 #endif
   delete log_;
   delete index_;
@@ -115,42 +118,33 @@ void DB::NewIndexForRecoveryTest() {
 #ifdef INTERLEAVED
 void DB::roll_back_()
 {
+  LogSegment *segment;
   while (!stop_flag_RB.load(std::memory_order_relaxed))
   {
-    if(!is_roll_back_list_empty())
+    if(segment = deque_roll_back_queue())
     {
-      LogSegment *seg = get_front_roll_back_list();
-
       uint32_t roll_back_sz = 0;
-      bool roll_back = false;
-      uint32_t n = seg->num_kvs;
-
-      if(seg->roll_back_map[n-1].first == true && !seg->is_segment_closed() != 2)
+      uint32_t n = segment->num_kvs;
+      roll_back_count ++;
+      for(int i = n - 1; i >= 0; i--)
       {
-        for(int i = n - 2; i >= 0; i--)
+        if(segment->roll_back_map[i].first == true)
         {
-          roll_back_sz += seg->roll_back_map[i].second;
-          roll_back = true;
-          seg->num_kvs --;
-          seg->roll_back_map.pop_back();
-          if(seg->roll_back_map[i].first == true)
-          {
-            roll_back_sz += seg->roll_back_map[i].second;
-            seg->num_kvs --;
-            seg->roll_back_map.pop_back();
-          }
-          else{
-            break;
-          }
+          roll_back_sz += segment->roll_back_map[i].second;
+          segment->num_kvs --;
+          // segment->roll_back_map[i].first  = false;
+          // segment->roll_back_map[i].second = 0;
         }
-        seg->roll_back_tail(roll_back_sz);
-        seg->update_Bitmap();
+        else{
+          break;
+        }
       }
+      // printf("  new_tail  = %p\n", segment->get_tail());
 
-      pop_front_roll_back_list();
+      segment->roll_back_tail(roll_back_sz);
+      segment->update_Bitmap();
     }
   }
-  
 }
 #endif
 
@@ -201,6 +195,7 @@ DB::Worker::~Worker() {
   printf("        b2           = \t%ld us   \t(%ld s)\n", a[2], a[2]/1000000);
   printf("        b3           = \t%ld us   \t(%ld s)\n", a[3], a[3]/1000000);
   printf("        b4           = \t%ld us   \t(%ld s)\n", a[4], a[4]/1000000);
+  printf("      set_seg_time   = \t%ld us   \t(%ld s)\n", set_seg_time, set_seg_time/1000000);
   printf("  update time        = \t%ld us   \t(%ld s)\n", update_index_time, update_index_time/1000000);
   printf("    update idx time  = \t%ld us   \t(%ld s)\n", update_idx_p1, update_idx_p1/1000000);
   printf("    markgarbage time = \t%ld us   \t(%ld s)\n",MarkGarbage_time, MarkGarbage_time/1000000);
@@ -210,7 +205,7 @@ DB::Worker::~Worker() {
   printf("      Markgarbage_p2 = \t%ld us   \t(%ld s)\n", markgarbage_p2, markgarbage_p2/1000000);
 #endif
 #ifdef INTERLEAVED
-  printf("%dth worker: roll_back_times = %d\n", worker_id_, roll_back_count);
+  printf("roll_back_times = %ld\n", db_->roll_back_count);
 #endif
 #ifdef LOG_BATCHING
   BatchIndexInsert(buffer_queue_.size(), true);
@@ -500,6 +495,10 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     segment = db_->log_->NewSegment(hot);
     // printf("New Segment\n");
 #ifdef INTERLEAVED
+#ifdef GC_EVAL
+    struct timeval s1, e1;
+    gettimeofday(&s1, NULL);
+#endif
     if(hot)
     {
       accumulative_sz_hot = 0;
@@ -510,6 +509,10 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
       accumulative_sz_cold = 0;
       db_->log_->set_cold_segment_(cold_seg_working_on, segment);
     }
+#ifdef GC_EVAL
+    gettimeofday(&e1, NULL);
+    set_seg_time += TIMEDIFF(s1, e1);
+#endif
 #endif
   }
   assert(ret);
@@ -618,7 +621,6 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
 #endif
 #ifdef INTERLEAVED
   segment->roll_back_map[num_].first = true;
-  // db_->push_back_roll_back_list(segment);
 
   uint32_t n = segment->num_kvs;
   // printf("roll_back:\n");
@@ -632,31 +634,32 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
   // }
   if( n-1 == num_)
   {
-    uint32_t roll_back_sz = 0;
-    if(!segment->is_segment_closed())
-    {
-      roll_back_count ++;
-      segment->roll_back_c ++;
-      roll_back_sz += sz;
-      segment->num_kvs --;
-      segment->roll_back_map.pop_back();
-      for(int i = n - 2; i >= 0; i--)
-      {
-        if(segment->roll_back_map[i].first == true)
-        {
-          roll_back_sz += segment->roll_back_map[i].second;
-          segment->num_kvs --;
-          segment->roll_back_map.pop_back();
-        }
-        else{
-          break;
-        }
-      }
-      // printf("  new_tail  = %p\n", segment->get_tail());
+    db_->enque_roll_back_queue(segment);
+    // uint32_t roll_back_sz = 0;
+    // if(!segment->is_segment_closed()) // could be ignored to spedup gc runtime
+    // {
+    //   db_->roll_back_count ++;
+    //   segment->roll_back_c ++;
+    //   roll_back_sz += sz;
+    //   segment->num_kvs --;
+    //   segment->roll_back_map.pop_back();
+    //   for(int i = n - 2; i >= 0; i--)
+    //   {
+    //     if(segment->roll_back_map[i].first == true)
+    //     {
+    //       roll_back_sz += segment->roll_back_map[i].second;
+    //       segment->num_kvs --;
+    //       segment->roll_back_map.pop_back();
+    //     }
+    //     else{
+    //       break;
+    //     }
+    //   }
+    //   // printf("  new_tail  = %p\n", segment->get_tail());
 
-      segment->roll_back_tail(roll_back_sz);
-      segment->update_Bitmap();
-    }
+    //   segment->roll_back_tail(roll_back_sz);
+    //   segment->update_Bitmap();
+    // }
   }
 #else
   // update temp cleaner garbage bytes

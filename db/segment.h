@@ -317,33 +317,33 @@ class LogSegment : public BaseSegment {
 #endif
 #ifdef INTERLEAVED
     uint16_t cur_num = num_kvs;
-#ifdef GC_EVAL
-    gettimeofday(&p1, NULL);
-#endif
+// #ifdef GC_EVAL
+//     gettimeofday(&p1, NULL);
+// #endif
     KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
-#ifdef GC_EVAL
-    gettimeofday(&p2, NULL);
-#endif
+// #ifdef GC_EVAL
+//     gettimeofday(&p2, NULL);
+// #endif
     // roll_back_map.push_back(std::pair<bool, uint32_t>(false, sz));
     // roll_back_map[cur_num] = std::pair<bool, uint32_t>(false, sz);
     roll_back_map[cur_num].first = false;
     roll_back_map[cur_num].second = sz;
-#ifdef GC_EVAL
-    gettimeofday(&p3, NULL);
+// #ifdef GC_EVAL
+//     gettimeofday(&p3, NULL);
+// #endif
     num_kvs ++;
-#endif
 #else
     KVItem *kv = new (tail_) KVItem(key, value, epoch);
 #endif
 #ifdef GC_EVAL
     gettimeofday(&make_new_kv_end, NULL);
     make_new_kv_time += (make_new_kv_end.tv_sec - make_new_kv_start.tv_sec) * 1000000 + (make_new_kv_end.tv_usec - make_new_kv_start.tv_usec);
-#ifdef INTERLEAVED
-    b1 += TIMEDIFF(make_new_kv_start, p1);
-    b2 += TIMEDIFF(p1, p2);
-    b3 += TIMEDIFF(p2, p3);
-    b4 += TIMEDIFF(p3, make_new_kv_end);
-#endif
+// #ifdef INTERLEAVED
+//     b1 += TIMEDIFF(make_new_kv_start, p1);
+//     b2 += TIMEDIFF(p1, p2);
+//     b3 += TIMEDIFF(p2, p3);
+//     b4 += TIMEDIFF(p3, make_new_kv_end);
+// #endif
 #endif
     // printf("Append kv:");
     // printf("  seg_start = %p\n", get_segment_start());
@@ -438,22 +438,22 @@ class LogSegment : public BaseSegment {
 
   void MarkGarbage(char *p, uint32_t sz) {
 #ifdef WRITE_TOMBSTONE
-    // char *t = tail_;
-    // if((uint64_t)p < (uint64_t)data_start_ || (uint64_t)p >= (uint64_t)t)
-    // {
-    //   int idx = (p - data_start_) / BYTES_PER_BIT;
-    //   int byte = idx / 8;
-    //   int bit = idx % 8;
-    //   // printf("roll_bac   = %d\n", roll_back_c);
-    //   printf("p          = %p\n", p);
-    //   printf("data_start = %p\n", data_start_);
-    //   printf("t          = %p\n", t);
-    //   printf("tail_      = %p\n", tail_);
-    //   printf("idx        = %d\n", idx); 
-    //   printf("byte       = %d\n", byte);
-    //   printf("v_tomb     = %d\n", volatile_tombstone_[byte]);
-    //   printf("bit        = %d\n", bit);
-    // }
+    char *t = tail_;
+    if((uint64_t)p < (uint64_t)data_start_ || (uint64_t)p >= (uint64_t)t)
+    {
+      int idx = (p - data_start_) / BYTES_PER_BIT;
+      int byte = idx / 8;
+      int bit = idx % 8;
+      // printf("roll_bac   = %d\n", roll_back_c);
+      printf("p          = %p\n", p);
+      printf("data_start = %p\n", data_start_);
+      printf("t          = %p\n", t);
+      printf("tail_      = %p\n", tail_);
+      printf("idx        = %d\n", idx); 
+      printf("byte       = %d\n", byte);
+      printf("v_tomb     = %d\n", volatile_tombstone_[byte]);
+      printf("bit        = %d\n", bit);
+    }
     assert(p >= data_start_ && p < tail_);
 #ifdef REDUCE_PM_ACCESS
     int idx = (p - data_start_) / BYTES_PER_BIT;
