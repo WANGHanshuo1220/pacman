@@ -15,7 +15,7 @@
 
 // size_t log_size = 1ul << 30;
 // #define log_size 5 * SEGMENT_SIZE
-#define log_size 1ul << 30
+#define log_size 1ul << 23
 int num_workers = 1;
 int num_cleaners = 1;
 std::string db_path = std::string(PMEM_DIR) + "log_kvs";
