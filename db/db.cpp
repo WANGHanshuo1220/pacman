@@ -50,7 +50,8 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
   db_num_cold_segs = log_->num_cold_segments_;
   next_hot_segment_.store(0);
   next_cold_segment_.store(0);
-  roll_back_queue.init(2 * num_workers);
+  roll_back_queue = new CircleQueue(2 * num_workers);
+  // roll_back_queue.init(2 * num_workers);
   printf("start RB Thread\n");
   StartRBThread();
 #endif
@@ -65,14 +66,20 @@ DB::~DB() {
   delete log_;
   delete index_;
   delete g_index_allocator;
+#ifdef INTERLEAVED
+  delete roll_back_queue;
+#endif
   g_index_allocator = nullptr;
+  printf("##############\n");
   if (cur_num_workers_.load() != 0) {
     ERROR_EXIT("%d worker(s) not ending", cur_num_workers_.load());
   }
+  printf("?????????????????\n");
 #ifdef HOT_COLD_SEPARATE
   delete hot_key_set_;
   hot_key_set_ = nullptr;
 #endif
+  printf("****************\n");
 }
 
 void DB::StartCleanStatistics() { log_->StartCleanStatistics(); }
@@ -118,31 +125,35 @@ void DB::NewIndexForRecoveryTest() {
 #ifdef INTERLEAVED
 void DB::roll_back_()
 {
-  LogSegment *segment;
+  LogSegment *segment = NULL;
+  uint32_t roll_back_sz;
+  uint32_t n;
+  int i;
   while (!stop_flag_RB.load(std::memory_order_relaxed))
   {
-    if(segment = deque_roll_back_queue())
+    segment = deque_roll_back_queue();
+    if(segment != NULL)
     {
-      uint32_t roll_back_sz = 0;
-      uint32_t n = segment->num_kvs;
-      roll_back_count ++;
-      for(int i = n - 1; i >= 0; i--)
-      {
-        if(segment->roll_back_map[i].first == true)
-        {
-          roll_back_sz += segment->roll_back_map[i].second;
-          segment->num_kvs --;
-          // segment->roll_back_map[i].first  = false;
-          // segment->roll_back_map[i].second = 0;
-        }
-        else{
-          break;
-        }
-      }
-      // printf("  new_tail  = %p\n", segment->get_tail());
+    //   roll_back_sz = 0;
+    //   n = segment->num_kvs;
+    //   roll_back_count ++;
+    //   for(i = n - 1; i >= 0; i--)
+    //   {
+    //     if(segment->roll_back_map[i].first == true)
+    //     {
+    //       roll_back_sz += segment->roll_back_map[i].second;
+    //       segment->num_kvs --;
+    //       // segment->roll_back_map[i].first  = false;
+    //       // segment->roll_back_map[i].second = 0;
+    //     }
+    //     else{
+    //       break;
+    //     }
+    //   }
+    //   // printf("  new_tail  = %p\n", segment->get_tail());
 
-      segment->roll_back_tail(roll_back_sz);
-      segment->update_Bitmap();
+    //   segment->roll_back_tail(roll_back_sz);
+    //   segment->update_Bitmap();
     }
   }
 }
@@ -501,12 +512,12 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 #endif
     if(hot)
     {
-      accumulative_sz_hot = 0;
+      accumulative_sz_hot = sz;
       db_->log_->set_hot_segment_(hot_seg_working_on, segment);
     }
     else
     {
-      accumulative_sz_cold = 0;
+      accumulative_sz_cold = sz;
       db_->log_->set_cold_segment_(cold_seg_working_on, segment);
     }
 #ifdef GC_EVAL
@@ -580,11 +591,11 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
 #if defined(INTERLEAVED) && defined(REDUCE_PM_ACCESS)
   uint16_t num_ = tp.num;
   // printf("num_ = %d\n", num_);
-  // if(num_ == -1)
-  // {
-  //   printf("num == -1\n");
-  //   num_ = kv->num;
-  // }
+  if(num_ == -1)
+  {
+    printf("num == -1\n");
+    num_ = kv->num;
+  }
 #endif
 #ifdef GC_EVAL
   gettimeofday(&e, NULL);
@@ -609,6 +620,7 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
   get_kv_sz += TIMEDIFF(s1, e1);
 #endif
   int segment_id = db_->log_->GetSegmentID(tp.GetAddr());
+  // printf("segment_id = %d\n", segment_id);
   LogSegment *segment = db_->log_->GetSegment(segment_id);
   segment->MarkGarbage(tp.GetAddr(), sz);
 #ifdef GC_EVAL
@@ -635,31 +647,31 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
   if( n-1 == num_)
   {
     db_->enque_roll_back_queue(segment);
-    // uint32_t roll_back_sz = 0;
-    // if(!segment->is_segment_closed()) // could be ignored to spedup gc runtime
-    // {
-    //   db_->roll_back_count ++;
-    //   segment->roll_back_c ++;
-    //   roll_back_sz += sz;
-    //   segment->num_kvs --;
-    //   segment->roll_back_map.pop_back();
-    //   for(int i = n - 2; i >= 0; i--)
-    //   {
-    //     if(segment->roll_back_map[i].first == true)
-    //     {
-    //       roll_back_sz += segment->roll_back_map[i].second;
-    //       segment->num_kvs --;
-    //       segment->roll_back_map.pop_back();
-    //     }
-    //     else{
-    //       break;
-    //     }
-    //   }
-    //   // printf("  new_tail  = %p\n", segment->get_tail());
+    uint32_t roll_back_sz = 0;
+    if(!segment->is_segment_closed()) // could be ignored to spedup gc runtime
+    {
+      db_->roll_back_count ++;
+      segment->roll_back_c ++;
+      roll_back_sz += sz;
+      segment->num_kvs --;
+      segment->roll_back_map[num_].first = false;
+      for(int i = n - 2; i >= 0; i--)
+      {
+        if(segment->roll_back_map[i].first == true)
+        {
+          roll_back_sz += segment->roll_back_map[i].second;
+          segment->roll_back_map[i].first = false;
+          segment->num_kvs --;
+        }
+        else{
+          break;
+        }
+      }
+      // printf("  new_tail  = %p\n", segment->get_tail());
 
-    //   segment->roll_back_tail(roll_back_sz);
-    //   segment->update_Bitmap();
-    // }
+      segment->roll_back_tail(roll_back_sz);
+      segment->update_Bitmap();
+    }
   }
 #else
   // update temp cleaner garbage bytes

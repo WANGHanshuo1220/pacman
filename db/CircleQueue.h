@@ -14,13 +14,14 @@ private:
     size_t d_maxsize;
     size_t full_times;
     std::vector<LogSegment *> d_arr;
+    // LogSegment **d_arr;
 
 public:
     //默认构造函数
     CircleQueue();
 
     //自定义构造函数
-    // CircleQueue(size_t);
+    CircleQueue(size_t);
     void init(size_t);
 
     //析构函数
@@ -30,10 +31,10 @@ public:
     size_t get_full_times() { return full_times; }
 
     //踢队操作
-    LogSegment *deque();
+    LogSegment *CQ_deque();
 
     //入队操作
-    void enque(LogSegment *);
+    void CQ_enque(LogSegment *);
 
     // //查看队列首端元素
     // LogSegment *front();

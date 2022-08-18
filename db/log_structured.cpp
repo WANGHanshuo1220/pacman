@@ -76,6 +76,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
     }else
     {
       free_segments_.push(all_segments_[i]);
+      all_segments_[i]->set_is_free_seg(true);
     }
 #else
     free_segments_.push(all_segments_[i]);

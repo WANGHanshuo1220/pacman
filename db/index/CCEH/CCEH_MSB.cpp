@@ -107,6 +107,7 @@ CCEH::CCEH(size_t initCap)
 }
 
 CCEH::~CCEH(void) {
+  printf("in ~CCEH\n");
   Segment *prev = nullptr;
   for (unsigned i = 0; i < dir->capacity; ++i) {
     if (dir->_[i] != prev) {
@@ -115,6 +116,7 @@ CCEH::~CCEH(void) {
     }
   }
   delete dir;
+  printf("out ~CCEH\n");
 }
 
 void CCEH::Insert(const Key_t &key, LogEntryHelper &le_helper) {

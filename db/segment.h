@@ -12,7 +12,7 @@
 
 // static constexpr int NUM_HEADERS = 1;
 #ifdef INTERLEAVED
-static constexpr int HEADER_ALIGN_SIZE = 2;
+static constexpr int HEADER_ALIGN_SIZE = 4;
 #else
 static constexpr int HEADER_ALIGN_SIZE = 256;
 #endif
@@ -80,7 +80,7 @@ class BaseSegment {
 
   char *AllocOne(size_t size) {
     char *ret = tail_;
-    if (ret + size <= end_) {
+    if (ret + size < end_) {
       tail_ += size;
       ++cur_cnt_;
       return ret;
@@ -91,7 +91,7 @@ class BaseSegment {
 
   char *AllocSpace(size_t size) {
     char *ret = tail_;
-    if (ret + size <= end_) {
+    if (ret + size < end_) {
       tail_ += size;
       return ret;
     } else {
@@ -106,10 +106,6 @@ class BaseSegment {
   char *get_data_start() { return data_start_; }
 
   char *get_tail() { return tail_; }
-
-#ifdef INTERLEAVED
-  void roll_back_tail(uint32_t sz) { tail_ -= sz; }
-#endif
 
   char *get_end() { return end_; }
 
@@ -212,6 +208,15 @@ class LogSegment : public BaseSegment {
   // printf("-----------------------\n");
 #endif
   }
+
+  void roll_back_tail(uint32_t sz) { 
+    std::lock_guard<SpinLock> guard(tail_lock);
+    tail_ -= sz; 
+  }
+
+  void set_is_free_seg(bool a) { is_free_seg = a; }
+  // void set_has_been_RB(bool a) { has_been_RB = a; }
+
 #endif
 
   void InitShortcutBuffer() {
@@ -252,11 +257,11 @@ class LogSegment : public BaseSegment {
   }
 
   void Close() {
-    if (HasSpaceFor(sizeof(KVItem))) {
-      KVItem *end = new (tail_) KVItem();
-      end->Flush();
-      tail_ += sizeof(KVItem);
-    }
+    // if (HasSpaceFor(sizeof(KVItem))) {
+    //   KVItem *end = new (tail_) KVItem();
+    //   end->Flush();
+    //   tail_ += sizeof(KVItem);
+    // }
 #ifdef GC_SHORTCUT
     if (shortcut_buffer_) {
       assert(tail_ + shortcut_buffer_->size() * sizeof(Shortcut) <= end_);
@@ -320,6 +325,7 @@ class LogSegment : public BaseSegment {
 // #ifdef GC_EVAL
 //     gettimeofday(&p1, NULL);
 // #endif
+    std::lock_guard<SpinLock> guard(tail_lock);
     KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
 // #ifdef GC_EVAL
 //     gettimeofday(&p2, NULL);
@@ -444,7 +450,9 @@ class LogSegment : public BaseSegment {
       int idx = (p - data_start_) / BYTES_PER_BIT;
       int byte = idx / 8;
       int bit = idx % 8;
-      // printf("roll_bac   = %d\n", roll_back_c);
+      printf("is_free_seg= %d\n", is_free_seg);
+      printf("roll_bac   = %d\n", roll_back_c);
+      printf("num_kvs    = %d\n", num_kvs);
       printf("p          = %p\n", p);
       printf("data_start = %p\n", data_start_);
       printf("t          = %p\n", t);
@@ -489,6 +497,12 @@ class LogSegment : public BaseSegment {
   uint8_t *volatile_tombstone_ = nullptr;
 #endif
 
+#ifdef INTERLEAVED
+  SpinLock tail_lock;
+  bool is_free_seg = false;
+  // bool has_been_RB = false;
+#endif
+
   std::atomic<int> garbage_bytes_;
   bool is_hot_ = false;
 
@@ -511,7 +525,14 @@ class VirtualSegment : public BaseSegment {
     tail_ = data_start_;
   }
 
-  ~VirtualSegment() { free(segment_start_); }
+  ~VirtualSegment() { 
+    printf("~VirtualSegemnt begin\n");
+    printf("data_begin = %p (%d)\n", data_start_, *(int *)data_start_);
+    printf("tail_ = %p\n", tail_);
+    printf("end_ = %p\n", end_);
+    free(segment_start_); 
+    printf("~VirtualSegemnt end\n");
+  }
 
   void Clear() {
     tail_ = data_start_;

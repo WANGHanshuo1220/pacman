@@ -3,23 +3,32 @@
 
 CircleQueue::CircleQueue()
 {
-    d_front = d_rear = -1;
+    d_front = -1;
+    d_rear = -1;
     d_size = 0;
     full_times = 0;
+    d_maxsize = DEFAULT_SIZE;
+    d_arr = std::vector<LogSegment *>(d_maxsize);
+    // d_arr = (LogSegment **)malloc(d_maxsize * sizeof(LogSegment *));
     // d_arr = NULL;
 }
 
 //构造函数
-void CircleQueue::init(size_t size)
+CircleQueue::CircleQueue(size_t size)
 {
+    d_front = -1;
+    d_rear = -1;
+    d_size = 0;
+    full_times = 0;
     d_maxsize = (size > DEFAULT_SIZE) ? size : DEFAULT_SIZE;
+    // d_arr = (LogSegment **)malloc(d_maxsize * sizeof(LogSegment *));
     d_arr = std::vector<LogSegment *>(d_maxsize);
 }
 
-//析构函数
+// //析构函数
 CircleQueue::~CircleQueue()
 {
-
+    // free(d_arr);
 }
 
 //检查环形队列是否为满载
@@ -31,11 +40,11 @@ bool CircleQueue::is_full()
 //判断环形队列是否为空
 bool CircleQueue::is_empty()
 {
-    return d_front == -1 || d_rear == -1;
+    return d_front == -1 && d_rear == -1;
 }
 
 //入队操作
-void CircleQueue::enque(LogSegment * value)
+void CircleQueue::CQ_enque(LogSegment * value)
 {
     if (is_full())
     {
@@ -55,13 +64,15 @@ void CircleQueue::enque(LogSegment * value)
     {
         d_rear++;
     }
+    // printf("CQ_enque: d_rear = %ld, d_maxsize = %d\n", d_rear, d_maxsize);
     d_arr[d_rear] = value;
     d_size++;
 }
 
 //踢队操作
-LogSegment *CircleQueue::deque()
+LogSegment *CircleQueue::CQ_deque()
 {
+    // printf("CQ_deque: d_rear = %ld, d_maxsize = %d\n", d_rear, d_maxsize);
     if (is_empty())
     {
         // std::cout << "环形队列为空!!" << std::endl;

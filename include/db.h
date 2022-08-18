@@ -64,17 +64,17 @@ class DB {
 #ifdef INTERLEAVED
     // int num_hot_segments_;
     // int num_cold_segments_;
-    int hot_seg_working_on;
-    int cold_seg_working_on;
+    uint32_t hot_seg_working_on;
+    uint32_t cold_seg_working_on;
 #ifdef LOG_BATCHING
-    int change_seg_threshold = LOG_BATCHING_SIZE;
+    uint32_t change_seg_threshold = LOG_BATCHING_SIZE;
     bool hot_batch_persistent = false;
     bool cold_batch_persistent = false;
 #else
-    int change_seg_threshold = SEGMENT_SIZE / 2;
+    uint64_t change_seg_threshold = SEGMENT_SIZE / 2;
 #endif
-    int accumulative_sz_hot = 0;
-    int accumulative_sz_cold = 0;
+    uint32_t accumulative_sz_hot = 0;
+    uint32_t accumulative_sz_cold = 0;
     // int roll_back_count = 0;
 #endif
 
@@ -140,8 +140,8 @@ class DB {
   }
 
   // bool is_roll_back_list_empty() { return roll_back_list.empty(); }
-  void enque_roll_back_queue(LogSegment * s) { roll_back_queue.enque(s); }
-  LogSegment *deque_roll_back_queue() { roll_back_queue.deque(); }
+  void enque_roll_back_queue(LogSegment * s) { roll_back_queue->CQ_enque(s); }
+  LogSegment *deque_roll_back_queue() { return roll_back_queue->CQ_deque(); }
 
 
   std::pair<int, LogSegment **> get_hot_segment()
@@ -183,7 +183,7 @@ class DB {
   std::queue<LogSegment *> roll_back_list;
   std::thread roll_back_thread_;
   std::atomic<bool> stop_flag_RB{false};
-  CircleQueue roll_back_queue; 
+  CircleQueue *roll_back_queue; 
 #endif
   Index *index_;
   LogStructured *log_;

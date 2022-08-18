@@ -81,10 +81,10 @@ void job2()
   db = new DB(db_path, log_size, num_workers, num_cleaners);
   std::unique_ptr<DB::Worker> worker = db->GetWorker();
   init_zipf();
-  std::map<uint64_t, std::string> kvs;
   printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
-  std::string val;
-  std::string res;
+  // std::map<std::string, std::string> kvs;
+  // std::string val;
+  // std::string res;
   uint64_t key;
   long insert_time = 0;
   for(uint64_t i = 0; i < NUM_KVS; i++)
@@ -92,7 +92,8 @@ void job2()
     key = zipf();
     std::string value = "hello world 22-08-16:" + std::to_string(i%100);
     // std::string value = "hello world     " + std::to_string(i%100);
-    kvs[key] = value;
+    value.resize(48);
+    // kvs[key_s] = value;
     gettimeofday(&start, NULL);
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
     gettimeofday(&checkpoint1, NULL);
@@ -101,40 +102,43 @@ void job2()
 
   printf("insert time : \t%ld us \t(%ld s)\n", insert_time, insert_time/1000000);
 
-  printf("\nstart checking...\n");
-  std::string val_;
-  uint64_t key_;
-  int find_kvs = 0;
-  int false_kv = 0;
-  bool c = true;
-  for(uint64_t i = 1; i <= dup_rate; i++)
-  {
-    key_ = i;
-    worker->Get(Slice((const char *)&key_, sizeof(uint64_t)), &val_);
-    if( kvs.find(key_) != kvs.end())
-    {
-      find_kvs ++;
-      if(kvs[key_].compare(val_) != 0)
-      {
-        // printf("kvs not equal, key_ = %d\n", key_);
-        // std::cout << "  kvs not equal. key_ = " << key_ << std::endl;
-        // std::cout << "    right_val = " << kvs[key_] << std::endl;
-        // std::cout << "    db_val = " << val_ << std::endl;
-        false_kv ++;
-        c = false;
-      }
-    }
-  }
+  // printf("\nstart checking...\n");
+  // std::string val_;
+  // uint64_t key_;
+  // int find_kvs = 0;
+  // int false_kv = 0;
+  // bool c = true;
+  // for(uint64_t i = 1; i <= dup_rate; i++)
+  // {
+  //   key_ = i;
+  //   worker->Get(Slice((const char *)&key_, sizeof(uint64_t)), &val_);
+  //   if( kvs.find(key_) != kvs.end())
+  //   {
+  //     find_kvs ++;
+  //     if(kvs[key_].compare(val_) != 0)
+  //     {
+  //       // printf("kvs not equal, key_ = %d\n", key_);
+  //       // std::cout << "  kvs not equal. key_ = " << key_ << std::endl;
+  //       // std::cout << "    right_val = " << kvs[key_] << std::endl;
+  //       // std::cout << "    db_val = " << val_ << std::endl;
+  //       false_kv ++;
+  //       c = false;
+  //     }
+  //   }
+  // }
 
-  if(c)
-  {
-    std::cout << "all kvs correct: " << find_kvs << std::endl;
-  }else
-  {
-    std::cout << "some kvs incorrect: " << false_kv << std::endl;
-  }
+  // if(c)
+  // {
+  //   std::cout << "all kvs correct: " << find_kvs << std::endl;
+  // }else
+  // {
+  //   std::cout << "some kvs incorrect: " << false_kv << std::endl;
+  // }
+  printf("worker reset\n");
   worker.reset();
+  printf("delete db\n");
   delete db;
+  printf("delete db done\n");
 }
 
 std::map<uint64_t, std::string> kvs;

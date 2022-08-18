@@ -75,7 +75,9 @@ class LogCleaner {
       get_cleaner_id(), show_GC_times(), show_GC_timecost(), clean_time_ns_);
 #endif
 #ifdef BATCH_COMPACTION
+    printf("delete volatile_segment_\n");
     delete volatile_segment_;
+    printf("delete volatile_segment_ done\n");
 #endif
     LOG("cleaner %d: clean %d (hot %d cold %d) flush_pass %d move %d "
         "move_garbage %d shortcut_cnt %d fast_path %d (%.1lf%%) pick_time %lu "
