@@ -12,7 +12,7 @@
 
 // static constexpr int NUM_HEADERS = 1;
 #ifdef INTERLEAVED
-static constexpr int HEADER_ALIGN_SIZE = 4;
+static constexpr int HEADER_ALIGN_SIZE = 256;
 #else
 static constexpr int HEADER_ALIGN_SIZE = 256;
 #endif
@@ -40,6 +40,7 @@ class BaseSegment {
 
     void Flush() {
 #ifdef LOG_PERSISTENT
+      printf("sizeof(header) = %ld\n", sizeof(Header));
       clflushopt_fence(this, sizeof(Header));
 #endif
     }
@@ -278,6 +279,7 @@ class LogSegment : public BaseSegment {
     // header_->objects_tail_offset = get_offset();
     header_->has_shortcut = has_shortcut_;
     header_->Flush();
+    printf("after close tail pointer = %p (data_start = %p)\n", tail_, data_start_);
   }
 
   void Clear() {
@@ -310,9 +312,20 @@ class LogSegment : public BaseSegment {
 
   // append kv to log
   ValueType Append(const Slice &key, const Slice &value, uint32_t epoch) {
+#ifdef INTERLEAVED
+    printf("seg info:\n");
+    printf(" data_start = %p\n", data_start_);
+    printf(" tail_ = %p\n", tail_);
+    printf(" num_kvs = %d\n", num_kvs);
+    printf(" roll_back_c = %d\n", roll_back_c);
+    // for(int i = 0; i < num_kvs; i++)
+    // {
+    //   printf("      %dth kv: is_gb = %d, sz = %d\n", i, roll_back_map[i].first, roll_back_map[i].second);
+    // }
+#endif
     uint32_t sz = sizeof(KVItem) + key.size() + value.size();
     if (!HasSpaceFor(sz)) {
-      // printf("segment has no space\n");
+      printf("segment has no space\n");
       return INVALID_VALUE;
     }
 #ifdef GC_EVAL
@@ -450,9 +463,11 @@ class LogSegment : public BaseSegment {
       int idx = (p - data_start_) / BYTES_PER_BIT;
       int byte = idx / 8;
       int bit = idx % 8;
+#ifdef INTERLEAVED
       printf("is_free_seg= %d\n", is_free_seg);
       printf("roll_bac   = %d\n", roll_back_c);
       printf("num_kvs    = %d\n", num_kvs);
+#endif
       printf("p          = %p\n", p);
       printf("data_start = %p\n", data_start_);
       printf("t          = %p\n", t);
@@ -461,6 +476,7 @@ class LogSegment : public BaseSegment {
       printf("byte       = %d\n", byte);
       printf("v_tomb     = %d\n", volatile_tombstone_[byte]);
       printf("bit        = %d\n", bit);
+      sleep(2);
     }
     assert(p >= data_start_ && p < tail_);
 #ifdef REDUCE_PM_ACCESS

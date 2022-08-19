@@ -115,6 +115,9 @@ class LogCleaner {
   }
 
   void StopThread() {
+    printf("11111\n");
+    printf("gc_thread_ = %d\n", gc_thread_.joinable());
+    printf("22222\n");
     if (gc_thread_.joinable()) {
       gc_thread_.join();
     }

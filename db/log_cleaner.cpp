@@ -29,6 +29,7 @@ void LogCleaner::CleanerEntry() {
       struct timeval start;
       gettimeofday(&start, NULL);
 #endif
+      // printf("******************do memorycleaning***************\n");
       DoMemoryClean();
 #ifdef GC_EVAL
       struct timeval end;
@@ -46,16 +47,17 @@ bool LogCleaner::NeedCleaning()
 {
   uint64_t org_num_free_segments = log_->num_segments_ - log_->num_hot_segments_
                             - log_->num_cold_segments_ - log_->num_cleaners_;
-  uint64_t org_free_per_cleaner = 
-      org_num_free_segments *
-      LogSegment::SEGMENT_DATA_SIZE / log_->num_cleaners_;
-  uint64_t free_per_cleaner = 
-      log_->num_free_segments_ *
-      LogSegment::SEGMENT_DATA_SIZE / log_->num_cleaners_;
+  // uint64_t org_free_per_cleaner = 
+  //     org_num_free_segments *
+  //     LogSegment::SEGMENT_DATA_SIZE / log_->num_cleaners_;
+  // uint64_t free_per_cleaner = 
+  //     log_->num_free_segments_ *
+  //     LogSegment::SEGMENT_DATA_SIZE / log_->num_cleaners_;
   
   double threshold = (double)log_->clean_threshold_ / 100;
 
-  return ((double)free_per_cleaner / org_free_per_cleaner) < threshold;
+  // return ((double)free_per_cleaner / org_free_per_cleaner) < threshold;
+  return (double)(log_->num_free_segments_ / org_num_free_segments) < threshold;
   // return !is_closed_hotcold_segment_empty();
 }
 #else
