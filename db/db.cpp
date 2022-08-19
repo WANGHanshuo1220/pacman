@@ -251,7 +251,7 @@ bool DB::Worker::Get(const Slice &key, std::string *value) {
 *    3. update index
 */
 void DB::Worker::Put(const Slice &key, const Slice &value) {
-  printf("###############Put###############\n");
+  // printf("###############Put###############\n");
 
   // sub-opr 1 : check the hotness of the key;
 #ifdef GC_EVAL
@@ -461,25 +461,25 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     accumulative_sz_hot += sz;
     if(accumulative_sz_hot > change_seg_threshold)
     {
-      printf("change hot segemnt\n");
+      // printf("change hot segemnt\n");
       std::pair<int, LogSegment **> hot = db_->get_hot_segment();
       log_head_ = *hot.second;
       hot_seg_working_on = hot.first;
       accumulative_sz_hot = sz;
     }
-    printf("hot %dth seg\n", hot_seg_working_on);
+    // printf("hot %dth seg\n", hot_seg_working_on);
   }
   else {
     accumulative_sz_cold += sz;
     if(accumulative_sz_cold > change_seg_threshold)
     {
-      printf("change cold segemnt\n");
+      // printf("change cold segemnt\n");
       std::pair<int, LogSegment **> cold = db_->get_cold_segment();
       cold_log_head_ = *cold.second;
       cold_seg_working_on = cold.first;
       accumulative_sz_cold = sz;
     }
-    printf("cold %dth seg\n", cold_seg_working_on);
+    // printf("cold %dth seg\n", cold_seg_working_on);
   }
 #endif
 
@@ -507,8 +507,11 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 #endif
   while (segment == nullptr ||
          (ret = segment->Append(key, value, epoch)) == INVALID_VALUE) {
+    LogSegment *test = segment;
+    test->get_seg_info();
     FreezeSegment(segment);
     segment = db_->log_->NewSegment(hot);
+    test->get_seg_info();
     // printf("New Segment\n");
 #ifdef INTERLEAVED
 #ifdef GC_EVAL
@@ -518,13 +521,14 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     if(hot)
     {
       accumulative_sz_hot = sz;
-      db_->log_->set_hot_segment_(hot_seg_working_on, segment);
+      db_->log_->set_hot_segment_(hot_seg_working_on, log_head_);
     }
     else
     {
       accumulative_sz_cold = sz;
-      db_->log_->set_cold_segment_(cold_seg_working_on, segment);
+      db_->log_->set_cold_segment_(cold_seg_working_on, cold_log_head_);
     }
+    test->get_seg_info();
 #ifdef GC_EVAL
     gettimeofday(&e1, NULL);
     set_seg_time += TIMEDIFF(s1, e1);

@@ -12,7 +12,7 @@
 
 // static constexpr int NUM_HEADERS = 1;
 #ifdef INTERLEAVED
-static constexpr int HEADER_ALIGN_SIZE = 256;
+static constexpr int HEADER_ALIGN_SIZE = 4;
 #else
 static constexpr int HEADER_ALIGN_SIZE = 256;
 #endif
@@ -40,7 +40,7 @@ class BaseSegment {
 
     void Flush() {
 #ifdef LOG_PERSISTENT
-      printf("sizeof(header) = %ld\n", sizeof(Header));
+      // printf("sizeof(header) = %ld\n", sizeof(Header));
       clflushopt_fence(this, sizeof(Header));
 #endif
     }
@@ -233,6 +233,7 @@ class LogSegment : public BaseSegment {
   }
 
   virtual ~LogSegment() {
+    printf("called ~LogSegment\n");
 #ifdef REDUCE_PM_ACCESS
     if (volatile_tombstone_) {
       free(volatile_tombstone_);
@@ -310,14 +311,26 @@ class LogSegment : public BaseSegment {
 #endif
   }
 
+  bool cleaned = false;
+  void has_been_cleaned()
+  {
+    cleaned = true;
+  }
+
+  void get_seg_info()
+  {
+    printf("seg info:\n");
+    printf("    data_start       = %p\n", data_start_);
+    printf("    tail_            = %p\n", tail_);
+    printf("    num_kvs          = %d\n", num_kvs);
+    printf("    roll_back_c      = %d\n", roll_back_c);
+    printf("    has_been_cleaned = %d\n", cleaned);
+  }
+
   // append kv to log
   ValueType Append(const Slice &key, const Slice &value, uint32_t epoch) {
 #ifdef INTERLEAVED
-    printf("seg info:\n");
-    printf(" data_start = %p\n", data_start_);
-    printf(" tail_ = %p\n", tail_);
-    printf(" num_kvs = %d\n", num_kvs);
-    printf(" roll_back_c = %d\n", roll_back_c);
+    // get_seg_info();
     // for(int i = 0; i < num_kvs; i++)
     // {
     //   printf("      %dth kv: is_gb = %d, sz = %d\n", i, roll_back_map[i].first, roll_back_map[i].second);
@@ -467,6 +480,7 @@ class LogSegment : public BaseSegment {
       printf("is_free_seg= %d\n", is_free_seg);
       printf("roll_bac   = %d\n", roll_back_c);
       printf("num_kvs    = %d\n", num_kvs);
+      printf("cleaned    = %d\n", cleaned);
 #endif
       printf("p          = %p\n", p);
       printf("data_start = %p\n", data_start_);
@@ -476,7 +490,6 @@ class LogSegment : public BaseSegment {
       printf("byte       = %d\n", byte);
       printf("v_tomb     = %d\n", volatile_tombstone_[byte]);
       printf("bit        = %d\n", bit);
-      sleep(2);
     }
     assert(p >= data_start_ && p < tail_);
 #ifdef REDUCE_PM_ACCESS

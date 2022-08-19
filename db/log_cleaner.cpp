@@ -247,6 +247,7 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment) {
 // CompactSegment is used if not defined BATCH_COMPACTION
 void LogCleaner::CompactSegment(LogSegment *segment) {
   // printf("in compactsegment\n");
+  segment->has_been_cleaned();
   char *p = segment->get_data_start();
   char *tail = segment->get_tail();
   std::vector<char *> flush_addr;
