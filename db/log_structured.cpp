@@ -155,6 +155,7 @@ LogSegment *LogStructured::NewSegment(bool hot) {
     // printf("new segment (%ld)\n", new_count ++);
 #endif
     if (num_free_segments_ > 0) {
+      // printf("new segment\n");
       std::lock_guard<SpinLock> guard(free_list_lock_);
       if (!free_segments_.empty()) {
         ret = free_segments_.front();
@@ -163,6 +164,7 @@ LogSegment *LogStructured::NewSegment(bool hot) {
         ret->set_using();
       }
     } else {
+      // printf("no new segment\n");
       if (num_cleaners_ == 0) {
         ERROR_EXIT("No free segments and no cleaners");
       }
