@@ -76,6 +76,7 @@ class LogStructured {
   int num_cold_segments_;
   std::vector<LogSegment *> cold_segments_;
   std::vector<LogSegment *> hot_segments_;
+  uint64_t new_count = 0;
 #endif
   // std::queue<LogSegment *> reserved_segments_;
 

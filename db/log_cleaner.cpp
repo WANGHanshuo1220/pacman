@@ -11,8 +11,6 @@
   #include <sys/time.h>
   #define TIMEDIFF(s, e) (e.tv_sec - s.tv_sec) * 1000000 + (e.tv_usec - s.tv_usec) //us
   #define TEST_CPU_TIME 1 // 1 for cpu time, 0 for real time
-#else
-  #define TIMEDIFF(s, e) 1
 #endif
 
 void LogCleaner::CleanerEntry() {
@@ -24,18 +22,18 @@ void LogCleaner::CleanerEntry() {
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning()) {
       Timer timer(clean_time_ns_);
-#ifdef GC_EVAL
+// #ifdef GC_EVAL
       GC_times.fetch_add(1, std::memory_order_relaxed);
-      struct timeval start;
-      gettimeofday(&start, NULL);
-#endif
+//       struct timeval start;
+//       gettimeofday(&start, NULL);
+// #endif
       // printf("******************do memorycleaning***************\n");
       DoMemoryClean();
-#ifdef GC_EVAL
-      struct timeval end;
-      gettimeofday(&end, NULL);
-      GC_timecost.fetch_add(TIMEDIFF(start, end), std::memory_order_relaxed);
-#endif
+// #ifdef GC_EVAL
+//       struct timeval end;
+//       gettimeofday(&end, NULL);
+//       GC_timecost.fetch_add(TIMEDIFF(start, end), std::memory_order_relaxed);
+// #endif
     } else {
       usleep(10);
     }
@@ -57,7 +55,7 @@ bool LogCleaner::NeedCleaning()
   double threshold = (double)log_->clean_threshold_ / 100;
 
   // return ((double)free_per_cleaner / org_free_per_cleaner) < threshold;
-  return (double)(log_->num_free_segments_ / org_num_free_segments) < threshold;
+  return ((double)log_->num_free_segments_ / org_num_free_segments) < threshold;
   // return !is_closed_hotcold_segment_empty();
 }
 #else
@@ -176,12 +174,17 @@ void LogCleaner::BatchIndexUpdate() {
 }
 
 void LogCleaner::CopyValidItemToBuffer(LogSegment *segment) {
+  
   char *p = const_cast<char *>(segment->get_data_start());
   char *tail = segment->get_tail();
 #ifdef GC_SHORTCUT
   bool has_shortcut = segment->HasShortcut();
   Shortcut *shortcuts = (Shortcut *)tail;
 #endif
+#ifdef INTERLEAVED
+  uint64_t num_old = 0;
+#endif
+  // printf("tail = %p\n", tail);
   while (p < tail) {
     Shortcut sc;
 #ifdef GC_SHORTCUT
@@ -212,15 +215,29 @@ void LogCleaner::CopyValidItemToBuffer(LogSegment *segment) {
       uint64_t offset = cur - volatile_segment_->get_data_start();
       char *new_addr = reserved_segment_->get_data_start() + offset;
       Slice key_slice = ((KVItem *)cur)->GetKey();
-      valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz, -1),
-                                TaggedPointer(new_addr, sz, -1), sz, sc);
+#ifdef INTERLEAVED
+      valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz, num_old),
+                                TaggedPointer(new_addr, sz, num_new), sz, sc);
+      num_new ++;
+#else
+      valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz),
+                                TaggedPointer(new_addr, sz), sz, sc);
+#endif
     }
     p += sz;
+#ifdef INTERLEAVED
+    num_old ++;
+#endif
   }
 }
 
 // Batch Compact if defined BATCH_COMPACTION
 void LogCleaner::BatchCompactSegment(LogSegment *segment) {
+  // printf("in BatchCompaction\n");
+#ifdef INTERLEAVED
+  if(!segment->is_segment_cleaning()) segment->set_cleaning();
+  assert(segment->is_segment_cleaning());
+#endif
   // copy to DRAM buffer
   CopyValidItemToBuffer(segment);
   // flush reserved segment and update reference
@@ -246,8 +263,12 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment) {
 
 // CompactSegment is used if not defined BATCH_COMPACTION
 void LogCleaner::CompactSegment(LogSegment *segment) {
+#ifdef INTERLEAVED
+  if(!segment->is_segment_cleaning()) segment->set_cleaning();
+  assert(segment->is_segment_cleaning());
+#endif
   // printf("in compactsegment\n");
-  segment->has_been_cleaned();
+  // segment->has_been_cleaned();
   char *p = segment->get_data_start();
   char *tail = segment->get_tail();
   std::vector<char *> flush_addr;
@@ -255,7 +276,9 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
   bool has_shortcut = segment->HasShortcut();
   Shortcut *shortcuts = (Shortcut *)tail;
 #endif
-  // printf("11111\n");
+#ifdef INTERLEAVED
+  uint64_t num_old = 0;
+#endif
   while (p < tail) {
     KVItem *kv = reinterpret_cast<KVItem *>(p);
     uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
@@ -284,8 +307,13 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
           kv->GetKey(), kv->GetValue(), kv->epoch, &persist_cnt);
       TIMER_STOP_LOGGING(copy_time_);
       Slice key_slice = TaggedPointer(new_val).GetKVItem()->GetKey();
+#ifdef INTERLEAVED
+      valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz, num_new++),
+                                new_val, sz, sc);
+#else
       valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz),
                                 new_val, sz, sc);
+#endif
 #else // not LOG_BATCHING
       Slice key = kv->GetKey();
       Slice data = kv->GetValue();
@@ -293,7 +321,11 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
       ValueType val = reserved_segment_->Append(key, data, kv->epoch);
       TIMER_STOP_LOGGING(copy_time_);
       LogEntryHelper le_helper(val);
-      le_helper.old_val = TaggedPointer(p, sz, -1);
+#ifdef INTERLEAVED
+      le_helper.old_val = TaggedPointer(p, sz, num_old);
+#else
+      le_helper.old_val = TaggedPointer(p, sz);
+#endif
       le_helper.shortcut = sc;
       TIMER_START_LOGGING(update_index_time_);
       db_->index_->GCMove(key, le_helper);
@@ -327,6 +359,9 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
 #endif  // end of #IF LOG_BATCHING
     }
     p += sz;
+#ifdef INTERLEAVED
+    num_old ++;
+#endif
   }
   // printf("??????\n");
 
@@ -345,7 +380,9 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
 #endif
 #endif
   // wait for a grace period
+  // printf("wait for rcu_varrier\n");
   db_->thread_status_.rcu_barrier();
+  // printf("######## enter rcu_varrier #########\n");
 
   ++clean_seg_count_;
   segment->Clear();
@@ -354,6 +391,9 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
   } else {
     std::lock_guard<SpinLock> guard(log_->free_list_lock_);
     log_->free_segments_.push(segment);
+#ifdef INTERLEAVED
+    printf("free_segment ++ (%ld)\n", free_count++);
+#endif
     ++log_->num_free_segments_;
   }
   // printf("end compactsegment\n");
@@ -371,9 +411,46 @@ void LogCleaner::FreezeReservedAndGetNew() {
   }
   reserved_segment_ = backup_segment_;
   reserved_segment_->StartUsing(false, false);
+  reserved_segment_->set_reserved();
   backup_segment_ = nullptr;
+#ifdef INTERLEAVED
+  num_new = 0;
+#endif
 }
 
+#ifdef INTERLEAVED
+void LogCleaner::DoMemoryClean()
+{
+  LockUsedList();
+  to_compact_hot_segments_.splice(to_compact_hot_segments_.end(),
+                                  closed_hot_segments_);
+  UnlockUsedList();
+  LogSegment *segment = NULL;
+  if(!to_compact_hot_segments_.empty())
+  {
+    segment = *to_compact_hot_segments_.begin();
+    to_compact_hot_segments_.erase(to_compact_hot_segments_.begin());
+  }
+  else{
+    LockUsedList();
+    to_compact_cold_segments_.splice(to_compact_cold_segments_.end(),
+                                     closed_cold_segments_);
+    UnlockUsedList();
+    if(!to_compact_cold_segments_.empty())
+    {
+      segment = to_compact_cold_segments_.begin()->segment;
+      to_compact_cold_segments_.erase(to_compact_cold_segments_.begin());
+    }
+  }
+  while(segment->is_segment_RB());
+  segment->set_cleaning();
+#ifdef BATCH_COMPACTION
+    BatchCompactSegment(segment);
+#else
+    CompactSegment(segment);
+#endif
+}
+#else
 void LogCleaner::DoMemoryClean() {
   // printf("in domemoryclean\n");
   TIMER_START_LOGGING(pick_time_);
@@ -478,6 +555,7 @@ void LogCleaner::DoMemoryClean() {
 #endif
   // printf("end domemoryclean\n");
 }
+#endif
 
 void LogCleaner::MarkGarbage(ValueType tagged_val) {
   TaggedPointer tp(tagged_val);

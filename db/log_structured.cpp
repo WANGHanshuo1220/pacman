@@ -69,13 +69,20 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
     all_segments_[i] =
         new LogSegment(pool_start_ + i * SEGMENT_SIZE, SEGMENT_SIZE);
 #ifdef INTERLEAVED
-    if(i < num_cold_segments_) cold_segments_.push_back(all_segments_[i]);
+    if(i < num_cold_segments_) 
+    {
+      cold_segments_.push_back(all_segments_[i]);
+      all_segments_[i]->set_using();
+    }
     else if(i < num_cold_segments_ + num_hot_segments_)
     {
       hot_segments_.push_back(all_segments_[i]);
-    }else
+      all_segments_[i]->set_using();
+    }
+    else
     {
       free_segments_.push(all_segments_[i]);
+      all_segments_[i]->set_available();
       all_segments_[i]->set_is_free_seg(true);
     }
 #else
@@ -88,6 +95,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
     all_segments_[i] =
         new LogSegment(pool_start_ + i * SEGMENT_SIZE, SEGMENT_SIZE);
     log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i]);
+    all_segments_[i]->set_reserved();
   }
   for (int j = 0; j < num_cleaners_; j++) {
     log_cleaners_[j]->StartGCThread();
@@ -143,12 +151,16 @@ LogSegment *LogStructured::NewSegment(bool hot) {
   // uint64_t waiting_time = 0;
   // TIMER_START(waiting_time);
   while (true) {
+#ifdef INTERLEAVED
+    // printf("new segment (%ld)\n", new_count ++);
+#endif
     if (num_free_segments_ > 0) {
       std::lock_guard<SpinLock> guard(free_list_lock_);
       if (!free_segments_.empty()) {
         ret = free_segments_.front();
         free_segments_.pop();
         --num_free_segments_;
+        ret->set_using();
       }
     } else {
       if (num_cleaners_ == 0) {

@@ -95,7 +95,11 @@ void LogCleaner::RecoveryInfo() {
         if (sz == sizeof(KVItem)) {
           break;
         }
+#ifdef INTERLEAVED
         ValueType val = TaggedPointer((char *)kv, sz, 0);
+#else
+        ValueType val = TaggedPointer((char *)kv, sz);
+#endif
         Slice key = kv->GetKey();
         ValueType real_val = db_->index_->Get(key);
         if (val != real_val) {
@@ -164,7 +168,11 @@ void LogCleaner::RecoveryAll() {
         if (sz == sizeof(KVItem)) {
           break;
         }
+#ifdef INTERLEAVED
         ValueType val = TaggedPointer((char *)kv, sz, i++);
+#else
+        ValueType val = TaggedPointer((char *)kv, sz);
+#endif
         Slice key = kv->GetKey();
         LogEntryHelper le_helper(val);
         db_->index_->Put(key, le_helper);

@@ -76,7 +76,7 @@ LogSegment *CircleQueue::CQ_deque()
     if (is_empty())
     {
         // std::cout << "环形队列为空!!" << std::endl;
-        return NULL;
+        return nullptr;
     }
 
     LogSegment * data = d_arr[d_front];

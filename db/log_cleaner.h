@@ -12,7 +12,7 @@
 class LogCleaner {
  public:
   std::atomic<size_t> cleaner_garbage_bytes_{0};
-#ifdef GC_EVAL
+// #ifdef GC_EVAL
   std::atomic<int> GC_times = 0;
   std::atomic<long> GC_timecost = 0; // us
   int get_cleaner_id() { return cleaner_id_; }
@@ -24,7 +24,7 @@ class LogCleaner {
   { 
     return GC_timecost.load(std::memory_order_relaxed);
   }
-#endif
+// #endif
 
   // clean statistics
 #ifdef LOGGING
@@ -62,6 +62,7 @@ class LogCleaner {
     tmp_cleaner_garbage_bytes_.resize(db->num_cleaners_, 0);
     if (reserved_segment_) {
       reserved_segment_->StartUsing(false, false);
+      reserved_segment_->set_reserved();
     }
 #ifdef BATCH_COMPACTION
     volatile_segment_ = new VirtualSegment(SEGMENT_SIZE);
@@ -70,14 +71,14 @@ class LogCleaner {
   }
 
   ~LogCleaner() {
-#ifdef GC_EVAL
-    printf("%dth cleaner: GC_times = %d, GC_timecost = %ldus, clean_time_ns_ = %ld\n",
-      get_cleaner_id(), show_GC_times(), show_GC_timecost(), clean_time_ns_);
-#endif
+// #ifdef GC_EVAL
+    printf("%dth cleaner: GC_times = %d, clean_time_ns_ = %ldns (%ld s)\n",
+      get_cleaner_id(), show_GC_times(), clean_time_ns_, clean_time_ns_/1000000000);
+// #endif
 #ifdef BATCH_COMPACTION
-    printf("delete volatile_segment_\n");
+    // printf("delete volatile_segment_\n");
     delete volatile_segment_;
-    printf("delete volatile_segment_ done\n");
+    // printf("delete volatile_segment_ done\n");
 #endif
     LOG("cleaner %d: clean %d (hot %d cold %d) flush_pass %d move %d "
         "move_garbage %d shortcut_cnt %d fast_path %d (%.1lf%%) pick_time %lu "
@@ -115,9 +116,6 @@ class LogCleaner {
   }
 
   void StopThread() {
-    printf("11111\n");
-    printf("gc_thread_ = %d\n", gc_thread_.joinable());
-    printf("22222\n");
     if (gc_thread_.joinable()) {
       gc_thread_.join();
     }
@@ -177,6 +175,11 @@ class LogCleaner {
   std::list<LogSegment *> closed_hot_segments_;
   std::list<LogSegment *> to_compact_hot_segments_;
   SpinLock list_lock_;
+
+#ifdef INTERLEAVED
+  uint64_t free_count = 0;
+  uint64_t num_new = 0;
+#endif
 
   bool IsGarbage(KVItem *kv) {
 #ifdef WRITE_TOMBSTONE
