@@ -16,7 +16,7 @@ class DBFixture : public BaseFixture {
   DB *db_ = nullptr;
 
   virtual void OpenDB(benchmark::State &st) override {
-    printf("OpenDB\n");
+    // printf("OpenDB\n");
     if (st.thread_index() == 0) {
       if (db_ != nullptr) {
         ERROR_EXIT("barrier error");
@@ -67,12 +67,12 @@ class DBFixture : public BaseFixture {
       std::experimental::filesystem::remove_all(db_path);
       std::experimental::filesystem::create_directory(db_path);
 
-      printf("db size = %ld\n", total_size);
+      // printf("db size = %ld\n", total_size);
       db_ = new DB(db_path, total_size, num_threads, num_gc_threads);
     }
 
     barrier.Wait(st.threads());
-    printf("get worker\n");
+    // printf("get worker\n");
     worker = db_->GetWorker();
   }
 

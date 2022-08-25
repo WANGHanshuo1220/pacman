@@ -51,8 +51,9 @@ FILTER="--benchmark_filter=/(80)/.*/threads:(24)$"
 SKEW="true" # true (Zipfian), false (uniform)
 
 NUMA_AFFINITY=0
-NUM_KEYS=200000000
-NUM_OPS_PER_THREAD=20000000
+#NUM_KEYS=200000000
+NUM_KEYS=20000
+NUM_OPS_PER_THREAD=NUM_KEYS
 
 mkdir -p ../results
 mkdir -p ../build
@@ -91,7 +92,8 @@ for workload in "${WORKLOAD_TYPE[@]}"; do
   cmake -DCMAKE_BUILD_TYPE=Release -DUSE_NUMA_NODE=${NUMA_AFFINITY} \
     ${WITH_OTHERS} -DINDEX_TYPE=${INDEX_TYPE} ${IDX_PERSISTENT} ${PACMAN_OPT} \
     -DNUM_KEYS=${NUM_KEYS} -DNUM_OPS_PER_THREAD=${NUM_OPS_PER_THREAD} \
-    -DNUM_GC_THREADS=4 -DYCSB_TYPE=${workload} -DSKEW=${SKEW} -DLOG_BATCHING=ON ..
+    -DNUM_GC_THREADS=4 -DYCSB_TYPE=${workload} -DSKEW=${SKEW} \
+    -DLOG_BATCHING=OFF -DBATCH_COMPACTION=OFF -DGC_EVAL=OFF ..
   make ${TARGET} -j
 
   # clean cache

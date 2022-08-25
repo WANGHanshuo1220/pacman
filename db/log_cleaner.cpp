@@ -208,7 +208,7 @@ void LogCleaner::CopyValidItemToBuffer(LogSegment *segment) {
       FreezeReservedAndGetNew();
       volatile_segment_->Clear();
     }
-    if (!IsGarbage(kv)) {
+    if (!IsGarbage(kv, num_old)) {
       // copy item to buffer
       char *cur = volatile_segment_->AllocOne(sz);
       memcpy(cur, kv, sz);
@@ -263,10 +263,7 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment) {
 
 // CompactSegment is used if not defined BATCH_COMPACTION
 void LogCleaner::CompactSegment(LogSegment *segment) {
-#ifdef INTERLEAVED
-  if(!segment->is_segment_cleaning()) segment->set_cleaning();
-  assert(segment->is_segment_cleaning());
-#endif
+  while(segment->is_segment_RB());
   // printf("in compactsegment\n");
   // segment->has_been_cleaned();
   char *p = segment->get_data_start();
@@ -296,7 +293,7 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
     }
 #endif
     TIMER_START_LOGGING(check_liveness_time_);
-    bool is_garbage = IsGarbage(kv);
+    bool is_garbage = IsGarbage(kv, num_old);
     TIMER_STOP_LOGGING(check_liveness_time_);
     if (!is_garbage) {
 #ifdef LOG_BATCHING
@@ -391,9 +388,9 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
   } else {
     std::lock_guard<SpinLock> guard(log_->free_list_lock_);
     log_->free_segments_.push(segment);
-#ifdef INTERLEAVED
-    printf("free_segment ++ (%ld)\n", free_count++);
-#endif
+// #ifdef INTERLEAVED
+//     printf("free_segment ++ (%ld)\n", free_count++);
+// #endif
     ++log_->num_free_segments_;
   }
   // printf("end compactsegment\n");
@@ -442,8 +439,10 @@ void LogCleaner::DoMemoryClean()
       to_compact_cold_segments_.erase(to_compact_cold_segments_.begin());
     }
   }
-  while(segment->is_segment_RB());
+  // segment->lock();
+  // std::lock_guard<std::mutex> lock(segment->seg_lock);
   segment->set_cleaning();
+  // segment->unlock();
 #ifdef BATCH_COMPACTION
     BatchCompactSegment(segment);
 #else
@@ -559,23 +558,29 @@ void LogCleaner::DoMemoryClean() {
 
 void LogCleaner::MarkGarbage(ValueType tagged_val) {
   TaggedPointer tp(tagged_val);
-#ifdef REDUCE_PM_ACCESS
-  uint32_t sz = tp.size;
-  if (sz == 0) {
-    ERROR_EXIT("size == 0");
-    KVItem *kv = tp.GetKVItem();
-    sz = sizeof(KVItem) + kv->key_size + kv->val_size;
+  uint32_t num = tp.num;
+  if(num = 0xFF)
+  {
+    num = tp.GetKVItem()->num;
   }
-#else
-  KVItem *kv = tp.GetKVItem();
-  uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
-#endif
+// #ifdef REDUCE_PM_ACCESS
+//   uint32_t sz = tp.size;
+//   if (sz == 0) {
+//     ERROR_EXIT("size == 0");
+//     KVItem *kv = tp.GetKVItem();
+//     sz = sizeof(KVItem) + kv->key_size + kv->val_size;
+//   }
+// #else
+//   KVItem *kv = tp.GetKVItem();
+//   uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
+// #endif
   int segment_id = log_->GetSegmentID(tp.GetAddr());
   LogSegment *segment = log_->GetSegment(segment_id);
-  segment->MarkGarbage(tp.GetAddr(), sz);
-  // update temp cleaner garbage bytes
-  if (db_->num_cleaners_ > 0) {
-    int cleaner_id = log_->GetSegmentCleanerID(tp.GetAddr());
-    tmp_cleaner_garbage_bytes_[cleaner_id] += sz;
-  }
+  segment->roll_back_map[num].first;
+  // segment->MarkGarbage(tp.GetAddr(), sz);
+  // // update temp cleaner garbage bytes
+  // if (db_->num_cleaners_ > 0) {
+  //   int cleaner_id = log_->GetSegmentCleanerID(tp.GetAddr());
+  //   tmp_cleaner_garbage_bytes_[cleaner_id] += sz;
+  // }
 }

@@ -1,5 +1,5 @@
 #include "CircleQueue.h"
-#define DEFAULT_SIZE 100
+#define DEFAULT_SIZE 50000
 
 CircleQueue::CircleQueue()
 {
@@ -7,8 +7,10 @@ CircleQueue::CircleQueue()
     d_rear = -1;
     d_size = 0;
     full_times = 0;
+    d_lock = false;
     d_maxsize = DEFAULT_SIZE;
-    d_arr = std::vector<LogSegment *>(d_maxsize);
+    // d_arr = std::vector<LogSegment *>(d_maxsize);
+    d_arr.resize(d_maxsize);
     // d_arr = (LogSegment **)malloc(d_maxsize * sizeof(LogSegment *));
     // d_arr = NULL;
 }
@@ -22,7 +24,8 @@ CircleQueue::CircleQueue(size_t size)
     full_times = 0;
     d_maxsize = (size > DEFAULT_SIZE) ? size : DEFAULT_SIZE;
     // d_arr = (LogSegment **)malloc(d_maxsize * sizeof(LogSegment *));
-    d_arr = std::vector<LogSegment *>(d_maxsize);
+    // d_arr = std::vector<LogSegment *>(d_maxsize + 1);
+    d_arr.resize(d_maxsize);
 }
 
 // //析构函数
@@ -43,9 +46,17 @@ bool CircleQueue::is_empty()
     return d_front == -1 && d_rear == -1;
 }
 
+bool CircleQueue::not_enough()
+{
+    bool has_one_or_non = (d_front == d_rear);
+    bool has_two = (d_rear == d_front + 1) || (d_rear == d_maxsize-1 && d_front == 0);
+    return has_one_or_non || has_two;
+}
+
 //入队操作
 void CircleQueue::CQ_enque(LogSegment * value)
 {
+    // printf("d_arr capacity = %ld\n", d_arr.capacity());
     if (is_full())
     {
         // std::cout << "环形队列已满" << std::endl;
@@ -65,6 +76,9 @@ void CircleQueue::CQ_enque(LogSegment * value)
         d_rear++;
     }
     // printf("CQ_enque: d_rear = %ld, d_maxsize = %d\n", d_rear, d_maxsize);
+    // printf("d_rear = %ld\n", d_rear);
+    // assert(d_rear < d_maxsize);
+    // d_arr.at(d_rear) = value;
     d_arr[d_rear] = value;
     d_size++;
 }
@@ -72,13 +86,16 @@ void CircleQueue::CQ_enque(LogSegment * value)
 //踢队操作
 LogSegment *CircleQueue::CQ_deque()
 {
+    // mtx.try_lock();
+    std::lock_guard<std::mutex> lk(mtx);
     // printf("CQ_deque: d_rear = %ld, d_maxsize = %d\n", d_rear, d_maxsize);
-    if (is_empty())
+    if (not_enough())
     {
         // std::cout << "环形队列为空!!" << std::endl;
         return nullptr;
     }
 
+    // LogSegment * data = d_arr.at(d_front);
     LogSegment * data = d_arr[d_front];
 
     if (d_front == d_rear)
@@ -95,6 +112,8 @@ LogSegment *CircleQueue::CQ_deque()
         d_front++;
     }
     d_size--;
+    // printf("in deque; (%p)\n", data);
+    // mtx.unlock();
     return data;
 }
 

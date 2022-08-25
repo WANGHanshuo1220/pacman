@@ -71,7 +71,7 @@ class BaseFixture : public benchmark::Fixture {
   }
 
   virtual void SetUp(benchmark::State &st) override final {
-    printf("setup\n");
+    // printf("setup\n");
     PreSetUp(st);
 
     const int num_threads = st.threads();

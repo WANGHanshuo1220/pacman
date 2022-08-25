@@ -8,12 +8,14 @@ class CircleQueue
 {
 private:
     //内部元素队列指针
-    long d_rear, d_front;
+    std::atomic<long> d_rear, d_front;
 
+    bool d_lock = false;
     size_t d_size;
     size_t d_maxsize;
     size_t full_times;
     std::vector<LogSegment *> d_arr;
+    std::mutex mtx;
     // LogSegment **d_arr;
 
 public:
@@ -44,6 +46,7 @@ public:
 
     //队列是否非空
     bool is_empty();
+    bool not_enough();
 
     //队列是否已满
     bool is_full();

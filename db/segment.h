@@ -8,11 +8,14 @@
 #include "db_common.h"
 #include "util/util.h"
 
+#define CAS(_p, _u, _v)                                            \
+  __atomic_compare_exchange_n(_p, _u, _v, false, __ATOMIC_ACQ_REL, \
+                              __ATOMIC_ACQUIRE)
 #define TIMEDIFF(s, e) (e.tv_sec - s.tv_sec) * 1000000 + (e.tv_usec - s.tv_usec) //us
 
 // static constexpr int NUM_HEADERS = 1;
 #ifdef INTERLEAVED
-static constexpr int HEADER_ALIGN_SIZE = 2;
+static constexpr int HEADER_ALIGN_SIZE = 16;
 #else
 static constexpr int HEADER_ALIGN_SIZE = 256;
 #endif
@@ -31,7 +34,7 @@ class BaseSegment {
   struct alignas(HEADER_ALIGN_SIZE) Header {
 #ifdef INTERLEAVED
     // std::atomic<uint32_t> status;
-    uint8_t status;
+    uint32_t status;
 #else
     uint32_t offset; // only valid when status is closed
     uint32_t status;
@@ -143,6 +146,8 @@ class LogSegment : public BaseSegment {
     }
   }
 
+  uint64_t get_seg_id() { return seg_id; }
+  void set_seg_id(uint64_t a) { seg_id = a; }
   void set_using() { header_->status = StatusUsing; }
   void set_available() { header_->status = StatusAvailable; }
   bool is_segment_available() { return header_->status == StatusAvailable; }
@@ -162,13 +167,34 @@ class LogSegment : public BaseSegment {
   uint8_t  get_status() { return header_->status; }
   void set_status(uint8_t s) { header_->status = s; }
 #ifdef INTERLEAVED
-  uint16_t num_kvs = 0;
   uint32_t roll_back_c = 0;
+  std::mutex seg_lock;
+  uint8_t num_kvs = 0;
   // vector for pairs <IsGarbage, kv_size>
   std::vector<std::pair<bool, uint16_t>> roll_back_map
    = std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE/32);
   // std::vector<std::pair<bool, uint16_t>> *roll_back_map;
     // = std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE/32);
+
+  // void lock(void) {
+  //   bool val = false;
+  //   while (!CAS(&seg_lock, &val, true));
+  // }
+
+  // void unlock(void) {
+  //   bool val = true;
+  //   while (!CAS(&seg_lock, &val, false));
+  // }
+
+  void RB_num_kvs(uint32_t a)
+  {
+    num_kvs -= a;
+    // if(num_kvs >= 255) printf("in RB_num_kvs: num_kvs = %d\n", num_kvs.load());
+  }
+
+  uint16_t get_num_kvs() { return num_kvs; }
+  void clear_num_kvs() { num_kvs = 0; }
+
 #endif
 
   void Init() {
@@ -368,46 +394,50 @@ class LogSegment : public BaseSegment {
       // printf("segment has no space\n");
       return INVALID_VALUE;
     }
-#ifdef GC_EVAL
-    struct timeval make_new_kv_start, p1, p2, p3;
-    struct timeval make_new_kv_end;
-    gettimeofday(&make_new_kv_start, NULL);
-#endif
+// #ifdef GC_EVAL
+//     struct timeval make_new_kv_start, p1, p2, p3;
+//     struct timeval make_new_kv_end;
+//     gettimeofday(&make_new_kv_start, NULL);
+// #endif
 #ifdef INTERLEAVED
+    // lock();
     // while(is_segment_RB())
     // {
     //   // printf("in Append: waitint RB\n");
     // }
-    uint16_t cur_num = num_kvs;
-#ifdef GC_EVAL
-    gettimeofday(&p1, NULL);
-#endif
-    std::lock_guard<SpinLock> guard(tail_lock);
-    KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
-#ifdef GC_EVAL
-    gettimeofday(&p2, NULL);
-#endif
+    // if(num_kvs >= 0xFF) printf("append: num_kvs = %d\n", num_kvs.load());
+    uint8_t cur_num = num_kvs;
+// #ifdef GC_EVAL
+//     gettimeofday(&p1, NULL);
+// #endif
+    // std::lock_guard<SpinLock> guard(tail_lock);
+// #ifdef GC_EVAL
+//     gettimeofday(&p2, NULL);
+// #endif
     // roll_back_map.push_back(std::pair<bool, uint32_t>(false, sz));
     // roll_back_map[cur_num] = std::pair<bool, uint32_t>(false, sz);
     roll_back_map[cur_num].first = false;
     roll_back_map[cur_num].second = sz;
-#ifdef GC_EVAL
-    gettimeofday(&p3, NULL);
-#endif
+// #ifdef GC_EVAL
+//     gettimeofday(&p3, NULL);
+// #endif
     num_kvs ++;
+    // std::lock_guard<std::mutex> lk(seg_lock);
+    KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
+    // unlock();
 #else
     KVItem *kv = new (tail_) KVItem(key, value, epoch);
 #endif
-#ifdef GC_EVAL
-    gettimeofday(&make_new_kv_end, NULL);
-    make_new_kv_time += (make_new_kv_end.tv_sec - make_new_kv_start.tv_sec) * 1000000 + (make_new_kv_end.tv_usec - make_new_kv_start.tv_usec);
-#ifdef INTERLEAVED
-    b1 += TIMEDIFF(make_new_kv_start, p1);
-    b2 += TIMEDIFF(p1, p2);
-    b3 += TIMEDIFF(p2, p3);
-    b4 += TIMEDIFF(p3, make_new_kv_end);
-#endif
-#endif
+// #ifdef GC_EVAL
+    // gettimeofday(&make_new_kv_end, NULL);
+    // make_new_kv_time += (make_new_kv_end.tv_sec - make_new_kv_start.tv_sec) * 1000000 + (make_new_kv_end.tv_usec - make_new_kv_start.tv_usec);
+// #ifdef INTERLEAVED
+//     b1 += TIMEDIFF(make_new_kv_start, p1);
+//     b2 += TIMEDIFF(p1, p2);
+//     b3 += TIMEDIFF(p2, p3);
+//     b4 += TIMEDIFF(p3, make_new_kv_end);
+// #endif
+// #endif
     // printf("Append kv:");
     // printf("  seg_start = %p\n", get_segment_start());
     // printf("  old_tail  = %p\n", get_tail());
@@ -415,6 +445,8 @@ class LogSegment : public BaseSegment {
     tail_ += sz;
     ++cur_cnt_;
 #ifdef INTERLEAVED
+    // if(cur_num < 0 || cur_num >= 200) printf("append cur_num = %d\n", cur_num);
+    // if(cur_num < 0 || cur_num >= 255) std::cout << "cur_num = " << cur_num << std::endl;
     return TaggedPointer((char *)kv, sz, cur_num);
 #else
     return TaggedPointer((char *)kv, sz);
@@ -618,6 +650,7 @@ class LogSegment : public BaseSegment {
 
  private:
   uint64_t close_time_;
+  uint64_t seg_id = 0;
 #ifdef REDUCE_PM_ACCESS
   uint8_t *volatile_tombstone_ = nullptr;
 #endif

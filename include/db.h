@@ -129,20 +129,25 @@ class DB {
 
 #ifdef INTERLEAVED
   void StopRBThread() {
-    if (roll_back_thread_.joinable()) {
-      roll_back_thread_.join();
+    for(int i = 0; i < 2; i++)
+    {
+      if (roll_back_thread_[i].joinable()) {
+        roll_back_thread_[i].join();
+      }
     }
   }
 
   void StartRBThread() {
     StopRBThread();
-    roll_back_thread_ = std::thread(&DB::roll_back_, this);
+    printf("start RB Thread1\n");
+    roll_back_thread_[0] = std::thread(&DB::roll_back_, this);
+    printf("start RB Thread2\n");
+    roll_back_thread_[1] = std::thread(&DB::roll_back_, this);
   }
 
   // bool is_roll_back_list_empty() { return roll_back_list.empty(); }
-  void enque_roll_back_queue(LogSegment * s) { roll_back_queue->CQ_enque(s); }
-  LogSegment *deque_roll_back_queue() { return roll_back_queue->CQ_deque(); }
-
+  void enque_roll_back_queue(LogSegment * s) { roll_back_queue.CQ_enque(s); }
+  LogSegment *deque_roll_back_queue() { return roll_back_queue.CQ_deque(); }
 
   std::pair<int, LogSegment **> get_hot_segment()
   {
@@ -181,9 +186,9 @@ class DB {
  private:
 #ifdef INTERLEAVED
   std::queue<LogSegment *> roll_back_list;
-  std::thread roll_back_thread_;
+  std::thread roll_back_thread_[2];
   std::atomic<bool> stop_flag_RB{false};
-  CircleQueue *roll_back_queue; 
+  CircleQueue roll_back_queue; 
 #endif
   Index *index_;
   LogStructured *log_;
@@ -204,6 +209,7 @@ class DB {
   int hot_lock = 0;
   int cold_lock = 0;
   long roll_back_count = 0;
+  uint64_t roll_back_bytes = 0;
 #endif
 
   static constexpr int EPOCH_MAP_SIZE = 1024;

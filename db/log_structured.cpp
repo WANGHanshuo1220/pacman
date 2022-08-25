@@ -68,6 +68,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
   for (i = 0; i < num_segments_ - num_cleaners_; i++) {
     all_segments_[i] =
         new LogSegment(pool_start_ + i * SEGMENT_SIZE, SEGMENT_SIZE);
+    all_segments_[i]->set_seg_id((uint64_t)i);
 #ifdef INTERLEAVED
     if(i < num_cold_segments_) 
     {
@@ -192,14 +193,14 @@ LogSegment *LogStructured::NewSegment(bool hot) {
 
   UpdateCleanThreshold();
 #ifdef INTERLEAVED
-  ret->num_kvs = 0;
+  ret->clear_num_kvs();
   ret->roll_back_map.clear();
 #endif
   return ret;
 }
 
 void LogStructured::FreezeSegment(LogSegment *old_segment) {
-  if (old_segment && num_cleaners_ > 0) {
+  if (old_segment != nullptr && num_cleaners_ > 0) {
     old_segment->Close();
     AddClosedSegment(old_segment);
   }

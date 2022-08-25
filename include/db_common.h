@@ -62,9 +62,11 @@ struct KVItem {
   uint16_t key_size : 15;
   volatile uint16_t is_garbage : 1;
 #endif
-  uint16_t val_size;
 #ifdef INTERLEAVED
-  uint16_t num; // max kvs in a segment = 2^16
+  uint8_t num; // max kvs in a segment = 2^16
+  uint8_t val_size;
+#else
+  uint16_t val_size;
 #endif
   // uint32_t checksum = 0;
   // uint64_t epoch;
@@ -90,6 +92,7 @@ struct KVItem {
 #ifdef INTERLEAVED
   KVItem(const Slice &_key, const Slice &_val, uint32_t _epoch, uint16_t _num)
       : key_size(_key.size()), val_size(_val.size()), epoch(_epoch), num(_num) {
+        // if(_num > 0xFF) printf("KVItem: _num = %d, num = %d\n", _num, num);
 #ifndef REDUCE_PM_ACCESS
     is_garbage = false;
 #endif
@@ -164,8 +167,9 @@ struct TaggedPointer {
 #ifdef INTERLEAVED 
     addr = (uint64_t)ptr;
     size = sz <= 0xFF ? sz : 0;
-    num = num_ < 0xFF ? num_ : -1;
-      // printf("num_ = %ld\n", num_);
+    num = num_ < 0xFF ? num_ : 0xFF;
+    // if(num_ >= 255 || num_ < 0) 
+      // std::cout << "taggedpointer: num_ = " << num_ << ", num = " << num << std::endl;
       // num = num_ < 0xFF ? num_ : 0;
       // num = num_;
       // printf("num  = %ld\n", num);

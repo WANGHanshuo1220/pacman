@@ -181,11 +181,12 @@ class LogCleaner {
   uint64_t num_new = 0;
 #endif
 
-  bool IsGarbage(KVItem *kv) {
+  bool IsGarbage(KVItem *kv, uint32_t num) {
 #ifdef WRITE_TOMBSTONE
 #ifdef REDUCE_PM_ACCESS
     int log_id = log_->GetSegmentID(reinterpret_cast<char *>(kv));
-    return log_->all_segments_[log_id]->IsGarbage(reinterpret_cast<char *>(kv));
+    // return log_->all_segments_[log_id]->IsGarbage(reinterpret_cast<char *>(kv));
+    return log_->all_segments_[log_id]->roll_back_map[num].first;
 #else
     // assert(kv->magic == 0xDEADBEAF);
     return kv->is_garbage;
