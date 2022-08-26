@@ -90,9 +90,8 @@ struct KVItem {
   }
 
 #ifdef INTERLEAVED
-  KVItem(const Slice &_key, const Slice &_val, uint32_t _epoch, uint16_t _num)
+  KVItem(const Slice &_key, const Slice &_val, uint32_t _epoch, uint8_t _num)
       : key_size(_key.size()), val_size(_val.size()), epoch(_epoch), num(_num) {
-        // if(_num > 0xFF) printf("KVItem: _num = %d, num = %d\n", _num, num);
 #ifndef REDUCE_PM_ACCESS
     is_garbage = false;
 #endif
@@ -160,6 +159,15 @@ struct TaggedPointer {
 #endif
     };
   };
+
+  TaggedPointer(char *ptr, uint64_t sz) {
+#ifdef REDUCE_PM_ACCESS
+    addr = (uint64_t)ptr;
+    size = sz <= 0xFFFF ? sz : 0;
+#else
+    data = (uint64_t)ptr;
+#endif
+  }
 
 #ifdef INTERLEAVED
   TaggedPointer(char *ptr, uint64_t sz, uint64_t num_) {

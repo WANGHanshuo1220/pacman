@@ -162,7 +162,6 @@ LogSegment *LogStructured::NewSegment(bool hot) {
         ret = free_segments_.front();
         free_segments_.pop();
         --num_free_segments_;
-        ret->set_using();
       }
     } else {
       // printf("no new segment\n");

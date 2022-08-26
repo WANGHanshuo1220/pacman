@@ -94,17 +94,19 @@ void job2()
   std::string value = "hello world 22-08-24";
   value.resize(48);
 
-  gettimeofday(&start, NULL);
 
   db = new DB(db_path, log_size, num_workers, num_cleaners);
   std::unique_ptr<DB::Worker> worker = db->GetWorker();
 
+  gettimeofday(&start, NULL);
   for(uint64_t i = 0; i < NUM_KVS; i++)
   {
     key = zipf();
     // kvs[key] = value;
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
   }
+  gettimeofday(&checkpoint1, NULL);
+  insert_time = TIMEDIFF(start, checkpoint1);
 
   // printf("\nstart checking...\n");
   // std::string val_;
@@ -139,13 +141,13 @@ void job2()
   //   std::cout << "some kvs incorrect: " << false_kv << std::endl;
   // }
 
+
   worker.reset();
   delete db;
 
-  gettimeofday(&checkpoint1, NULL);
-  insert_time = TIMEDIFF(start, checkpoint1);
   printf("run time : \t(%ldus - %ldus) = %ld us \t(%ld s)\n", 
-    insert_time, zipf_time_cost, insert_time - zipf_time_cost, (insert_time - zipf_time_cost)/1000000);
+    insert_time, zipf_time_cost, insert_time - zipf_time_cost,
+    (insert_time - zipf_time_cost)/1000000);
 }
 
 std::map<uint64_t, std::string> kvs;

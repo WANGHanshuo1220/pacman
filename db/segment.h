@@ -15,7 +15,7 @@
 
 // static constexpr int NUM_HEADERS = 1;
 #ifdef INTERLEAVED
-static constexpr int HEADER_ALIGN_SIZE = 16;
+static constexpr int HEADER_ALIGN_SIZE = 256;
 #else
 static constexpr int HEADER_ALIGN_SIZE = 256;
 #endif
@@ -31,7 +31,8 @@ enum SegmentStatus { StatusAvailable, StatusUsing, StatusClosed, StatusCleaning,
 class BaseSegment {
  public:
 
-  struct alignas(HEADER_ALIGN_SIZE) Header {
+  struct Header {
+    bool has_shortcut;
 #ifdef INTERLEAVED
     // std::atomic<uint32_t> status;
     uint32_t status;
@@ -40,12 +41,11 @@ class BaseSegment {
     uint32_t status;
     uint32_t objects_tail_offset;
 #endif
-    bool has_shortcut;
 
     void Flush() {
 #ifdef LOG_PERSISTENT
       // printf("sizeof(header) = %ld\n", sizeof(Header));
-      clflushopt_fence(this, sizeof(Header));
+      // clflushopt_fence(this, sizeof(Header));
 #endif
     }
   };
@@ -68,7 +68,7 @@ class BaseSegment {
 
   BaseSegment(char *start_addr, size_t size)
       : segment_start_(start_addr),
-        data_start_(start_addr + HEADERS_SIZE),
+        data_start_(start_addr),
         end_(start_addr + size) {}
 
   virtual ~BaseSegment() {}
@@ -205,6 +205,7 @@ class LogSegment : public BaseSegment {
     header_->status = StatusAvailable;
     header_->Flush();
     InitBitmap();
+    clear_num_kvs();
 #ifdef LOG_BATCHING
     flush_tail_ = data_start_;
 #endif
@@ -303,6 +304,7 @@ class LogSegment : public BaseSegment {
     header_->has_shortcut = has_shortcut;
     header_->Flush();
     is_hot_ = is_hot;
+    clear_num_kvs();
 #ifdef GC_SHORTCUT
     has_shortcut_ = has_shortcut;
     InitShortcutBuffer();
@@ -342,6 +344,7 @@ class LogSegment : public BaseSegment {
     // header_->objects_tail_offset = 0;
     header_->has_shortcut = false;
     header_->Flush();
+    clear_num_kvs();
 #ifdef INTERLEAVED
     num_kvs = 0;
     // roll_back_map.clear();
@@ -382,6 +385,11 @@ class LogSegment : public BaseSegment {
 
   // append kv to log
   ValueType Append(const Slice &key, const Slice &value, uint32_t epoch) {
+#ifdef GC_EVAL
+    struct timeval make_new_kv_start;
+    struct timeval make_new_kv_end;
+    gettimeofday(&make_new_kv_start, NULL);
+#endif
 #ifdef INTERLEAVED
     // get_seg_info();
     // for(int i = 0; i < num_kvs; i++)
@@ -394,11 +402,6 @@ class LogSegment : public BaseSegment {
       // printf("segment has no space\n");
       return INVALID_VALUE;
     }
-// #ifdef GC_EVAL
-//     struct timeval make_new_kv_start, p1, p2, p3;
-//     struct timeval make_new_kv_end;
-//     gettimeofday(&make_new_kv_start, NULL);
-// #endif
 #ifdef INTERLEAVED
     // lock();
     // while(is_segment_RB())
@@ -416,6 +419,7 @@ class LogSegment : public BaseSegment {
 // #endif
     // roll_back_map.push_back(std::pair<bool, uint32_t>(false, sz));
     // roll_back_map[cur_num] = std::pair<bool, uint32_t>(false, sz);
+    KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
     roll_back_map[cur_num].first = false;
     roll_back_map[cur_num].second = sz;
 // #ifdef GC_EVAL
@@ -423,20 +427,15 @@ class LogSegment : public BaseSegment {
 // #endif
     num_kvs ++;
     // std::lock_guard<std::mutex> lk(seg_lock);
-    KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
     // unlock();
 #else
     KVItem *kv = new (tail_) KVItem(key, value, epoch);
 #endif
-// #ifdef GC_EVAL
-    // gettimeofday(&make_new_kv_end, NULL);
-    // make_new_kv_time += (make_new_kv_end.tv_sec - make_new_kv_start.tv_sec) * 1000000 + (make_new_kv_end.tv_usec - make_new_kv_start.tv_usec);
 // #ifdef INTERLEAVED
 //     b1 += TIMEDIFF(make_new_kv_start, p1);
 //     b2 += TIMEDIFF(p1, p2);
 //     b3 += TIMEDIFF(p2, p3);
 //     b4 += TIMEDIFF(p3, make_new_kv_end);
-// #endif
 // #endif
     // printf("Append kv:");
     // printf("  seg_start = %p\n", get_segment_start());
@@ -444,6 +443,12 @@ class LogSegment : public BaseSegment {
     kv->Flush();
     tail_ += sz;
     ++cur_cnt_;
+
+#ifdef GC_EVAL
+    gettimeofday(&make_new_kv_end, NULL);
+    make_new_kv_time += TIMEDIFF(make_new_kv_start, make_new_kv_end);
+#endif
+
 #ifdef INTERLEAVED
     // if(cur_num < 0 || cur_num >= 200) printf("append cur_num = %d\n", cur_num);
     // if(cur_num < 0 || cur_num >= 255) std::cout << "cur_num = " << cur_num << std::endl;

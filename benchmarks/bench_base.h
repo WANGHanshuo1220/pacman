@@ -185,7 +185,6 @@ class BaseFixture : public benchmark::Fixture {
 
   virtual void RunYCSBWorkload(benchmark::State &st, int rand_seed,
                                std::vector<uint64_t> &key_bases) {
-    printf("run YCSB\n");
     Random rand(st.thread_index() + rand_seed);
     char buf[VALUE_SIZE];
     const size_t num_ops = key_bases.size();

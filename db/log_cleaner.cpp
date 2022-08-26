@@ -21,7 +21,6 @@ void LogCleaner::CleanerEntry() {
 #endif
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning()) {
-      Timer timer(clean_time_ns_);
 // #ifdef GC_EVAL
       GC_times.fetch_add(1, std::memory_order_relaxed);
 //       struct timeval start;
@@ -29,6 +28,7 @@ void LogCleaner::CleanerEntry() {
 // #endif
       // printf("******************do memorycleaning***************\n");
       DoMemoryClean();
+      Timer timer(clean_time_ns_);
 // #ifdef GC_EVAL
 //       struct timeval end;
 //       gettimeofday(&end, NULL);
@@ -181,9 +181,7 @@ void LogCleaner::CopyValidItemToBuffer(LogSegment *segment) {
   bool has_shortcut = segment->HasShortcut();
   Shortcut *shortcuts = (Shortcut *)tail;
 #endif
-#ifdef INTERLEAVED
   uint64_t num_old = 0;
-#endif
   // printf("tail = %p\n", tail);
   while (p < tail) {
     Shortcut sc;
@@ -273,9 +271,7 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
   bool has_shortcut = segment->HasShortcut();
   Shortcut *shortcuts = (Shortcut *)tail;
 #endif
-#ifdef INTERLEAVED
   uint64_t num_old = 0;
-#endif
   while (p < tail) {
     KVItem *kv = reinterpret_cast<KVItem *>(p);
     uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
