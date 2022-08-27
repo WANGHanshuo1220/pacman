@@ -31,7 +31,7 @@ enum SegmentStatus { StatusAvailable, StatusUsing, StatusClosed, StatusCleaning,
 class BaseSegment {
  public:
 
-  struct Header {
+  struct alignas(HEADER_ALIGN_SIZE) Header {
     bool has_shortcut;
 #ifdef INTERLEAVED
     // std::atomic<uint32_t> status;
@@ -68,7 +68,7 @@ class BaseSegment {
 
   BaseSegment(char *start_addr, size_t size)
       : segment_start_(start_addr),
-        data_start_(start_addr),
+        data_start_(start_addr + HEADERS_SIZE),
         end_(start_addr + size) {}
 
   virtual ~BaseSegment() {}
@@ -171,10 +171,9 @@ class LogSegment : public BaseSegment {
   std::mutex seg_lock;
   uint8_t num_kvs = 0;
   // vector for pairs <IsGarbage, kv_size>
-  std::vector<std::pair<bool, uint16_t>> roll_back_map
-   = std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE/32);
-  // std::vector<std::pair<bool, uint16_t>> *roll_back_map;
-    // = std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE/32);
+  // std::vector<std::pair<bool, uint16_t>> roll_back_map
+  //  = std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE/32);
+  std::vector<std::pair<bool, uint16_t>> roll_back_map{SEGMENT_SIZE/32, std::pair<bool, uint16_t>(false, 0)};
 
   // void lock(void) {
   //   bool val = false;
@@ -346,8 +345,11 @@ class LogSegment : public BaseSegment {
     header_->Flush();
     clear_num_kvs();
 #ifdef INTERLEAVED
+    for(int i = 0; i < num_kvs; i++)
+    {
+      roll_back_map[i].first = false;
+    }
     num_kvs = 0;
-    // roll_back_map.clear();
 #endif
 #ifdef GC_EVAL
     make_new_kv_time = 0;
@@ -420,7 +422,7 @@ class LogSegment : public BaseSegment {
     // roll_back_map.push_back(std::pair<bool, uint32_t>(false, sz));
     // roll_back_map[cur_num] = std::pair<bool, uint32_t>(false, sz);
     KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
-    roll_back_map[cur_num].first = false;
+    // roll_back_map[cur_num].first = false;
     roll_back_map[cur_num].second = sz;
 // #ifdef GC_EVAL
 //     gettimeofday(&p3, NULL);
