@@ -51,8 +51,7 @@ FILTER="--benchmark_filter=/(80)/.*/threads:(24)$"
 SKEW="true" # true (Zipfian), false (uniform)
 
 NUMA_AFFINITY=0
-#NUM_KEYS=200000000
-NUM_KEYS=10000
+NUM_KEYS=200000000
 NUM_OPS_PER_THREAD=200000000
 
 mkdir -p ../results

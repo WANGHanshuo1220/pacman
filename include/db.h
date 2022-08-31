@@ -128,6 +128,8 @@ class DB {
   void NewIndexForRecoveryTest();
 
 #ifdef INTERLEAVED
+  void start_GCThreads();
+
   void StopRBThread() {
     for(int i = 0; i < 2; i++)
     {
@@ -155,6 +157,7 @@ class DB {
     std::pair<int, LogSegment **> ret;
     ret.second = log_->get_hot_segment_(next_hot_segment_);
     ret.first = next_hot_segment_;
+    (*ret.second)->set_using();
     next_hot_segment_ ++;
     if(next_hot_segment_ == db_num_hot_segs)
     {
@@ -169,6 +172,7 @@ class DB {
     std::pair<int, LogSegment **> ret;
     ret.second = log_->get_cold_segment_(next_cold_segment_);
     ret.first = next_cold_segment_;
+    (*ret.second)->set_using();
     next_cold_segment_ ++;
     if(next_cold_segment_ == db_num_cold_segs)
     {

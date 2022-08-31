@@ -45,6 +45,14 @@ class HotKeySet {
   void Record(const Slice &key, int worker_id, bool hit);
   void BeginUpdateHotKeySet();
   bool Exist(const Slice &key);
+  uint64_t get_set_sz() 
+  { 
+    if(current_set_)
+      return (*current_set_).size(); 
+    else
+      return 0;
+  }
+  uint64_t Record_c = 0;
 
  private:
   DB *db_;

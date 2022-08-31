@@ -5,6 +5,7 @@
 #include <mutex>
 
 HotKeySet::HotKeySet(DB *db) : db_(db) {
+  Record_c = 0;
   current_set_ = nullptr;
   update_record_ = std::make_unique<UpdateKeyRecord[]>(db_->num_workers_);
 }
@@ -21,6 +22,7 @@ HotKeySet::~HotKeySet() {
 }
 
 void HotKeySet::Record(const Slice &key, int worker_id, bool hit) {
+  // printf("in Record %ld\n", Record_c);
   UpdateKeyRecord &record = update_record_[worker_id];
   if (need_record_) {
     uint64_t i_key = *(uint64_t *)key.data();
@@ -34,6 +36,7 @@ void HotKeySet::Record(const Slice &key, int worker_id, bool hit) {
     record.hit_cnt += hit;
     ++record.total_cnt;
     if (record.total_cnt == RECORD_BATCH_CNT) { // sampling rate
+      // printf("hit ratio = %.1lf%%\n", 100. * record.hit_cnt / record.total_cnt);
       if (record.hit_cnt < RECORD_BATCH_CNT * 0.5) { /* means many keys that has been accessed 
                                                       * frequently in a sampling period have not 
                                                       * been add in to current_set_, so current_set
@@ -47,6 +50,7 @@ void HotKeySet::Record(const Slice &key, int worker_id, bool hit) {
       record.hit_cnt = record.total_cnt = 0;
     }
   }
+  // Record_c++;
 }
 
 void HotKeySet::BeginUpdateHotKeySet() {
@@ -64,6 +68,7 @@ bool HotKeySet::Exist(const Slice &key) {
 }
 
 void HotKeySet::UpdateHotSet() {
+  // printf("UpdatehotSet\n");
   // bind_core_on_numa(db_->num_workers_);
 
   std::unordered_map<uint64_t, int> count;

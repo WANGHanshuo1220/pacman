@@ -40,10 +40,21 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
 #endif
 
 #ifdef INTERLEAVED
+  /* cold:hot:free = 2:1:1 */
   num_cold_segments_ = num_segments_ / 2;
   num_free_segments_ = (num_segments_ - num_cleaners - num_cold_segments_) / 2;
   num_hot_segments_  = num_segments_ - num_cold_segments_ 
                       - num_cleaners - num_free_segments_;
+  /* cold:hot:free = 1:2:1 */
+  // num_hot_segments_ = num_segments_ / 2;
+  // num_free_segments_ = (num_segments_ - num_cleaners - num_hot_segments_) / 2;
+  // num_cold_segments_  = num_segments_ - num_hot_segments_ 
+  //                     - num_cleaners - num_free_segments_;
+  /* cold:hot:free = 3:1:1 */
+  // num_cold_segments_ = num_segments_ * 3 / 5;
+  // num_free_segments_ = (num_segments_ - num_cleaners - num_cold_segments_) / 2;
+  // num_hot_segments_  = num_segments_ - num_cold_segments_ 
+  //                     - num_cleaners - num_free_segments_;
 #else
   num_free_segments_ = num_segments_ - num_cleaners_;
 #endif
@@ -73,12 +84,12 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
     if(i < num_cold_segments_) 
     {
       cold_segments_.push_back(all_segments_[i]);
-      all_segments_[i]->set_using();
+      all_segments_[i]->set_touse();
     }
     else if(i < num_cold_segments_ + num_hot_segments_)
     {
       hot_segments_.push_back(all_segments_[i]);
-      all_segments_[i]->set_using();
+      all_segments_[i]->set_touse();
     }
     else
     {
@@ -107,7 +118,41 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
   }
 }
 
+#ifdef INTERLEAVED
+  void LogStructured::start_GCThreads()
+  {
+    for (int j = 0; j < num_cleaners_; j++) {
+      log_cleaners_[j]->StartGCThread();
+    }
+  }
+#endif
+
+#ifdef INTERLEAVED
+void LogStructured::get_seg_usage_info()
+{
+  uint64_t cold_usage = 0;
+  uint64_t hot_usage = 0;
+  for(int i = 0; i < num_cold_segments_; i++)
+  {
+    cold_usage += cold_segments_[i]->get_offset();
+  }
+  for(int i = 0; i < num_hot_segments_; i++)
+  {
+    hot_usage += hot_segments_[i]->get_offset();
+  }
+  printf("cold seg usage: %ld / %ld = %.3f\n",
+    cold_usage, num_cold_segments_ * SEGMENT_SIZE, 
+    (double)cold_usage/(num_cold_segments_ * SEGMENT_SIZE));
+  printf("hot seg usage: %ld / %ld = %.3f\n",
+    hot_usage, num_hot_segments_ * SEGMENT_SIZE, 
+    (double)hot_usage/(num_hot_segments_ * SEGMENT_SIZE));
+}
+#endif
+
 LogStructured::~LogStructured() {
+#ifdef GC_EVAL
+  get_seg_usage_info();
+#endif
   stop_flag_.store(true, std::memory_order_release);
   for (int i = 0; i < num_cleaners_; i++) {
     if (log_cleaners_[i]) {
@@ -148,6 +193,7 @@ std::pair<int, long> *LogStructured::get_cleaners_info()
 #endif
 
 LogSegment *LogStructured::NewSegment(bool hot) {
+  // printf("in NewSegment\n");
   LogSegment *ret = nullptr;
   // uint64_t waiting_time = 0;
   // TIMER_START(waiting_time);
@@ -156,12 +202,14 @@ LogSegment *LogStructured::NewSegment(bool hot) {
     // printf("new segment (%ld)\n", new_count ++);
 #endif
     if (num_free_segments_ > 0) {
-      // printf("new segment\n");
+      // printf("  new segment\n");
       std::lock_guard<SpinLock> guard(free_list_lock_);
       if (!free_segments_.empty()) {
         ret = free_segments_.front();
         free_segments_.pop();
+        // printf("  (new seg)%d\n", num_free_segments_.load());
         --num_free_segments_;
+        // printf("  (new seg)%d\n", num_free_segments_.load());
       }
     } else {
       // printf("no new segment\n");
@@ -191,10 +239,6 @@ LogSegment *LogStructured::NewSegment(bool hot) {
   }
 
   UpdateCleanThreshold();
-#ifdef INTERLEAVED
-  ret->clear_num_kvs();
-  ret->roll_back_map.clear();
-#endif
   return ret;
 }
 

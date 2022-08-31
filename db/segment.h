@@ -27,7 +27,7 @@ static constexpr int HEADER_ALIGN_SIZE = 256;
  * tail pointer (offset): 4 bytes
  * status: free, in-used, close
  */
-enum SegmentStatus { StatusAvailable, StatusUsing, StatusClosed, StatusCleaning, StatusReserved, StatusRB };
+enum SegmentStatus { StatusAvailable, StatusUsing, StatusClosed, StatusCleaning, StatusReserved, StatusRB, StatusToUse };
 class BaseSegment {
  public:
 
@@ -149,9 +149,11 @@ class LogSegment : public BaseSegment {
   uint64_t get_seg_id() { return seg_id; }
   void set_seg_id(uint64_t a) { seg_id = a; }
   void set_using() { header_->status = StatusUsing; }
+  void set_touse() { header_->status = StatusToUse; }
   void set_available() { header_->status = StatusAvailable; }
   bool is_segment_available() { return header_->status == StatusAvailable; }
   bool is_segment_closed() { return header_->status == StatusClosed; }
+  bool is_segment_using() { return header_->status == StatusUsing; }
   bool is_segment_cleaning() { 
     // uint8_t s = header_->status;
     // printf("header_->status = %d\n", s);
@@ -166,7 +168,6 @@ class LogSegment : public BaseSegment {
   void set_RB() { header_->status = StatusRB; }
   uint8_t  get_status() { return header_->status; }
   void set_status(uint8_t s) { header_->status = s; }
-#ifdef INTERLEAVED
   uint32_t roll_back_c = 0;
   std::mutex seg_lock;
   uint8_t num_kvs = 0;
@@ -194,16 +195,13 @@ class LogSegment : public BaseSegment {
   uint16_t get_num_kvs() { return num_kvs; }
   void clear_num_kvs() { num_kvs = 0; }
 
-#endif
-
   void Init() {
     tail_ = data_start_;
-    // header_ = new Header;
     // header_->offset = 0;
     // header_->objects_tail_offset = 0;
     header_->status = StatusAvailable;
-    header_->Flush();
-    InitBitmap();
+    // header_->Flush();
+    // InitBitmap();
     clear_num_kvs();
 #ifdef LOG_BATCHING
     flush_tail_ = data_start_;
@@ -300,10 +298,9 @@ class LogSegment : public BaseSegment {
 
   void StartUsing(bool is_hot, bool has_shortcut = false) {
     header_->status = StatusUsing;
-    header_->has_shortcut = has_shortcut;
-    header_->Flush();
+    // header_->has_shortcut = has_shortcut;
+    // header_->Flush();
     is_hot_ = is_hot;
-    clear_num_kvs();
 #ifdef GC_SHORTCUT
     has_shortcut_ = has_shortcut;
     InitShortcutBuffer();
@@ -330,8 +327,8 @@ class LogSegment : public BaseSegment {
     // header_->offset = get_offset();
     header_->status = StatusClosed;
     // header_->objects_tail_offset = get_offset();
-    header_->has_shortcut = has_shortcut_;
-    header_->Flush();
+    // header_->has_shortcut = has_shortcut_;
+    // header_->Flush();
     // printf("after close tail pointer = %p (data_start = %p)\n", tail_, data_start_);
   }
 
@@ -341,15 +338,12 @@ class LogSegment : public BaseSegment {
     is_hot_ = false;
     header_->status = StatusAvailable;
     // header_->objects_tail_offset = 0;
-    header_->has_shortcut = false;
-    header_->Flush();
+    // header_->has_shortcut = false;
+    // header_->Flush();
     clear_num_kvs();
 #ifdef INTERLEAVED
-    for(int i = 0; i < num_kvs; i++)
-    {
-      roll_back_map[i].first = false;
-    }
     num_kvs = 0;
+    roll_back_map = std::vector<std::pair<bool, uint16_t>>{SEGMENT_SIZE/32, std::pair<bool, uint16_t>(false, 0)};
 #endif
 #ifdef GC_EVAL
     make_new_kv_time = 0;

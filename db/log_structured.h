@@ -46,6 +46,7 @@ class LogStructured {
   LogSegment **get_cold_segment_(int i) {return &cold_segments_[i]; } 
   void set_hot_segment_(int i, LogSegment *s) { hot_segments_[i] = s; } 
   void set_cold_segment_(int i, LogSegment *s) { cold_segments_[i] = s; } 
+  void start_GCThreads();
 #endif
 
   // GC_EVAL
@@ -55,6 +56,7 @@ class LogStructured {
   int get_num_segments_() { return num_segments_; }
   LogSegment *get_segments_(int i) { return all_segments_[i]; }
 #endif
+  void get_seg_usage_info();
 
   // char *get_pool_start() { return pool_start_; }
  private:
@@ -83,11 +85,7 @@ class LogStructured {
   std::atomic<int> num_free_segments_{0};
   std::atomic<int> alloc_counter_{0};
   const int num_limit_free_segments_;
-#ifdef INTERLEAVED
-  volatile int clean_threshold_ = 10;
-#else
-  volatile int clean_threshold_ = 10;
-#endif
+  volatile int clean_threshold_ = 50;
 
   volatile FreeStatus free_status_ = FS_Sufficient;
   std::atomic_flag FS_flag_{ATOMIC_FLAG_INIT};

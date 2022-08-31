@@ -56,8 +56,17 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
 #endif
 };
 
+#ifdef INTERLEAVED
+void DB::start_GCThreads()
+{
+  log_->start_GCThreads();
+  printf("start GC threads\n");
+}
+#endif
+
 DB::~DB() {
 #ifdef INTERLEAVED
+  printf("hot set size = %ld\n", hot_key_set_->get_set_sz());
   // stop_flag_RB.store(true, std::memory_order_release);
   // StopRBThread();
   // printf("roll_back_queue full times = %ld\n", roll_back_queue.get_full_times());
@@ -179,6 +188,7 @@ DB::Worker::Worker(DB *db) : db_(db) {
   std::pair<int, LogSegment **> cold = db_->get_cold_segment();
   cold_log_head_ = *cold.second;
   cold_seg_working_on = cold.first;
+  assert(log_head_->is_segment_using() && cold_log_head_->is_segment_using());
 #endif
 
 #if INDEX_TYPE == 3
@@ -194,23 +204,23 @@ DB::Worker::~Worker() {
   {
     a[0] += db_->get_log_()->get_segments_(i)->make_new_kv_time;
   }
-  printf("\nlatency breakdown  = \t%ld us \t(%ld s)\n", insert_time + update_index_time + check_hotcold_time,
-      (insert_time + update_index_time + check_hotcold_time)/1000000);
+  printf("\nlatency breakdown  = \t%ld us \t(%.2f s)\n", insert_time + update_index_time + check_hotcold_time,
+      ((float)insert_time + update_index_time + check_hotcold_time)/1000000);
   printf("max_kv_sz = %d\n", max_kv_sz);
-  printf("  check_hotcold_time = \t%ld us   \t(%ld s)\n",check_hotcold_time, check_hotcold_time/1000000);
-  printf("  insert time        = \t%ld us   \t(%ld s)\n", insert_time, insert_time/1000000);
-  printf("    change_seg_time  = \t%ld us   \t(%ld s)\n",change_seg_time, change_seg_time/1000000);
-  printf("    append_time      = \t%ld us   \t(%ld s)\n",append_time, append_time/1000000);
-  printf("      make_kv_time   = \t%ld us   \t(%ld s)\n",a[0], a[0]/1000000);
+  printf("  check_hotcold_time = \t%ld us   \t(%.2f s)\n",check_hotcold_time, (float)check_hotcold_time/1000000);
+  printf("  insert time        = \t%ld us   \t(%.2f s)\n", insert_time, (float)insert_time/1000000);
+  printf("    change_seg_time  = \t%ld us   \t(%.2f s)\n",change_seg_time, (float)change_seg_time/1000000);
+  printf("    append_time      = \t%ld us   \t(%.2f s)\n",append_time, (float)append_time/1000000);
+  printf("      make_kv_time   = \t%ld us   \t(%.2f s)\n",a[0], (float)a[0]/1000000);
   // printf("      vector_pb_time = \t%ld us   \t(%ld s)\n", a[0], a[0]/1000000);
   // printf("        b1           = \t%ld us   \t(%ld s)\n", a[1], a[1]/1000000);
   // printf("        b2           = \t%ld us   \t(%ld s)\n", a[2], a[2]/1000000);
   // printf("        b3           = \t%ld us   \t(%ld s)\n", a[3], a[3]/1000000);
   // printf("        b4           = \t%ld us   \t(%ld s)\n", a[4], a[4]/1000000);
-  printf("      set_seg_time   = \t%ld us   \t(%ld s)\n", set_seg_time, set_seg_time/1000000);
-  printf("  update time        = \t%ld us   \t(%ld s)\n", update_index_time, update_index_time/1000000);
-  printf("    update idx time  = \t%ld us   \t(%ld s)\n", update_idx_p1, update_idx_p1/1000000);
-  printf("    markgarbage time = \t%ld us   \t(%ld s)\n",MarkGarbage_time, MarkGarbage_time/1000000);
+  printf("      set_seg_time   = \t%ld us   \t(%.2f s)\n", set_seg_time, (float)set_seg_time/1000000);
+  printf("  update time        = \t%ld us   \t(%.2f s)\n", update_index_time, (float)update_index_time/1000000);
+  printf("    update idx time  = \t%ld us   \t(%.2f s)\n", update_idx_p1, (float)update_idx_p1/1000000);
+  printf("    markgarbage time = \t%ld us   \t(%.2f s)\n",MarkGarbage_time, (float)MarkGarbage_time/1000000);
   // printf("      Markgarbage_p1 = \t%ld us   \t(%ld s)\n", markgarbage_p1, markgarbage_p1/1000000);
   // printf("        get_kv_num   = \t%ld us   \t(%ld s)\n", get_kv_num, get_kv_num/1000000);
   // printf("        get_kv_sz    = \t%ld us   \t(%ld s)\n", get_kv_sz, get_kv_sz/1000000);
@@ -460,6 +470,7 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     if(accumulative_sz_hot > change_seg_threshold)
     {
       std::pair<int, LogSegment **> hot = db_->get_hot_segment();
+      log_head_->set_touse();
       log_head_ = *hot.second;
       hot_seg_working_on = hot.first;
       accumulative_sz_hot = sz;
@@ -470,6 +481,7 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     if(accumulative_sz_cold > change_seg_threshold)
     {
       std::pair<int, LogSegment **> cold = db_->get_cold_segment();
+      cold_log_head_->set_touse();
       cold_log_head_ = *cold.second;
       cold_seg_working_on = cold.first;
       accumulative_sz_cold = sz;
@@ -510,8 +522,6 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
       accumulative_sz_cold = sz;
       db_->log_->set_cold_segment_(cold_seg_working_on, segment);
     }
-#else
-    segment = db_->log_->NewSegment(hot);
 #endif
 #ifdef GC_EVAL
     gettimeofday(&e1, NULL);
@@ -587,13 +597,17 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
     uint32_t roll_back_sz = 0;
     uint32_t RB_count = 0;
     uint8_t status;
-    if(!segment->is_segment_cleaning() && !segment->is_segment_reserved()) // could be ignored to spedup gc runtime
+    if(!segment->is_segment_cleaning() && 
+       !segment->is_segment_reserved() &&
+       !segment->is_segment_using()    &&
+       !segment->is_segment_available())
     {
       // db_->roll_back_count++;
       for(int i = n - 1; i >= 0; i--)
       {
         if(segment->roll_back_map[i].first == true)
         {
+          segment->roll_back_map[i].first = false;
           roll_back_sz += segment->roll_back_map[i].second;
           RB_count ++;
         }
@@ -605,12 +619,6 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
       segment->RB_num_kvs(RB_count);
       segment->roll_back_tail(roll_back_sz);
     }
-  }
-#else
-  // update temp cleaner garbage bytes
-  if (db_->num_cleaners_ > 0 ) {
-    int cleaner_id = db_->log_->GetSegmentCleanerID(tp.GetAddr());
-    tmp_cleaner_garbage_bytes_[cleaner_id] += sz;
   }
 #endif
 }

@@ -63,6 +63,7 @@ class LogCleaner {
     if (reserved_segment_) {
       reserved_segment_->StartUsing(false, false);
       reserved_segment_->set_reserved();
+      assert(reserved_segment_->is_segment_reserved());
     }
 #ifdef BATCH_COMPACTION
     volatile_segment_ = new VirtualSegment(SEGMENT_SIZE);
@@ -72,8 +73,8 @@ class LogCleaner {
 
   ~LogCleaner() {
 // #ifdef GC_EVAL
-    printf("%dth cleaner: GC_times = %d, clean_time_ns_ = %ldns (%ld s)\n",
-      get_cleaner_id(), show_GC_times(), clean_time_ns_, clean_time_ns_/1000000000);
+    printf("%dth cleaner: GC_times = %d, clean_time_ns_ = %ldns (%.3f s)\n",
+      get_cleaner_id(), show_GC_times(), clean_time_ns_, (float)clean_time_ns_/1000000000);
 // #endif
 #ifdef BATCH_COMPACTION
     // printf("delete volatile_segment_\n");

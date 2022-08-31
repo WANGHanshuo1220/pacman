@@ -14,12 +14,9 @@
 #define TIMEDIFF(s, e) (e.tv_sec - s.tv_sec) * 1000000 + (e.tv_usec - s.tv_usec) //us
 
 // size_t log_size = 1ul << 30;
-// #define log_size 5 * SEGMENT_SIZE
-#ifdef INTERLEAVED
-#define log_size 1ul << 30
-#else
-#define log_size 1ul << 30
-#endif
+// #define log_size 9 * SEGMENT_SIZE
+#define prefilling_rate 0.75
+uint64_t log_size = 1ul << 30;
 int num_workers = 1;
 int num_cleaners = 1;
 std::string db_path = std::string(PMEM_DIR) + "log_kvs";
@@ -84,29 +81,42 @@ void job1()
 
 void job2()
 {
-  init_zipf();
   printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
   std::map<uint64_t, std::string> kvs;
   std::string val;
   std::string res;
   uint64_t key;
   long insert_time = 0;
-  std::string value = "hello world 22-08-24";
-  value.resize(48);
-
+  std::string value = "hello world 22-08-30";
+  value.resize(32);
 
   db = new DB(db_path, log_size, num_workers, num_cleaners);
+  // db->start_GCThreads();
   std::unique_ptr<DB::Worker> worker = db->GetWorker();
 
-  gettimeofday(&start, NULL);
+  // printf("prefilling\n");
+  // for(uint64_t i = 0; i <  prefilling_rate * log_size / 48; i++)
+  // {
+  //   key = zipf();
+  //   value.resize(32);
+  //   kvs[key] = value;
+  //   worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
+  // }
+
+  // printf("prefilling done...\n");
+  // db->start_GCThreads();
+
   for(uint64_t i = 0; i < NUM_KVS; i++)
   {
     key = zipf();
-    // kvs[key] = value;
+    value = value + std::to_string(i%10);
+    value.resize(32);
+    kvs[key] = value;
+    gettimeofday(&start, NULL);
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
+    gettimeofday(&checkpoint1, NULL);
+    insert_time += TIMEDIFF(start, checkpoint1);
   }
-  gettimeofday(&checkpoint1, NULL);
-  insert_time = TIMEDIFF(start, checkpoint1);
 
   // printf("\nstart checking...\n");
   // std::string val_;
@@ -141,13 +151,14 @@ void job2()
   //   std::cout << "some kvs incorrect: " << false_kv << std::endl;
   // }
 
-
   worker.reset();
   delete db;
 
-  printf("run time : \t(%ldus - %ldus) = %ld us \t(%ld s)\n", 
-    insert_time, zipf_time_cost, insert_time - zipf_time_cost,
-    (insert_time - zipf_time_cost)/1000000);
+  // printf("run time : \t(%ldus - %ldus) = %ld us \t(%ld s)\n", 
+  //   insert_time, zipf_time_cost, insert_time - zipf_time_cost,
+  //   (insert_time - zipf_time_cost)/1000000);
+  printf("run time : %ld us \t(%.2f s)\n", 
+    insert_time, (float)insert_time/1000000);
 }
 
 std::map<uint64_t, std::string> kvs;
@@ -155,23 +166,15 @@ std::map<uint64_t, std::string> kvs;
 void *put_KVS(void *)
 {
   uint64_t key;
-  // long insert_time = 0;
   std::unique_ptr<DB::Worker> worker = db->GetWorker();
-  // printf("worker ptr = %p\n", &worker);
 
   for(uint64_t i = 0; i < NUM_KVS; i++)
   {
     key = zipf();
     std::string value = "hello world 22-08-24";
-    value.resize(48);
-    // kvs[key] = value;
-    // gettimeofday(&start, NULL);
+    value.resize(32);
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
-    // gettimeofday(&checkpoint1, NULL);
-    // insert_time += TIMEDIFF(start, checkpoint1);
   }
-
-  // printf("%ld thread-> insert time : %ld us\n", pthread_self(), insert_time);
 
   worker.reset();
 }
@@ -185,11 +188,26 @@ void job3()
   long runtime = 0;
 
   db = new DB(db_path, log_size, num_workers, num_cleaners);
+  // db->start_GCThreads();
   
-  init_zipf();
   printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
 
+  uint64_t key;
+  std::unique_ptr<DB::Worker> worker = db->GetWorker();
+
+  printf("prefilling\n");
+  for(uint64_t i = 0; i <  prefilling_rate * log_size / 48; i++)
+  {
+    key = zipf();
+    std::string value = "hello world 22-08-24";
+    value.resize(32);
+    worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
+  }
+  worker.reset();
+  printf("prefilling done...\n");
+
   gettimeofday(&start, NULL);
+  // db->start_GCThreads();
 
   for(int i = 0; i < num_workers; i++)
   {
@@ -204,7 +222,11 @@ void job3()
   for(int i = 0; i < num_workers; i++)
   {
     pthread_join(tid[i], NULL);
+    printf("join %dth worker\n", i);
   }
+
+  gettimeofday(&checkpoint1, NULL);
+  runtime = TIMEDIFF(start, checkpoint1);
 
   // printf("\nstart checking...\n");
   // std::string val_;
@@ -241,9 +263,7 @@ void job3()
   // }
   // worker.reset();
   delete db;
-  gettimeofday(&checkpoint1, NULL);
-  runtime = TIMEDIFF(start, checkpoint1);
-  printf("runtime = %ldus (%ld s)\n", runtime, runtime/1000000);
+  printf("runtime = %ldus (%.2f s)\n", runtime, (float)runtime/1000000);
 }
 
 void (*jobs[])() = {job0, job1, job2, job3};
@@ -287,7 +307,12 @@ int main(int argc, char **argv) {
       return 0;
     }
   }
-  (*jobs[atoi(arg)])();
+  init_zipf();
+  for (int i = 0; i < 5; i++)
+  {  
+    printf("----------------%d-----------------\n", i);
+    (*jobs[atoi(arg)])();
+  }
   return 0;
 }
 
@@ -314,7 +339,7 @@ int zipf()
   int low, high, mid;           // Binary-search bounds
 
   // Pull a uniform random number (0 < z < 1)
-  gettimeofday(&zipf_s, NULL);
+  // gettimeofday(&zipf_s, NULL);
   do
   {
     z = distrib(gen);
@@ -338,7 +363,7 @@ int zipf()
   // Assert that zipf_value is between 1 and N
   assert((zipf_value >=1) && (zipf_value <= dup_rate));
 
-  gettimeofday(&zipf_e, NULL);
-  zipf_time_cost += TIMEDIFF(zipf_s, zipf_e);
+  // gettimeofday(&zipf_e, NULL);
+  // zipf_time_cost += TIMEDIFF(zipf_s, zipf_e);
   return(zipf_value);
 }

@@ -58,25 +58,25 @@ bool LogCleaner::NeedCleaning()
   return ((double)log_->num_free_segments_ / org_num_free_segments) < threshold;
   // return !is_closed_hotcold_segment_empty();
 }
-#else
-bool LogCleaner::NeedCleaning() {
-  int total_segments = log_->num_segments_ - log_->num_cleaners_;
-  int local_segments = total_segments / log_->num_cleaners_;
+// #else
+// bool LogCleaner::NeedCleaning() {
+//   int total_segments = log_->num_segments_ - log_->num_cleaners_;
+//   int local_segments = total_segments / log_->num_cleaners_;
 
-  uint64_t Free =
-      (uint64_t)(log_->num_free_segments_.load(std::memory_order_relaxed)) *
-      LogSegment::SEGMENT_DATA_SIZE / log_->num_cleaners_;
-  const uint64_t Available =
-      Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
-  const uint64_t Total =
-      local_segments * (uint64_t)LogSegment::SEGMENT_DATA_SIZE;
-  double threshold = (double)log_->clean_threshold_ / 100;
-  // from RAMCloud'FAST14
-  threshold = std::min(threshold, (double)Available / Total / 2);
+//   uint64_t Free =
+//       (uint64_t)(log_->num_free_segments_.load(std::memory_order_relaxed)) *
+//       LogSegment::SEGMENT_DATA_SIZE / log_->num_cleaners_;
+//   const uint64_t Available =
+//       Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
+//   const uint64_t Total =
+//       local_segments * (uint64_t)LogSegment::SEGMENT_DATA_SIZE;
+//   double threshold = (double)log_->clean_threshold_ / 100;
+//   // from RAMCloud'FAST14
+//   threshold = std::min(threshold, (double)Available / Total / 2);
   
-  // free < 10% of total storage and cleanr_garbage_btyes > free
-  return ((double)Free / Total) < threshold;  
-}
+//   // free < 10% of total storage and cleanr_garbage_btyes > free
+//   return ((double)Free / Total) < threshold;  
+// }
 #endif
 
 void LogCleaner::BatchFlush() {
@@ -261,7 +261,7 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment) {
 
 // CompactSegment is used if not defined BATCH_COMPACTION
 void LogCleaner::CompactSegment(LogSegment *segment) {
-  while(segment->is_segment_RB());
+  // while(segment->is_segment_RB());
   // printf("in compactsegment\n");
   // segment->has_been_cleaned();
   char *p = segment->get_data_start();
@@ -289,7 +289,8 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
     }
 #endif
     TIMER_START_LOGGING(check_liveness_time_);
-    bool is_garbage = IsGarbage(kv, num_old);
+    // bool is_garbage = IsGarbage(kv, num_old);
+    bool is_garbage = segment->roll_back_map[num_old].first;
     TIMER_STOP_LOGGING(check_liveness_time_);
     if (!is_garbage) {
 #ifdef LOG_BATCHING
@@ -328,6 +329,7 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
 // #endif
       if (le_helper.old_val == val) {
         MarkGarbage(val);
+        reserved_segment_->roll_back_map[reserved_segment_->num_kvs -1].first = true;
         COUNTER_ADD_LOGGING(garbage_move_count_, 1);
       }
 #if defined(BATCH_FLUSH_INDEX_ENTRY) && defined(IDX_PERSISTENT)
@@ -373,21 +375,23 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
 #endif
 #endif
   // wait for a grace period
-  // printf("wait for rcu_varrier\n");
   db_->thread_status_.rcu_barrier();
-  // printf("######## enter rcu_varrier #########\n");
 
   ++clean_seg_count_;
   segment->Clear();
   if (backup_segment_ == nullptr) {
+    // printf("  1111111(compaction)backup\n");
     backup_segment_ = segment;
+    backup_segment_->set_reserved();
   } else {
     std::lock_guard<SpinLock> guard(log_->free_list_lock_);
     log_->free_segments_.push(segment);
 // #ifdef INTERLEAVED
 //     printf("free_segment ++ (%ld)\n", free_count++);
 // #endif
+    // printf("  2222222(compaction)%d\n", log_->num_free_segments_.load());
     ++log_->num_free_segments_;
+    // printf("  2222222(compaction)%d\n", log_->num_free_segments_.load());
   }
   // printf("end compactsegment\n");
 }
@@ -405,6 +409,7 @@ void LogCleaner::FreezeReservedAndGetNew() {
   reserved_segment_ = backup_segment_;
   reserved_segment_->StartUsing(false, false);
   reserved_segment_->set_reserved();
+  assert(reserved_segment_->is_segment_reserved());
   backup_segment_ = nullptr;
 #ifdef INTERLEAVED
   num_new = 0;
@@ -572,7 +577,7 @@ void LogCleaner::MarkGarbage(ValueType tagged_val) {
 // #endif
   int segment_id = log_->GetSegmentID(tp.GetAddr());
   LogSegment *segment = log_->GetSegment(segment_id);
-  segment->roll_back_map[num].first;
+  segment->roll_back_map[num].first = true;
   // segment->MarkGarbage(tp.GetAddr(), sz);
   // // update temp cleaner garbage bytes
   // if (db_->num_cleaners_ > 0) {
