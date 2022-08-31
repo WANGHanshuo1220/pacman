@@ -263,7 +263,6 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment) {
 void LogCleaner::CompactSegment(LogSegment *segment) {
   // while(segment->is_segment_RB());
   // printf("in compactsegment\n");
-  // segment->has_been_cleaned();
   char *p = segment->get_data_start();
   char *tail = segment->get_tail();
   std::vector<char *> flush_addr;
