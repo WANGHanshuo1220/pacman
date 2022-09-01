@@ -71,6 +71,26 @@ class LogCleaner {
 #endif
   }
 
+  LogCleaner(DB *db, int cleaner_id, LogStructured *log,
+             LogSegment *reserved_segment, LogSegment *backup_segment)
+      : db_(db),
+        cleaner_id_(cleaner_id),
+        log_(log),
+        reserved_segment_(reserved_segment),
+        backup_segment_(backup_segment),
+        list_lock_(std::string("gc_list_lock_") + std::to_string(cleaner_id)) {
+    tmp_cleaner_garbage_bytes_.resize(db->num_cleaners_, 0);
+    if (reserved_segment_) {
+      reserved_segment_->StartUsing(false, false);
+      reserved_segment_->set_reserved();
+      assert(reserved_segment_->is_segment_reserved());
+    }
+#ifdef BATCH_COMPACTION
+    volatile_segment_ = new VirtualSegment(SEGMENT_SIZE);
+    volatile_segment_->set_has_shortcut(false);
+#endif
+  }
+
   ~LogCleaner() {
 // #ifdef GC_EVAL
     printf("%dth cleaner: GC_times = %d, clean_time_ns_ = %ldns (%.3f s)\n",
@@ -206,7 +226,7 @@ class LogCleaner {
   void BatchIndexUpdate();
   void CopyValidItemToBuffer(LogSegment *segment);
   void BatchCompactSegment(LogSegment *segment);
-  void CompactSegment(LogSegment *segment);
+  void CompactSegment(LogSegment *segment, bool is_reservation);
   void FreezeReservedAndGetNew();
   void MarkGarbage(ValueType tagged_val);
   void DoMemoryClean();

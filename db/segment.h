@@ -221,7 +221,6 @@ class LogSegment : public BaseSegment {
 #endif
   }
 
-#ifdef INTERLEAVED
   void update_Bitmap()
   {
 #ifdef REDUCE_PM_ACCESS
@@ -267,7 +266,6 @@ class LogSegment : public BaseSegment {
   void set_is_free_seg(bool a) { is_free_seg = a; }
   // void set_has_been_RB(bool a) { has_been_RB = a; }
 
-#endif
 
   void InitShortcutBuffer() {
 #ifdef GC_SHORTCUT
@@ -386,56 +384,14 @@ class LogSegment : public BaseSegment {
     struct timeval make_new_kv_end;
     gettimeofday(&make_new_kv_start, NULL);
 #endif
-#ifdef INTERLEAVED
-    // get_seg_info();
-    // for(int i = 0; i < num_kvs; i++)
-    // {
-    //   printf("      %dth kv: is_gb = %d, sz = %d\n", i, roll_back_map[i].first, roll_back_map[i].second);
-    // }
-#endif
     uint32_t sz = sizeof(KVItem) + key.size() + value.size();
     if (!HasSpaceFor(sz)) {
-      // printf("segment has no space\n");
       return INVALID_VALUE;
     }
-#ifdef INTERLEAVED
-    // lock();
-    // while(is_segment_RB())
-    // {
-    //   // printf("in Append: waitint RB\n");
-    // }
-    // if(num_kvs >= 0xFF) printf("append: num_kvs = %d\n", num_kvs.load());
     uint8_t cur_num = num_kvs;
-// #ifdef GC_EVAL
-//     gettimeofday(&p1, NULL);
-// #endif
-    // std::lock_guard<SpinLock> guard(tail_lock);
-// #ifdef GC_EVAL
-//     gettimeofday(&p2, NULL);
-// #endif
-    // roll_back_map.push_back(std::pair<bool, uint32_t>(false, sz));
-    // roll_back_map[cur_num] = std::pair<bool, uint32_t>(false, sz);
     KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
-    // roll_back_map[cur_num].first = false;
     roll_back_map[cur_num].second = sz;
-// #ifdef GC_EVAL
-//     gettimeofday(&p3, NULL);
-// #endif
     num_kvs ++;
-    // std::lock_guard<std::mutex> lk(seg_lock);
-    // unlock();
-#else
-    KVItem *kv = new (tail_) KVItem(key, value, epoch);
-#endif
-// #ifdef INTERLEAVED
-//     b1 += TIMEDIFF(make_new_kv_start, p1);
-//     b2 += TIMEDIFF(p1, p2);
-//     b3 += TIMEDIFF(p2, p3);
-//     b4 += TIMEDIFF(p3, make_new_kv_end);
-// #endif
-    // printf("Append kv:");
-    // printf("  seg_start = %p\n", get_segment_start());
-    // printf("  old_tail  = %p\n", get_tail());
     kv->Flush();
     tail_ += sz;
     ++cur_cnt_;
@@ -445,13 +401,7 @@ class LogSegment : public BaseSegment {
     make_new_kv_time += TIMEDIFF(make_new_kv_start, make_new_kv_end);
 #endif
 
-#ifdef INTERLEAVED
-    // if(cur_num < 0 || cur_num >= 200) printf("append cur_num = %d\n", cur_num);
-    // if(cur_num < 0 || cur_num >= 255) std::cout << "cur_num = " << cur_num << std::endl;
     return TaggedPointer((char *)kv, sz, cur_num);
-#else
-    return TaggedPointer((char *)kv, sz);
-#endif
   }
 
 #ifdef LOG_BATCHING
@@ -656,11 +606,9 @@ class LogSegment : public BaseSegment {
   uint8_t *volatile_tombstone_ = nullptr;
 #endif
 
-#ifdef INTERLEAVED
   SpinLock tail_lock;
   bool is_free_seg = false;
   // bool has_been_RB = false;
-#endif
 
   std::atomic<int> garbage_bytes_;
   bool is_hot_ = false;
@@ -685,12 +633,7 @@ class VirtualSegment : public BaseSegment {
   }
 
   ~VirtualSegment() { 
-    // printf("~VirtualSegemnt begin\n");
-    // printf("data_begin = %p (%d)\n", data_start_, *(int *)data_start_);
-    // printf("tail_ = %p\n", tail_);
-    // printf("end_ = %p\n", end_);
     free(segment_start_); 
-    // printf("~VirtualSegemnt end\n");
   }
 
   void Clear() {

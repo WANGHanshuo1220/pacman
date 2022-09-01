@@ -15,11 +15,8 @@ using KeyType = uint64_t;
 using ValueType = uint64_t;
 static constexpr ValueType INVALID_VALUE = 0;
 
-#ifdef INTERLEAVED
 static constexpr uint64_t SEGMENT_SIZE = 1ul << 12;
-#else
-static constexpr uint64_t SEGMENT_SIZE = 4ul << 20;
-#endif
+static constexpr uint64_t Reservation_SEGMENT_SIZE = 4ul << 20;
 
 // shortcut
 class __attribute__((__packed__)) Shortcut {
@@ -62,12 +59,8 @@ struct KVItem {
   uint16_t key_size : 15;
   volatile uint16_t is_garbage : 1;
 #endif
-#ifdef INTERLEAVED
-  uint8_t num; // max kvs in a segment = 2^16
-  uint8_t val_size;
-#else
+  uint16_t num; // max kvs in a segment = 2^16
   uint16_t val_size;
-#endif
   // uint32_t checksum = 0;
   // uint64_t epoch;
   uint32_t epoch;
@@ -78,18 +71,6 @@ struct KVItem {
     memset(this, 0, sizeof(KVItem));
   }
 
-  KVItem(const Slice &_key, const Slice &_val, uint32_t _epoch)
-      : key_size(_key.size()), val_size(_val.size()), epoch(_epoch) {
-#ifndef REDUCE_PM_ACCESS
-    is_garbage = false;
-#endif
-    assert(val_size >= 8);
-    memcpy(kv_pair, _key.data(), key_size);
-    memcpy(kv_pair + key_size, _val.data(), val_size);
-    // CalcChecksum();
-  }
-
-#ifdef INTERLEAVED
   KVItem(const Slice &_key, const Slice &_val, uint32_t _epoch, uint8_t _num)
       : key_size(_key.size()), val_size(_val.size()), epoch(_epoch), num(_num) {
 #ifndef REDUCE_PM_ACCESS
@@ -100,7 +81,6 @@ struct KVItem {
     memcpy(kv_pair + key_size, _val.data(), val_size);
     // CalcChecksum();
   }
-#endif
 
   Slice GetKey() {
     return Slice((char *)kv_pair, key_size);
@@ -151,55 +131,18 @@ struct TaggedPointer {
     uint64_t data = 0;
     struct {
       uint64_t addr : 48;
-#ifdef INTERLEAVED
-      uint64_t num  : 8;
-      uint64_t size : 8;
-#else
-      uint64_t size : 16;
-#endif
+      uint64_t num  : 16;
     };
   };
 
-  TaggedPointer(char *ptr, uint64_t sz) {
-#ifdef REDUCE_PM_ACCESS
-    addr = (uint64_t)ptr;
-    size = sz <= 0xFFFF ? sz : 0;
-#else
-    data = (uint64_t)ptr;
-#endif
-  }
-
-#ifdef INTERLEAVED
   TaggedPointer(char *ptr, uint64_t sz, uint64_t num_) {
 #ifdef REDUCE_PM_ACCESS
-#ifdef INTERLEAVED 
     addr = (uint64_t)ptr;
-    size = sz <= 0xFF ? sz : 0;
-    num = num_ < 0xFF ? num_ : 0xFF;
-    // if(num_ >= 255 || num_ < 0) 
-      // std::cout << "taggedpointer: num_ = " << num_ << ", num = " << num << std::endl;
-      // num = num_ < 0xFF ? num_ : 0;
-      // num = num_;
-      // printf("num  = %ld\n", num);
-      // printf("TaggedPointer: num = %ld\n", num);
-#else
-    addr = (uint64_t)ptr;
-    size = sz <= 0xFFFF ? sz : 0;
-#endif
+    num = num_ < 0xFFFF ? num_ : 0xFFFF;
 #else
     data = (uint64_t)ptr;
 #endif
   }
-#else
-  TaggedPointer(char *ptr, uint64_t sz) {
-#ifdef REDUCE_PM_ACCESS
-    addr = (uint64_t)ptr;
-    size = sz <= 0xFFFF ? sz : 0;
-#else
-    data = (uint64_t)ptr;
-#endif
-  }
-#endif
 
   TaggedPointer(ValueType val) : data(val) {}
 

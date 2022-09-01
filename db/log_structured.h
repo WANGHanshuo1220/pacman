@@ -63,6 +63,7 @@ class LogStructured {
   const int num_workers_;
   const int num_cleaners_;
   char *pool_start_;
+  char *cleaner_pool_start_;
   const size_t total_log_size_;
   const int num_segments_;
   // SpinLock reserved_list_lock_;
@@ -73,13 +74,11 @@ class LogStructured {
   std::vector<LogSegment *> all_segments_;
   std::vector<LogCleaner *> log_cleaners_;
   std::queue<LogSegment *> free_segments_;
-#ifdef INTERLEAVED
   int num_hot_segments_;
   int num_cold_segments_;
   std::vector<LogSegment *> cold_segments_;
   std::vector<LogSegment *> hot_segments_;
   uint64_t new_count = 0;
-#endif
   // std::queue<LogSegment *> reserved_segments_;
 
   std::atomic<int> num_free_segments_{0};
@@ -95,10 +94,8 @@ class LogStructured {
   std::condition_variable rec_cv_;
 
   // interleaved_GC
-#ifdef INTERLEAVED
   int cur_segment;
   int get_cur_segment() { return cur_segment; }
-#endif
 
   // statistics
 #ifdef LOGGING

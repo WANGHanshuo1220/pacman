@@ -580,9 +580,9 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
   TaggedPointer tp(tagged_val);
 #if defined(INTERLEAVED) && defined(REDUCE_PM_ACCESS)
   uint16_t num_ = tp.num;
-  if(num_ == 0xFF)
+  if(num_ == 0xFFFF)
   {
-    printf("num == 0xFF\n");
+    printf("num == 0xFFFF\n");
     num_ = tp.GetKVItem()->num;
   }
 #endif

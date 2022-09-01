@@ -144,7 +144,7 @@ void LogCleaner::BatchIndexUpdate() {
 #ifndef REDUCE_PM_ACCESS
         TaggedPointer tp(new_val);
         // set size to mark garbage
-        tp.size = valid_items_[j].size;
+        // tp.size = valid_items_[j].size;
         new_val = (ValueType)tp;
 #endif
         new_garbage_addr.push_back(new_val);
@@ -165,8 +165,8 @@ void LogCleaner::BatchIndexUpdate() {
       log_->GetSegmentCleanerID(reserved_segment_->get_segment_start());
   for (auto it = new_garbage_addr.begin(); it != new_garbage_addr.end(); it++) {
     TaggedPointer tp(*it);
-    reserved_segment_->MarkGarbage(tp.GetAddr(), tp.size);
-    tmp_cleaner_garbage_bytes_[gc_cleaner_id] += tp.size;
+    // reserved_segment_->MarkGarbage(tp.GetAddr(), tp.size);
+    // tmp_cleaner_garbage_bytes_[gc_cleaner_id] += tp.size;
   }
   COUNTER_ADD_LOGGING(garbage_move_count_, new_garbage_addr.size());
   COUNTER_ADD_LOGGING(move_count_, valid_items_.size());
@@ -218,8 +218,8 @@ void LogCleaner::CopyValidItemToBuffer(LogSegment *segment) {
                                 TaggedPointer(new_addr, sz, num_new), sz, sc);
       num_new ++;
 #else
-      valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz),
-                                TaggedPointer(new_addr, sz), sz, sc);
+      // valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz),
+                                // TaggedPointer(new_addr, sz), sz, sc);
 #endif
     }
     p += sz;
@@ -260,7 +260,7 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment) {
 
 
 // CompactSegment is used if not defined BATCH_COMPACTION
-void LogCleaner::CompactSegment(LogSegment *segment) {
+void LogCleaner::CompactSegment(LogSegment *segment, bool is_reservation) {
   // while(segment->is_segment_RB());
   // printf("in compactsegment\n");
   char *p = segment->get_data_start();
@@ -314,11 +314,7 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
       ValueType val = reserved_segment_->Append(key, data, kv->epoch);
       TIMER_STOP_LOGGING(copy_time_);
       LogEntryHelper le_helper(val);
-#ifdef INTERLEAVED
       le_helper.old_val = TaggedPointer(p, sz, num_old);
-#else
-      le_helper.old_val = TaggedPointer(p, sz);
-#endif
       le_helper.shortcut = sc;
       TIMER_START_LOGGING(update_index_time_);
       db_->index_->GCMove(key, le_helper);
@@ -418,6 +414,7 @@ void LogCleaner::FreezeReservedAndGetNew() {
 #ifdef INTERLEAVED
 void LogCleaner::DoMemoryClean()
 {
+  bool is_reservation = false;
   LockUsedList();
   to_compact_hot_segments_.splice(to_compact_hot_segments_.end(),
                                   closed_hot_segments_);
@@ -446,7 +443,7 @@ void LogCleaner::DoMemoryClean()
 #ifdef BATCH_COMPACTION
     BatchCompactSegment(segment);
 #else
-    CompactSegment(segment);
+    CompactSegment(segment, is_reservation);
 #endif
 }
 #else
@@ -550,7 +547,7 @@ void LogCleaner::DoMemoryClean() {
 #ifdef BATCH_COMPACTION
   BatchCompactSegment(segment);
 #else
-  CompactSegment(segment);
+  // CompactSegment(segment, is_reservation);
 #endif
   // printf("end domemoryclean\n");
 }
