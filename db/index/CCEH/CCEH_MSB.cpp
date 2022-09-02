@@ -13,6 +13,8 @@
 
 namespace CCEH_NAMESPACE {
 
+#define INVALID_CLASS 5 // > 3 is ok
+
 bool Segment::Insert4split(Key_t &key, Value_t value, size_t loc) {
   for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
     auto slot = (loc + i) % kNumSlot;

@@ -71,13 +71,27 @@ class LogStructured {
   // const int max_reserved_segments_;
   SpinLock free_list_lock_;
 
+  const int num_class0_segments_;
+  const int num_class1_segments_;
+  const int num_class2_segments_;
+  const int num_class3_segments_;
+
   std::vector<LogSegment *> all_segments_;
   std::vector<LogCleaner *> log_cleaners_;
-  std::queue<LogSegment *> free_segments_;
-  int num_hot_segments_;
-  int num_cold_segments_;
-  std::vector<LogSegment *> cold_segments_;
-  std::vector<LogSegment *> hot_segments_;
+
+  std::queue<LogSegment *> free_segments_class0;
+  std::queue<LogSegment *> free_segments_class1;
+  std::queue<LogSegment *> free_segments_class2;
+  std::queue<LogSegment *> free_segments_class3;
+
+  std::vector<LogSegment *> class1_segments_;
+  std::vector<LogSegment *> class2_segments_;
+  std::vector<LogSegment *> class3_segments_;
+
+  const float class0_prop = 0.4;
+  const float class1_prop = 0.2;
+  const float class2_prop = 0.2;
+  const float class3_prop = 1. - class0_prop - class1_prop - class2_prop;
   uint64_t new_count = 0;
   // std::queue<LogSegment *> reserved_segments_;
 

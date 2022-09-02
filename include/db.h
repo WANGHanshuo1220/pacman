@@ -85,9 +85,7 @@ class DB {
     int worker_id_;
     DB *db_;
     LogSegment *log_head_ = nullptr;
-#ifdef HOT_COLD_SEPARATE
     LogSegment *cold_log_head_ = nullptr;
-#endif
 
     // lazily update garbage bytes for cleaner, avoid too many FAAs
     std::vector<size_t> tmp_cleaner_garbage_bytes_;
@@ -199,9 +197,7 @@ class DB {
   const int num_workers_;
   const int num_cleaners_;
   std::atomic<int> cur_num_workers_{0};
-#ifdef HOT_COLD_SEPARATE
   HotKeySet *hot_key_set_ = nullptr;
-#endif
   ThreadStatus thread_status_;
 #ifdef INTERLEAVED
   std::atomic<int> next_hot_segment_;

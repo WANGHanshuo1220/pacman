@@ -268,12 +268,8 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
   struct timeval check_hotcold_start;
   gettimeofday(&check_hotcold_start, NULL);
 #endif
-  bool hot;
-#ifdef HOT_COLD_SEPARATE
-  hot = db_->hot_key_set_->Exist(key);
-#else
-  hot = true;
-#endif
+  int class_;
+  class_ = db_->hot_key_set_->Exist(key);
 #ifdef GC_EVAL
   struct timeval check_hotcold_end;
   gettimeofday(&check_hotcold_end, NULL);
@@ -286,7 +282,7 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
   struct timeval insert_end;
   gettimeofday(&insert_begin, NULL);
 #endif
-  ValueType val = MakeKVItem(key, value, hot);
+  ValueType val = MakeKVItem(key, value, class_);
 #ifdef GC_EVAL
   gettimeofday(&insert_end, NULL);
   insert_time += TIMEDIFF(insert_begin, insert_end);

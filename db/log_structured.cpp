@@ -14,13 +14,22 @@
 LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
                              int num_workers, int num_cleaners)
     : num_workers_(num_workers),
-      num_cleaners_(num_cleaners),
+      num_cleaners_(4),
       total_log_size_(log_size),
-      // num_segments_((log_size - num_cleaners * 2 * Reservation_SEGMENT_SIZE) / SEGMENT_SIZE),
-      num_segments_(log_size/SEGMENT_SIZE),
-      // max_reserved_segments_(num_cleaners),
+      num_class0_segments_(log_size * class0_prop / SEGMENT_SIZE0),
+      num_class1_segments_(log_size * class1_prop / SEGMENT_SIZE1),
+      num_class2_segments_(log_size * class2_prop / SEGMENT_SIZE2),
+      num_class3_segments_( (log_size - 
+                            num_class0_segments_ * SEGMENT_SIZE0 - 
+                            num_class1_segments_ * SEGMENT_SIZE1 - 
+                            num_class2_segments_ * SEGMENT_SIZE2 
+                            )  / SEGMENT_SIZE3
+                          ),
+      num_segments_(num_class0_segments_ + 
+                    num_class1_segments_ + 
+                    num_class2_segments_ +
+                    num_class3_segments_),
       free_list_lock_("free_list"),
-      // reserved_list_lock_("reserved_list"),
       num_limit_free_segments_(num_workers * (10 - num_cleaners)) {
 #ifdef LOG_PERSISTENT
   std::string log_pool_path = db_path + "/log_pool";
@@ -40,86 +49,126 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
   madvise(pool_start_, total_log_size_, MADV_HUGEPAGE);
 #endif
 
-  /* cold:hot:free = 2:1:1 */
-  num_cold_segments_ = num_segments_ / 2;
-  num_free_segments_ = (num_segments_ - num_cold_segments_) / 2;
-  num_hot_segments_  = num_segments_ - num_cold_segments_ 
-                      - num_free_segments_;
-  /* cold:hot:free = 1:2:1 */
-  // num_hot_segments_ = num_segments_ / 2;
-  // num_free_segments_ = (num_segments_ - num_cleaners - num_hot_segments_) / 2;
-  // num_cold_segments_  = num_segments_ - num_hot_segments_ 
-  //                     - num_cleaners - num_free_segments_;
-  /* cold:hot:free = 3:1:1 */
-  // num_cold_segments_ = num_segments_ * 3 / 5;
-  // num_free_segments_ = (num_segments_ - num_cleaners - num_cold_segments_) / 2;
-  // num_hot_segments_  = num_segments_ - num_cold_segments_ 
-  //                     - num_cleaners - num_free_segments_;
 
-  printf("num_seg = %d, num_cold_seg = %d, " 
-         "num_hot_seg = %d, num_free_seg = %d, num_cleaner_seg = %d\n",
-          num_segments_, num_cold_segments_, num_hot_segments_,
-          num_free_segments_.load(), num_cleaners_);
+  printf("num_seg_class0 = %d, num_seg_class1 = %d, " 
+         "num_seg_class2 = %d, num_seg_class3 = %d, num_seg = %d\n",
+        num_class0_segments_, num_class1_segments_, 
+        num_class2_segments_, num_class3_segments_,
+        num_segments_);
 
   if (pool_start_ == nullptr || pool_start_ == MAP_FAILED) {
     ERROR_EXIT("mmap failed");
   }
-  // printf("pool_start = %p\n", pool_start_);
   LOG("Log: pool_start %p total segments: %d  cleaners: %d\n", pool_start_,
       num_segments_, num_cleaners_);
 
   // all_segments_.resize(num_segments_ + 2 * num_cleaners_, nullptr);
   all_segments_.resize(num_segments_, nullptr);
-
-  int i = 0;
-  // for (i = 0; i < num_segments_; i++) {
-  for (i = 0; i < num_segments_ - num_cleaners_; i++) {
-    all_segments_[i] =
-        new LogSegment(pool_start_ + i * SEGMENT_SIZE, SEGMENT_SIZE);
-    if(i < num_cold_segments_) 
-    {
-      cold_segments_.push_back(all_segments_[i]);
-      all_segments_[i]->set_touse();
-    }
-    else if(i < num_cold_segments_ + num_hot_segments_)
-    {
-      hot_segments_.push_back(all_segments_[i]);
-      all_segments_[i]->set_touse();
-    }
-    else
-    {
-      free_segments_.push(all_segments_[i]);
-      all_segments_[i]->set_available();
-      // all_segments_[i]->set_is_free_seg(true);
-    }
-  }
-
   log_cleaners_.resize(num_cleaners_, nullptr);
-  char * cleaner_pool_start = pool_start_ + i * SEGMENT_SIZE;
-  cleaner_pool_start_ = cleaner_pool_start;
 
-  for (int j = 0; i < num_segments_; i++, j++) {
-    all_segments_[i] =
-        new LogSegment(pool_start_ + i * SEGMENT_SIZE, SEGMENT_SIZE);
-    log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i]);
+  int i = 0, j = 0;
+  char * pool_start = pool_start_;
+  for (i = 0, j = 0; i < num_segments_; i++) {
+    // for class0
+    if(i < num_class0_segments_ - 1)
+    {
+      all_segments_[i] =
+          new LogSegment(pool_start, SEGMENT_SIZE0);
+      free_segments_class0.push(all_segments_[i]);
+      pool_start += SEGMENT_SIZE0;
+    }
+    else if(i == num_class0_segments_ - 1)
+    {
+      all_segments_[i] =
+          new LogSegment(pool_start, SEGMENT_SIZE0);
+      log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i]);
+      pool_start += SEGMENT_SIZE0;
+      j++;
+    }
+    // for class1
+    else if(i < (num_class0_segments_ + num_class1_segments_ - 1) * 0.8)
+    {
+      all_segments_[i] =
+          new LogSegment(pool_start, SEGMENT_SIZE1);
+      class1_segments_.push_back(all_segments_[i]);
+      pool_start += SEGMENT_SIZE1;
+    }
+    else if(i < num_class0_segments_ + num_class1_segments_ - 1)
+    {
+      all_segments_[i] =
+          new LogSegment(pool_start, SEGMENT_SIZE1);
+      free_segments_class1.push(all_segments_[i]);
+      pool_start += SEGMENT_SIZE1;
+    }
+    else if(i == num_class0_segments_ + num_class1_segments_ - 1)
+    {
+      all_segments_[i] =
+          new LogSegment(pool_start, SEGMENT_SIZE1);
+      log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i]);
+      pool_start += SEGMENT_SIZE1;
+      j++;
+    }
+    // for class2
+    else if(i < (num_class0_segments_ + 
+                 num_class1_segments_ + 
+                 num_class2_segments_ - 1) * 0.8)
+    {
+      all_segments_[i] =
+          new LogSegment(pool_start, SEGMENT_SIZE2);
+      class2_segments_.push_back(all_segments_[i]);
+      pool_start += SEGMENT_SIZE2;
+    }
+    else if(i < num_class0_segments_ + 
+                num_class1_segments_ + 
+                num_class2_segments_ - 1)
+    {
+      all_segments_[i] =
+          new LogSegment(pool_start, SEGMENT_SIZE2);
+      free_segments_class2.push(all_segments_[i]);
+      pool_start += SEGMENT_SIZE2;
+    }
+    else if(i == num_class0_segments_ + 
+                 num_class1_segments_ + 
+                 num_class2_segments_ - 1)
+    {
+      all_segments_[i] =
+          new LogSegment(pool_start, SEGMENT_SIZE2);
+      log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i]);
+      pool_start += SEGMENT_SIZE2;
+      j++;
+    }
+    // for class3
+    else if(i < (num_class0_segments_ + 
+                 num_class1_segments_ + 
+                 num_class2_segments_ +
+                 num_class3_segments_ - 1) * 0.8)
+    {
+      all_segments_[i] =
+          new LogSegment(pool_start, SEGMENT_SIZE3);
+      class3_segments_.push_back(all_segments_[i]);
+      pool_start += SEGMENT_SIZE3;
+    }
+    else if(i < num_class0_segments_ + 
+                num_class1_segments_ + 
+                num_class2_segments_ +
+                num_class3_segments_ - 1)
+    {
+      all_segments_[i] =
+          new LogSegment(pool_start, SEGMENT_SIZE3);
+      free_segments_class3.push(all_segments_[i]);
+      pool_start += SEGMENT_SIZE3;
+    }
+    else if(i == num_class0_segments_ + 
+                 num_class1_segments_ + 
+                 num_class2_segments_ +
+                 num_class3_segments_ - 1)
+    {
+      all_segments_[i] =
+          new LogSegment(pool_start, SEGMENT_SIZE3);
+      log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i]);
+      assert(pool_start - pool_start_ + SEGMENT_SIZE3 > log_size);
+    }
   }
-
-  // for (int j = 0; j < num_cleaners_; j++) {
-
-  //   all_segments_[i] =
-  //       new LogSegment(cleaner_pool_start, Reservation_SEGMENT_SIZE);
-  //   all_segments_[i]->set_reserved();
-
-  //   all_segments_[i+1] =
-  //       new LogSegment(cleaner_pool_start + Reservation_SEGMENT_SIZE
-  //                     , Reservation_SEGMENT_SIZE);
-  //   all_segments_[i+1]->set_reserved();
-
-  //   log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i], all_segments_[i+1]);
-    
-  //   i+=2;
-  //   cleaner_pool_start += 2 * Reservation_SEGMENT_SIZE;
-  // }
 
   for (int j = 0; j < num_cleaners_; j++) {
     log_cleaners_[j]->StartGCThread();

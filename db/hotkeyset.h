@@ -11,7 +11,7 @@
 #include "config.h"
 #include "util/lock.h"
 
-static constexpr size_t HOT_NUM = 128 * 1024;
+static constexpr size_t HOT_NUM = 1024 * 1024;
 static constexpr int RECORD_BATCH_CNT = 4096;
 static constexpr size_t RECORD_BUFFER_SIZE = 16 * 1024;
 
@@ -44,19 +44,21 @@ class HotKeySet {
 
   void Record(const Slice &key, int worker_id, bool hit);
   void BeginUpdateHotKeySet();
-  bool Exist(const Slice &key);
-  uint64_t get_set_sz() 
-  { 
-    if(current_set_)
-      return (*current_set_).size(); 
-    else
-      return 0;
-  }
+  int Exist(const Slice &key);
+  // uint64_t get_set_sz() 
+  // { 
+  //   if(current_set_)
+  //     return (*current_set_).size(); 
+  //   else
+  //     return 0;
+  // }
   uint64_t Record_c = 0;
 
  private:
   DB *db_;
-  std::unordered_set<uint64_t> *current_set_;
+  std::unordered_set<uint64_t> *current_set_class1;
+  std::unordered_set<uint64_t> *current_set_class2;
+  std::unordered_set<uint64_t> *current_set_class3;
   std::unique_ptr<UpdateKeyRecord[]> update_record_;
   std::thread update_hot_set_thread_;
   std::atomic_flag update_schedule_flag_{ATOMIC_FLAG_INIT};

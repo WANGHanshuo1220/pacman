@@ -15,8 +15,10 @@ using KeyType = uint64_t;
 using ValueType = uint64_t;
 static constexpr ValueType INVALID_VALUE = 0;
 
-static constexpr uint64_t SEGMENT_SIZE = 1ul << 21;
-static constexpr uint64_t Reservation_SEGMENT_SIZE = 4ul << 20;
+static constexpr uint64_t SEGMENT_SIZE0 = 1ul << 22;
+static constexpr uint64_t SEGMENT_SIZE1 = 1ul << 20;
+static constexpr uint64_t SEGMENT_SIZE2 = 1ul << 16;
+static constexpr uint64_t SEGMENT_SIZE3 = 1ul << 12;
 
 // shortcut
 class __attribute__((__packed__)) Shortcut {
@@ -59,7 +61,7 @@ struct KVItem {
   uint16_t key_size : 15;
   volatile uint16_t is_garbage : 1;
 #endif
-  uint32_t num; // max kvs in a segment = 2^16
+  uint16_t num; // max kvs in a segment = 2^16
   uint16_t val_size;
   // uint32_t checksum = 0;
   // uint64_t epoch;

@@ -15,10 +15,11 @@ const Value_t NONE = 0x0;
 struct Pair {
   Key_t key;
   Value_t value;
+  uint64_t count;
 
-  Pair(void) : key{INVALID} {}
+  Pair(void) : key{INVALID}, count(0) {}
 
-  Pair(Key_t _key, Value_t _value) : key{_key}, value{_value} {}
+  Pair(Key_t _key, Value_t _value) : key{_key}, value{_value}, count(0) {}
 
   Pair &operator=(const Pair &other) {
     key = other.key;
