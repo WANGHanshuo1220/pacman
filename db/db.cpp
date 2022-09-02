@@ -66,10 +66,13 @@ void DB::start_GCThreads()
 
 DB::~DB() {
 #ifdef INTERLEAVED
-  printf("hot set size = %ld\n", hot_key_set_->get_set_sz());
+  // printf("hot set size = %ld\n", hot_key_set_->get_set_sz());
   // stop_flag_RB.store(true, std::memory_order_release);
   // StopRBThread();
   // printf("roll_back_queue full times = %ld\n", roll_back_queue.get_full_times());
+  // printf("roll_back_times = %ld, bytes = %ld byte (%ldKB, %ldMB)\n", 
+  //   roll_back_count, roll_back_bytes, 
+  //   roll_back_bytes/1024, roll_back_bytes/(1024*1024));
 #endif
   delete log_;
   delete index_;
@@ -225,11 +228,6 @@ DB::Worker::~Worker() {
   // printf("        get_kv_num   = \t%ld us   \t(%ld s)\n", get_kv_num, get_kv_num/1000000);
   // printf("        get_kv_sz    = \t%ld us   \t(%ld s)\n", get_kv_sz, get_kv_sz/1000000);
   // printf("      Markgarbage_p2 = \t%ld us   \t(%ld s)\n", markgarbage_p2, markgarbage_p2/1000000);
-#endif
-#ifdef INTERLEAVED
-  // printf("roll_back_times = %ld, bytes = %ld byte (%ldKB, %ldMB)\n", 
-  //   db_->roll_back_count, db_->roll_back_bytes, 
-  //   db_->roll_back_bytes/1024, db_->roll_back_bytes/(1024*1024));
 #endif
 #ifdef LOG_BATCHING
   BatchIndexInsert(buffer_queue_.size(), true);
@@ -597,10 +595,8 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
     uint32_t roll_back_sz = 0;
     uint32_t RB_count = 0;
     uint8_t status;
-    if(!segment->is_segment_cleaning() && 
-       !segment->is_segment_reserved() &&
-       !segment->is_segment_using()    &&
-       !segment->is_segment_available())
+    if(segment->is_segment_touse() ||
+       segment->is_segment_closed())
     {
       // db_->roll_back_count++;
       for(int i = n - 1; i >= 0; i--)

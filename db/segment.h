@@ -154,13 +154,8 @@ class LogSegment : public BaseSegment {
   bool is_segment_available() { return header_->status == StatusAvailable; }
   bool is_segment_closed() { return header_->status == StatusClosed; }
   bool is_segment_using() { return header_->status == StatusUsing; }
-  bool is_segment_cleaning() { 
-    // uint8_t s = header_->status;
-    // printf("header_->status = %d\n", s);
-    // if(s == StatusCleaning) return true;
-    // else return false;
-    return header_->status == StatusCleaning; 
-    }
+  bool is_segment_touse() { return header_->status == StatusToUse; }
+  bool is_segment_cleaning() { return header_->status == StatusCleaning; }
   bool is_segment_reserved() { return header_->status == StatusReserved; }
   bool is_segment_RB() { return header_->status == StatusRB; }
   void set_cleaning() { header_->status = StatusCleaning; }
@@ -170,7 +165,7 @@ class LogSegment : public BaseSegment {
   void set_status(uint8_t s) { header_->status = s; }
   uint32_t roll_back_c = 0;
   std::mutex seg_lock;
-  uint8_t num_kvs = 0;
+  uint32_t num_kvs = 0;
   // vector for pairs <IsGarbage, kv_size>
   // std::vector<std::pair<bool, uint16_t>> roll_back_map
   //  = std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE/32);
@@ -388,7 +383,7 @@ class LogSegment : public BaseSegment {
     if (!HasSpaceFor(sz)) {
       return INVALID_VALUE;
     }
-    uint8_t cur_num = num_kvs;
+    uint32_t cur_num = num_kvs;
     KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
     roll_back_map[cur_num].second = sz;
     num_kvs ++;

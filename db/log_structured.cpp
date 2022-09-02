@@ -16,7 +16,8 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
     : num_workers_(num_workers),
       num_cleaners_(num_cleaners),
       total_log_size_(log_size),
-      num_segments_((log_size - num_cleaners * 2 * Reservation_SEGMENT_SIZE) / SEGMENT_SIZE),
+      // num_segments_((log_size - num_cleaners * 2 * Reservation_SEGMENT_SIZE) / SEGMENT_SIZE),
+      num_segments_(log_size/SEGMENT_SIZE),
       // max_reserved_segments_(num_cleaners),
       free_list_lock_("free_list"),
       // reserved_list_lock_("reserved_list"),
@@ -67,10 +68,12 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
   LOG("Log: pool_start %p total segments: %d  cleaners: %d\n", pool_start_,
       num_segments_, num_cleaners_);
 
-  all_segments_.resize(num_segments_ + 2 * num_cleaners_, nullptr);
+  // all_segments_.resize(num_segments_ + 2 * num_cleaners_, nullptr);
+  all_segments_.resize(num_segments_, nullptr);
 
   int i = 0;
-  for (i = 0; i < num_segments_; i++) {
+  // for (i = 0; i < num_segments_; i++) {
+  for (i = 0; i < num_segments_ - num_cleaners_; i++) {
     all_segments_[i] =
         new LogSegment(pool_start_ + i * SEGMENT_SIZE, SEGMENT_SIZE);
     if(i < num_cold_segments_) 
@@ -95,22 +98,28 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
   char * cleaner_pool_start = pool_start_ + i * SEGMENT_SIZE;
   cleaner_pool_start_ = cleaner_pool_start;
 
-  for (int j = 0; j < num_cleaners_; j++) {
-
+  for (int j = 0; i < num_segments_; i++, j++) {
     all_segments_[i] =
-        new LogSegment(cleaner_pool_start, Reservation_SEGMENT_SIZE);
-    all_segments_[i]->set_reserved();
-
-    all_segments_[i+1] =
-        new LogSegment(cleaner_pool_start + Reservation_SEGMENT_SIZE
-                      , Reservation_SEGMENT_SIZE);
-    all_segments_[i+1]->set_reserved();
-
-    log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i], all_segments_[i+1]);
-    
-    i+=2;
-    cleaner_pool_start += 2 * Reservation_SEGMENT_SIZE;
+        new LogSegment(pool_start_ + i * SEGMENT_SIZE, SEGMENT_SIZE);
+    log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i]);
   }
+
+  // for (int j = 0; j < num_cleaners_; j++) {
+
+  //   all_segments_[i] =
+  //       new LogSegment(cleaner_pool_start, Reservation_SEGMENT_SIZE);
+  //   all_segments_[i]->set_reserved();
+
+  //   all_segments_[i+1] =
+  //       new LogSegment(cleaner_pool_start + Reservation_SEGMENT_SIZE
+  //                     , Reservation_SEGMENT_SIZE);
+  //   all_segments_[i+1]->set_reserved();
+
+  //   log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i], all_segments_[i+1]);
+    
+  //   i+=2;
+  //   cleaner_pool_start += 2 * Reservation_SEGMENT_SIZE;
+  // }
 
   for (int j = 0; j < num_cleaners_; j++) {
     log_cleaners_[j]->StartGCThread();
@@ -261,21 +270,25 @@ void LogStructured::SyncCleanerGarbageBytes(
 }
 
 LogSegment *LogStructured::GetSegment(int segment_id) {
-  assert(segment_id < num_segments_ + 2 * num_cleaners_);
+  // assert(segment_id < num_segments_ + 2 * num_cleaners_);
+  assert(segment_id < num_segments_);
   return all_segments_[segment_id];
 }
 
 int LogStructured::GetSegmentID(const char *addr) {
   assert(addr >= pool_start_);
   int seg_id;
-  if(addr < cleaner_pool_start_)
-  {
-    seg_id = (addr - pool_start_) / SEGMENT_SIZE;
-  }
-  else
-  {
-    seg_id = num_segments_ + (addr - cleaner_pool_start_) / Reservation_SEGMENT_SIZE;
-  }
+  // if(addr < cleaner_pool_start_)
+  // {
+  //   seg_id = (addr - pool_start_) / SEGMENT_SIZE;
+  //   assert(seg_id < num_segments_);
+  // }
+  // else
+  // {
+  //   seg_id = num_segments_ + (addr - cleaner_pool_start_) / Reservation_SEGMENT_SIZE;
+  //   assert(seg_id < num_segments_ + 2 * num_cleaners_);
+  // }
+  seg_id = (addr - pool_start_) / SEGMENT_SIZE;
   assert(seg_id < num_segments_);
   return seg_id;
 }

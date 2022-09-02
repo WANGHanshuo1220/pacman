@@ -15,7 +15,7 @@ using KeyType = uint64_t;
 using ValueType = uint64_t;
 static constexpr ValueType INVALID_VALUE = 0;
 
-static constexpr uint64_t SEGMENT_SIZE = 1ul << 12;
+static constexpr uint64_t SEGMENT_SIZE = 1ul << 21;
 static constexpr uint64_t Reservation_SEGMENT_SIZE = 4ul << 20;
 
 // shortcut
@@ -59,7 +59,7 @@ struct KVItem {
   uint16_t key_size : 15;
   volatile uint16_t is_garbage : 1;
 #endif
-  uint16_t num; // max kvs in a segment = 2^16
+  uint32_t num; // max kvs in a segment = 2^16
   uint16_t val_size;
   // uint32_t checksum = 0;
   // uint64_t epoch;
@@ -71,7 +71,7 @@ struct KVItem {
     memset(this, 0, sizeof(KVItem));
   }
 
-  KVItem(const Slice &_key, const Slice &_val, uint32_t _epoch, uint8_t _num)
+  KVItem(const Slice &_key, const Slice &_val, uint32_t _epoch, uint32_t _num)
       : key_size(_key.size()), val_size(_val.size()), epoch(_epoch), num(_num) {
 #ifndef REDUCE_PM_ACCESS
     is_garbage = false;
