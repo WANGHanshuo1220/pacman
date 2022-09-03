@@ -61,22 +61,24 @@ class DB {
     long get_kv_num = 0;
     long get_kv_sz = 0;
 #endif
-#ifdef INTERLEAVED
     // int num_hot_segments_;
     // int num_cold_segments_;
-    uint32_t hot_seg_working_on;
-    uint32_t cold_seg_working_on;
+    uint32_t class1_seg_working_on;
+    uint32_t class2_seg_working_on;
+    uint32_t class3_seg_working_on;
 #ifdef LOG_BATCHING
     uint32_t change_seg_threshold = LOG_BATCHING_SIZE;
     bool hot_batch_persistent = false;
     bool cold_batch_persistent = false;
 #else
-    uint64_t change_seg_threshold = SEGMENT_SIZE / 2;
+    uint64_t change_seg_threshold_class1 = SEGMENT_SIZE1 / 2;
+    uint64_t change_seg_threshold_class2 = SEGMENT_SIZE2 / 2;
+    uint64_t change_seg_threshold_class3 = SEGMENT_SIZE3 / 2;
 #endif
-    uint32_t accumulative_sz_hot = 0;
-    uint32_t accumulative_sz_cold = 0;
+    uint32_t accumulative_sz_class1 = 0;
+    uint32_t accumulative_sz_class2 = 0;
+    uint32_t accumulative_sz_class3 = 0;
     // int roll_back_count = 0;
-#endif
 
   // only for test
   // int test_count = 0;
@@ -84,16 +86,18 @@ class DB {
    private:
     int worker_id_;
     DB *db_;
-    LogSegment *log_head_ = nullptr;
-    LogSegment *cold_log_head_ = nullptr;
+    LogSegment *log_head_class0 = nullptr;
+    LogSegment *log_head_class1 = nullptr;
+    LogSegment *log_head_class2 = nullptr;
+    LogSegment *log_head_class3 = nullptr;
 
     // lazily update garbage bytes for cleaner, avoid too many FAAs
     std::vector<size_t> tmp_cleaner_garbage_bytes_;
 
-    ValueType MakeKVItem(const Slice &key, const Slice &value, bool hot);
-    void UpdateIndex(const Slice &key, ValueType val, bool hot);
+    ValueType MakeKVItem(const Slice &key, const Slice &value, int class_);
+    void UpdateIndex(const Slice &key, ValueType val, int class_);
     void MarkGarbage(ValueType tagged_val);
-    void FreezeSegment(LogSegment *segment);
+    void FreezeSegment(LogSegment *segment, int class_);
 
 #ifdef LOG_BATCHING
     void BatchIndexInsert(int cnt, bool hot);
@@ -125,7 +129,6 @@ class DB {
   void RecoveryAll();
   void NewIndexForRecoveryTest();
 
-#ifdef INTERLEAVED
   void start_GCThreads();
 
   void StopRBThread() {
@@ -137,48 +140,62 @@ class DB {
     }
   }
 
-  void StartRBThread() {
-    StopRBThread();
-    printf("start RB Thread1\n");
-    roll_back_thread_[0] = std::thread(&DB::roll_back_, this);
-    printf("start RB Thread2\n");
-    roll_back_thread_[1] = std::thread(&DB::roll_back_, this);
-  }
+  // void StartRBThread() {
+  //   StopRBThread();
+  //   printf("start RB Thread1\n");
+  //   roll_back_thread_[0] = std::thread(&DB::roll_back_, this);
+  //   printf("start RB Thread2\n");
+  //   roll_back_thread_[1] = std::thread(&DB::roll_back_, this);
+  // }
 
-  // bool is_roll_back_list_empty() { return roll_back_list.empty(); }
+  bool is_roll_back_list_empty() { return roll_back_list.empty(); }
   void enque_roll_back_queue(LogSegment * s) { roll_back_queue.CQ_enque(s); }
   LogSegment *deque_roll_back_queue() { return roll_back_queue.CQ_deque(); }
 
-  std::pair<int, LogSegment **> get_hot_segment()
+  std::pair<int, LogSegment **> get_class1_segment()
   {
-    std::lock_guard<SpinLock> guard(hot_segment_list);
+    std::lock_guard<SpinLock> guard(class1_segment_list);
     std::pair<int, LogSegment **> ret;
-    ret.second = log_->get_hot_segment_(next_hot_segment_);
-    ret.first = next_hot_segment_;
+    ret.second = log_->get_class1_segment_(next_class1_segment_);
+    ret.first = next_class1_segment_;
     (*ret.second)->set_using();
-    next_hot_segment_ ++;
-    if(next_hot_segment_ == db_num_hot_segs)
+    next_class1_segment_ ++;
+    if(next_class1_segment_ == db_num_class1_segs)
     {
-      next_hot_segment_ = 0;
+      next_class1_segment_ = 0;
     }
     return ret;
   }
 
-  std::pair<int, LogSegment **> get_cold_segment()
+  std::pair<int, LogSegment **> get_class2_segment()
   {
-    std::lock_guard<SpinLock> guard(cold_segment_list);
+    std::lock_guard<SpinLock> guard(class2_segment_list);
     std::pair<int, LogSegment **> ret;
-    ret.second = log_->get_cold_segment_(next_cold_segment_);
-    ret.first = next_cold_segment_;
+    ret.second = log_->get_class2_segment_(next_class2_segment_);
+    ret.first = next_class2_segment_;
     (*ret.second)->set_using();
-    next_cold_segment_ ++;
-    if(next_cold_segment_ == db_num_cold_segs)
+    next_class2_segment_ ++;
+    if(next_class2_segment_ == db_num_class2_segs)
     {
-      next_cold_segment_ = 0;
+      next_class2_segment_ = 0;
     }
     return ret;
   }
-#endif
+
+  std::pair<int, LogSegment **> get_class3_segment()
+  {
+    std::lock_guard<SpinLock> guard(class3_segment_list);
+    std::pair<int, LogSegment **> ret;
+    ret.second = log_->get_class3_segment_(next_class3_segment_);
+    ret.first = next_class3_segment_;
+    (*ret.second)->set_using();
+    next_class3_segment_ ++;
+    if(next_class3_segment_ == db_num_class3_segs)
+    {
+      next_class3_segment_ = 0;
+    }
+    return ret;
+  }
 
   // GC_EVAL
 #ifdef GC_EVAL
@@ -186,12 +203,10 @@ class DB {
 #endif
 
  private:
-#ifdef INTERLEAVED
   std::queue<LogSegment *> roll_back_list;
   std::thread roll_back_thread_[2];
   std::atomic<bool> stop_flag_RB{false};
   CircleQueue roll_back_queue; 
-#endif
   Index *index_;
   LogStructured *log_;
   const int num_workers_;
@@ -199,18 +214,17 @@ class DB {
   std::atomic<int> cur_num_workers_{0};
   HotKeySet *hot_key_set_ = nullptr;
   ThreadStatus thread_status_;
-#ifdef INTERLEAVED
-  std::atomic<int> next_hot_segment_;
-  std::atomic<int> next_cold_segment_;
-  SpinLock hot_segment_list;
-  SpinLock cold_segment_list;
-  int db_num_hot_segs = 0;
-  int db_num_cold_segs = 0;
-  int hot_lock = 0;
-  int cold_lock = 0;
+  std::atomic<int> next_class1_segment_;
+  std::atomic<int> next_class2_segment_;
+  std::atomic<int> next_class3_segment_;
+  SpinLock class1_segment_list;
+  SpinLock class2_segment_list;
+  SpinLock class3_segment_list;
+  int db_num_class1_segs = 0;
+  int db_num_class2_segs = 0;
+  int db_num_class3_segs = 0;
   long roll_back_count = 0;
   uint64_t roll_back_bytes = 0;
-#endif
 
   static constexpr int EPOCH_MAP_SIZE = 1024;
   std::array<std::atomic_uint_fast32_t, EPOCH_MAP_SIZE> epoch_map_{};

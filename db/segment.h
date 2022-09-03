@@ -50,11 +50,11 @@ class BaseSegment {
     }
   };
 
-  static constexpr uint32_t HEADERS_SIZE = sizeof(Header);
-  static constexpr uint32_t SEGMENT_DATA_SIZE = (SEGMENT_SIZE - HEADERS_SIZE);
+  // static constexpr uint32_t HEADERS_SIZE = sizeof(Header);
+  // static constexpr uint32_t SEGMENT_DATA_SIZE = (SEGMENT_SIZE - HEADERS_SIZE);
   static constexpr uint32_t BYTES_PER_BIT = 32;
   static constexpr uint32_t BITMAP_SIZE =
-      (SEGMENT_DATA_SIZE / BYTES_PER_BIT + 7) / 8;
+      (SEGMENT_SIZE0 / BYTES_PER_BIT + 7) / 8;
 
   int cur_cnt_ = 0;
 #ifdef GC_EVAL
@@ -68,7 +68,7 @@ class BaseSegment {
 
   BaseSegment(char *start_addr, size_t size)
       : segment_start_(start_addr),
-        data_start_(start_addr + HEADERS_SIZE),
+        data_start_(start_addr),
         end_(start_addr + size) {}
 
   virtual ~BaseSegment() {}
@@ -138,11 +138,16 @@ class BaseSegment {
 
 class LogSegment : public BaseSegment {
  public:
-  LogSegment(char *start_addr, uint64_t size, bool init = true)
+  LogSegment(char *start_addr, uint64_t size, int class_)
       : BaseSegment(start_addr, size), garbage_bytes_(0) {
     assert(((uint64_t)header_ & (HEADER_ALIGN_SIZE - 1)) == 0);
-    if (init) {
-      Init();
+    if(class_ == 0)
+    {
+      Init_class0();
+    }
+    else
+    {
+      Init_class123(class_);
     }
   }
 
@@ -167,19 +172,31 @@ class LogSegment : public BaseSegment {
   std::mutex seg_lock;
   uint32_t num_kvs = 0;
   // vector for pairs <IsGarbage, kv_size>
-  // std::vector<std::pair<bool, uint16_t>> roll_back_map
+  std::vector<std::pair<bool, uint16_t>> roll_back_map;
   //  = std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE/32);
-  std::vector<std::pair<bool, uint16_t>> roll_back_map{SEGMENT_SIZE/32, std::pair<bool, uint16_t>(false, 0)};
+  // std::vector<std::pair<bool, uint16_t>> roll_back_map{SEGMENT_SIZE/32, std::pair<bool, uint16_t>(false, 0)};
 
-  // void lock(void) {
-  //   bool val = false;
-  //   while (!CAS(&seg_lock, &val, true));
-  // }
-
-  // void unlock(void) {
-  //   bool val = true;
-  //   while (!CAS(&seg_lock, &val, false));
-  // }
+  void init_RB_map(int class_)
+  {
+    switch (class_)
+    {
+      case 1:
+        roll_back_map =
+        std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE1/32, std::pair<bool, uint16_t>(false, 0));
+        break;
+      case 2:
+        roll_back_map =
+        std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE2/32, std::pair<bool, uint16_t>(false, 0));
+        break;
+      case 3:
+        roll_back_map =
+        std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE3/32, std::pair<bool, uint16_t>(false, 0));
+        break;
+    
+      default:
+        break;
+    }
+  }
 
   void RB_num_kvs(uint32_t a)
   {
@@ -190,20 +207,36 @@ class LogSegment : public BaseSegment {
   uint16_t get_num_kvs() { return num_kvs; }
   void clear_num_kvs() { num_kvs = 0; }
 
-  void Init() {
+  void Init_class0() {
     tail_ = data_start_;
+    header_->status = StatusAvailable;
+    InitBitmap();
+    class_ = 0;
+    SEGMENT_SIZE = SEGMENT_SIZE0;
     // header_->offset = 0;
     // header_->objects_tail_offset = 0;
-    header_->status = StatusAvailable;
     // header_->Flush();
-    // InitBitmap();
-    clear_num_kvs();
+    // clear_num_kvs();
 #ifdef LOG_BATCHING
     flush_tail_ = data_start_;
 #endif
-// #ifdef INTERLEAVED
-//     roll_back_map = new std::vector<std::pair<bool, uint16_t>>[SEGMENT_SIZE/32];
-// #endif
+  }
+
+  void Init_class123(int class__) {
+    tail_ = data_start_;
+    header_->status = StatusAvailable;
+    init_RB_map(class_);
+    class_ = class__;
+    if(class__ == 1) SEGMENT_SIZE = SEGMENT_SIZE1;
+    else if(class__ == 2) SEGMENT_SIZE = SEGMENT_SIZE2;
+    else if(class__ == 3) SEGMENT_SIZE = SEGMENT_SIZE3;
+    // header_->offset = 0;
+    // header_->objects_tail_offset = 0;
+    // header_->Flush();
+    // clear_num_kvs();
+#ifdef LOG_BATCHING
+    flush_tail_ = data_start_;
+#endif
   }
 
   void InitBitmap() {
@@ -289,11 +322,11 @@ class LogSegment : public BaseSegment {
 #endif
   }
 
-  void StartUsing(bool is_hot, bool has_shortcut = false) {
+  void StartUsing(bool has_shortcut = false) {
     header_->status = StatusUsing;
     // header_->has_shortcut = has_shortcut;
     // header_->Flush();
-    is_hot_ = is_hot;
+    // is_hot_ = is_hot;
 #ifdef GC_SHORTCUT
     has_shortcut_ = has_shortcut;
     InitShortcutBuffer();
@@ -328,16 +361,12 @@ class LogSegment : public BaseSegment {
   void Clear() {
     tail_ = data_start_;
     garbage_bytes_ = 0;
-    is_hot_ = false;
     header_->status = StatusAvailable;
     // header_->objects_tail_offset = 0;
     // header_->has_shortcut = false;
     // header_->Flush();
     clear_num_kvs();
-#ifdef INTERLEAVED
-    num_kvs = 0;
     roll_back_map = std::vector<std::pair<bool, uint16_t>>{SEGMENT_SIZE/32, std::pair<bool, uint16_t>(false, 0)};
-#endif
 #ifdef GC_EVAL
     make_new_kv_time = 0;
 #endif
@@ -354,26 +383,8 @@ class LogSegment : public BaseSegment {
 #endif
   }
 
-  // bool cleaned = false;
-  // void has_been_cleaned()
-  // {
-  //   cleaned = true;
-  // }
-
-//   void get_seg_info()
-//   {
-//     printf("seg info:\n");
-//     printf("    data_start       = %p\n", data_start_);
-//     printf("    tail_            = %p\n", tail_);
-// #ifdef INTERLEAVED
-//     printf("    num_kvs          = %d\n", num_kvs);
-//     printf("    roll_back_c      = %d\n", roll_back_c);
-// #endif
-//     // printf("    has_been_cleaned = %d\n", cleaned);
-//   }
-
   // append kv to log
-  ValueType Append(const Slice &key, const Slice &value, uint32_t epoch) {
+  ValueType Append(const Slice &key, const Slice &value, uint32_t epoch, int class_) {
 #ifdef GC_EVAL
     struct timeval make_new_kv_start;
     struct timeval make_new_kv_end;
@@ -396,7 +407,7 @@ class LogSegment : public BaseSegment {
     make_new_kv_time += TIMEDIFF(make_new_kv_start, make_new_kv_end);
 #endif
 
-    return TaggedPointer((char *)kv, sz, cur_num);
+    return TaggedPointer((char *)kv, sz, cur_num, class_);
   }
 
 #ifdef LOG_BATCHING
@@ -418,10 +429,6 @@ class LogSegment : public BaseSegment {
       return INVALID_VALUE;
     }
 #ifdef INTERLEAVED
-    // while(is_segment_RB())
-    // {
-    //   // printf("in AppendBatchFlush: waitint RB\n");
-    // }
     uint16_t cur_num = num_kvs;
     KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
     // roll_back_map.push_back(std::pair<bool, uint32_t>(false, sz));
@@ -480,33 +487,6 @@ class LogSegment : public BaseSegment {
   uint64_t get_close_time() { return close_time_; }
 
   bool IsGarbage(char *p) {
-    // while(is_segment_RB())
-    // {
-    //   // printf("in IsGarbage: waiting RB\n");
-    // }
-//     char *t = tail_;
-//     if((uint64_t)p < (uint64_t)data_start_ || (uint64_t)p >= (uint64_t)t)
-//     {
-//       int idx = (p - data_start_) / BYTES_PER_BIT;
-//       int byte = idx / 8;
-//       int bit = idx % 8;
-// #ifdef INTERLEAVED
-//       printf("in isGarbage\n");
-//       printf("is_free_seg= %d\n", is_free_seg);
-//       printf("Seg Status = %d\n", header_->status);
-//       printf("roll_bac   = %d\n", roll_back_c);
-//       printf("num_kvs    = %d\n", num_kvs);
-//       // printf("cleaned    = %d\n", cleaned);
-// #endif
-//       printf("p          = %p\n", p);
-//       printf("data_start = %p\n", data_start_);
-//       printf("t          = %p\n", t);
-//       printf("tail_      = %p\n", tail_);
-//       printf("idx        = %d\n", idx); 
-//       printf("byte       = %d\n", byte);
-//       printf("v_tomb     = %d\n", volatile_tombstone_[byte]);
-//       printf("bit        = %d\n", bit);
-//     }
 #ifdef REDUCE_PM_ACCESS
     assert(p >= data_start_ && p < tail_);
     int idx = (p - data_start_) / BYTES_PER_BIT;
@@ -519,59 +499,15 @@ class LogSegment : public BaseSegment {
   }
 
   void MarkGarbage(char *p, uint32_t sz) {
-    // while(is_segment_RB())
-    // {
-    //   // printf("in Markgarbage: waiting RB\n");
-    // }
 #ifdef WRITE_TOMBSTONE
-//     char *t = tail_;
-//     if((uint64_t)p < (uint64_t)data_start_ || (uint64_t)p >= (uint64_t)t)
-//     {
-//       int idx = (p - data_start_) / BYTES_PER_BIT;
-//       int byte = idx / 8;
-//       int bit = idx % 8;
-// #ifdef INTERLEAVED
-//       printf("in MarkGarbage\n");
-//       printf("is_free_seg= %d\n", is_free_seg);
-//       printf("Seg Status = %d\n", header_->status);
-//       printf("roll_bac   = %d\n", roll_back_c);
-//       printf("num_kvs    = %d\n", num_kvs);
-//       // printf("cleaned    = %d\n", cleaned);
-// #endif
-//       printf("p          = %p\n", p);
-//       printf("data_start = %p\n", data_start_);
-//       printf("t          = %p\n", t);
-//       printf("tail_      = %p\n", tail_);
-//       printf("idx        = %d\n", idx); 
-//       printf("byte       = %d\n", byte);
-//       printf("v_tomb     = %d\n", volatile_tombstone_[byte]);
-//       printf("bit        = %d\n", bit);
-//     }
     assert(p >= data_start_ && p < tail_);
+    assert(volatile_tombstone_);
 #ifdef REDUCE_PM_ACCESS
     int idx = (p - data_start_) / BYTES_PER_BIT;
     int byte = idx / 8;
     int bit = idx % 8;
     uint8_t old_val = volatile_tombstone_[byte];
     while (true) {
-//       if(((old_val >> bit) & 1) != 0)
-//       {
-// #ifdef INTERLEAVED
-//         printf("is_free_seg= %d\n", is_free_seg);
-//         printf("Seg Status = %d\n", header_->status);
-//         printf("roll_bac   = %d\n", roll_back_c);
-//         printf("num_kvs    = %d\n", num_kvs);
-//       // printf("cleaned    = %d\n", cleaned);
-// #endif
-//         printf("p          = %p\n", p);
-//         printf("data_start = %p\n", data_start_);
-//         printf("t          = %p\n", t);
-//         printf("tail_      = %p\n", tail_);
-//         printf("idx        = %d\n", idx); 
-//         printf("byte       = %d\n", byte);
-//         printf("v_tomb     = %d\n", volatile_tombstone_[byte]);
-//         printf("bit        = %d\n", bit);
-//       }
       assert(((old_val >> bit) & 1) == 0);
       uint8_t new_val = old_val | (1 << bit);
       if (__atomic_compare_exchange_n(&volatile_tombstone_[byte], &old_val,
@@ -591,8 +527,18 @@ class LogSegment : public BaseSegment {
     garbage_bytes_ += sz;
   }
 
-  // void set_is_hot(bool hot) { is_hot_ = hot; }
-  bool IsHot() { return is_hot_; }
+  void add_garbage_bytes(int b) 
+  { 
+    garbage_bytes_ += b; 
+    assert(garbage_bytes_ <= end_ - data_start_);
+  }
+  void reduce_garbage_bytes(int b) 
+  { 
+    garbage_bytes_ -= b; 
+    assert(garbage_bytes_ >= 0);
+  }
+  void set_class(int class__) { class_ = class__; }
+  int  get_class() { return class_; }
 
  private:
   uint64_t close_time_;
@@ -606,7 +552,8 @@ class LogSegment : public BaseSegment {
   // bool has_been_RB = false;
 
   std::atomic<int> garbage_bytes_;
-  bool is_hot_ = false;
+  int class_ = 0;
+  uint64_t SEGMENT_SIZE = 0;
 
 #ifdef GC_SHORTCUT
   std::vector<Shortcut> *shortcut_buffer_ = nullptr;

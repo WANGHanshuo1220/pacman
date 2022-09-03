@@ -55,12 +55,7 @@ static_assert(sizeof(Shortcut) == 6);
 
 // KVItem: log entry
 struct KVItem {
-#ifdef REDUCE_PM_ACCESS
   uint16_t key_size;
-#else
-  uint16_t key_size : 15;
-  volatile uint16_t is_garbage : 1;
-#endif
   uint16_t num; // max kvs in a segment = 2^16
   uint16_t val_size;
   // uint32_t checksum = 0;
@@ -75,9 +70,6 @@ struct KVItem {
 
   KVItem(const Slice &_key, const Slice &_val, uint32_t _epoch, uint32_t _num)
       : key_size(_key.size()), val_size(_val.size()), epoch(_epoch), num(_num) {
-#ifndef REDUCE_PM_ACCESS
-    is_garbage = false;
-#endif
     assert(val_size >= 8);
     memcpy(kv_pair, _key.data(), key_size);
     memcpy(kv_pair + key_size, _val.data(), val_size);
@@ -133,17 +125,24 @@ struct TaggedPointer {
     uint64_t data = 0;
     struct {
       uint64_t addr : 48;
-      uint64_t num  : 16;
+      union{
+        uint64_t size : 16;
+        uint64_t num  : 16;
+      };
     };
   };
 
-  TaggedPointer(char *ptr, uint64_t sz, uint64_t num_) {
-#ifdef REDUCE_PM_ACCESS
-    addr = (uint64_t)ptr;
-    num = num_ < 0xFFFF ? num_ : 0xFFFF;
-#else
-    data = (uint64_t)ptr;
-#endif
+  TaggedPointer(char *ptr, uint64_t sz, uint64_t num_, int class_) {
+    if(class_ == 0)
+    {
+      addr = (uint64_t)ptr;
+      size = sz <= 0xFFFF ? sz : 0;
+    }
+    else
+    {
+      addr = (uint64_t)ptr;
+      num = num_ < 0xFFFF ? num_ : 0xFFFF;
+    }
   }
 
   TaggedPointer(ValueType val) : data(val) {}
@@ -158,7 +157,6 @@ struct TaggedPointer {
     return (char *)(uint64_t)addr;
   }
 };
-static_assert(sizeof(TaggedPointer) == sizeof(ValueType));
 
 
 struct LogEntryHelper {

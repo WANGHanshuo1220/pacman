@@ -61,27 +61,7 @@ class LogCleaner {
         list_lock_(std::string("gc_list_lock_") + std::to_string(cleaner_id)) {
     tmp_cleaner_garbage_bytes_.resize(db->num_cleaners_, 0);
     if (reserved_segment_) {
-      reserved_segment_->StartUsing(false, false);
-      reserved_segment_->set_reserved();
-      assert(reserved_segment_->is_segment_reserved());
-    }
-#ifdef BATCH_COMPACTION
-    volatile_segment_ = new VirtualSegment(SEGMENT_SIZE);
-    volatile_segment_->set_has_shortcut(false);
-#endif
-  }
-
-  LogCleaner(DB *db, int cleaner_id, LogStructured *log,
-             LogSegment *reserved_segment, LogSegment *backup_segment)
-      : db_(db),
-        cleaner_id_(cleaner_id),
-        log_(log),
-        reserved_segment_(reserved_segment),
-        backup_segment_(backup_segment),
-        list_lock_(std::string("gc_list_lock_") + std::to_string(cleaner_id)) {
-    tmp_cleaner_garbage_bytes_.resize(db->num_cleaners_, 0);
-    if (reserved_segment_) {
-      reserved_segment_->StartUsing(false, false);
+      reserved_segment_->StartUsing(false);
       reserved_segment_->set_reserved();
       assert(reserved_segment_->is_segment_reserved());
     }
@@ -122,18 +102,14 @@ class LogCleaner {
       reserved_segment_->FlushRemain();
       BatchIndexUpdate();
 #endif
-      log_->FreezeSegment(reserved_segment_);
+      log_->FreezeSegment(reserved_segment_, class_);
     }
     if (backup_segment_) {
-      std::lock_guard<SpinLock> guard(log_->free_list_lock_);
-      log_->free_segments_.push(backup_segment_);
-      ++log_->num_free_segments_;
+      update_free_list(class_, backup_segment_);
     }
 
-    closed_hot_segments_.clear();
-    closed_cold_segments_.clear();
-    to_compact_hot_segments_.clear();
-    to_compact_cold_segments_.clear();
+    closed_segments_.clear();
+    to_compact_segments_.clear();
   }
 
   void StopThread() {
@@ -142,9 +118,9 @@ class LogCleaner {
     }
   }
 
-  void StartGCThread() {
+  void StartGCThread(int class_) {
     StopThread();
-    gc_thread_ = std::thread(&LogCleaner::CleanerEntry, this);
+    gc_thread_ = std::thread(&LogCleaner::CleanerEntry, this, class_);
   }
 
   void StartRecoverySegments() {
@@ -164,21 +140,48 @@ class LogCleaner {
 
   void AddClosedSegment(LogSegment *segment) {
     LockUsedList();
-#ifdef HOT_COLD_SEPARATE
-    if (segment->IsHot()) {
-      closed_hot_segments_.push_back(segment);
-    } else {
-      closed_cold_segments_.push_back({segment, 0.});
-    }
-#else
-    closed_hot_segments_.push_back(segment);
-#endif
+    closed_segments_.push_back(segment);
     UnlockUsedList();
   }
 
-#ifdef INTERLEAVED
-  bool is_closed_hotcold_segment_empty() { return closed_hot_segments_.empty(); }
-#endif
+  void set_class(int class__) { class_ = class__; }
+  void update_free_list(int class_, LogSegment * segment)
+  {
+    switch (class_)
+    {
+    case 0:
+      {
+        std::lock_guard<SpinLock> guard(log_->class0_list_lock_);
+        log_->free_segments_class0.push(segment);
+        ++log_->num_free_list_class0;
+      }
+      break;
+    case 1:
+      {
+        std::lock_guard<SpinLock> guard(log_->class1_list_lock_);
+        log_->free_segments_class1.push(segment);
+        ++log_->num_free_list_class1;
+      }
+      break;
+    case 2:
+      {
+        std::lock_guard<SpinLock> guard(log_->class2_list_lock_);
+        log_->free_segments_class2.push(segment);
+        ++log_->num_free_list_class2;
+      }
+      break;
+    case 3:
+      {
+        std::lock_guard<SpinLock> guard(log_->class3_list_lock_);
+        log_->free_segments_class3.push(segment);
+        ++log_->num_free_list_class3;
+      }
+      break;
+    
+    default:
+      break;
+    }
+  }
 
  private:
   DB *db_;
@@ -191,11 +194,10 @@ class LogCleaner {
   std::vector<ValidItem> valid_items_;
   std::vector<size_t> tmp_cleaner_garbage_bytes_;
   double last_update_time_ = 0.;
-  std::list<SegmentInfo> closed_cold_segments_;
-  std::list<SegmentInfo> to_compact_cold_segments_;
-  std::list<LogSegment *> closed_hot_segments_;
-  std::list<LogSegment *> to_compact_hot_segments_;
+  std::list<LogSegment *> closed_segments_;
+  std::list<LogSegment *> to_compact_segments_;
   SpinLock list_lock_;
+  int class_;
 
 #ifdef INTERLEAVED
   uint64_t free_count = 0;
@@ -206,8 +208,8 @@ class LogCleaner {
 #ifdef WRITE_TOMBSTONE
 #ifdef REDUCE_PM_ACCESS
     int log_id = log_->GetSegmentID(reinterpret_cast<char *>(kv));
-    // return log_->all_segments_[log_id]->IsGarbage(reinterpret_cast<char *>(kv));
-    return log_->all_segments_[log_id]->roll_back_map[num].first;
+    return log_->all_segments_[log_id]->IsGarbage(reinterpret_cast<char *>(kv));
+    // return log_->all_segments_[log_id]->roll_back_map[num].first;
 #else
     // assert(kv->magic == 0xDEADBEAF);
     return kv->is_garbage;
@@ -220,16 +222,16 @@ class LogCleaner {
   void LockUsedList() { list_lock_.lock(); }
   void UnlockUsedList() { list_lock_.unlock(); }
 
-  void CleanerEntry();
-  bool NeedCleaning();
+  void CleanerEntry(int class_);
+  bool NeedCleaning(int class_);
   void BatchFlush();
   void BatchIndexUpdate();
-  void CopyValidItemToBuffer(LogSegment *segment);
-  void BatchCompactSegment(LogSegment *segment);
-  void CompactSegment(LogSegment *segment, bool is_reservation);
-  void FreezeReservedAndGetNew();
+  void CopyValidItemToBuffer(LogSegment *segment, int class_);
+  void BatchCompactSegment(LogSegment *segment ,int calss_);
+  void CompactSegment(LogSegment *segment, int class_);
+  void FreezeReservedAndGetNew(int class_);
   void MarkGarbage(ValueType tagged_val);
-  void DoMemoryClean();
+  void DoMemoryClean(int class_);
 
   void RecoverySegments();
   void RecoveryInfo();

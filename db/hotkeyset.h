@@ -12,7 +12,7 @@
 #include "util/lock.h"
 
 static constexpr size_t HOT_NUM = 1024 * 1024;
-static constexpr int RECORD_BATCH_CNT = 4096;
+static constexpr int RECORD_BATCH_CNT = 4096 * 64;
 static constexpr size_t RECORD_BUFFER_SIZE = 16 * 1024;
 
 struct RecordEntry {
@@ -25,7 +25,7 @@ struct RecordEntry {
 };
 
 struct alignas(CACHE_LINE_SIZE) UpdateKeyRecord {
-  int hit_cnt = 0;
+  int hit_cnt[4] = {0};
   int total_cnt = 0;
   SpinLock lock;
   std::list<std::vector<uint64_t> > records_list;
@@ -42,7 +42,7 @@ class HotKeySet {
   explicit HotKeySet(DB *db);
   ~HotKeySet();
 
-  void Record(const Slice &key, int worker_id, bool hit);
+  void Record(const Slice &key, int worker_id, int class_);
   void BeginUpdateHotKeySet();
   int Exist(const Slice &key);
   // uint64_t get_set_sz() 

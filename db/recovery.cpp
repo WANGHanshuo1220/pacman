@@ -13,8 +13,9 @@ void LogCleaner::RecoverySegments() {
 
   std::queue<LogSegment *> tmp_free_queue;
   for (int i = cleaner_id_; i < log_->num_segments_; i += num_cleaners) {
-    LogSegment *seg =
-        new LogSegment(log_start + i * SEGMENT_SIZE, SEGMENT_SIZE, false);
+    // LogSegment *seg =
+        // new LogSegment(log_start + i * SEGMENT_SIZE, SEGMENT_SIZE, false);
+    LogSegment * seg = nullptr;
     seg->InitBitmap();
 #ifdef GC_SHORTCUT
     bool has_shortcut = seg->is_hot_ = !seg->header_->has_shortcut;
@@ -45,27 +46,19 @@ void LogCleaner::RecoverySegments() {
         seg->tail_ = p;
         seg->Close();
       }
-      if (seg->is_hot_) {
-#ifdef HOT_COLD_SEPARATE
-        if (seg->IsHot()) {
-          closed_hot_segments_.push_back(seg);
-        } else {
-          closed_cold_segments_.push_back({seg, 0.});
-        }
-#else
-        closed_hot_segments_.push_back(seg);
-#endif
-      }
+      // if (seg->is_hot_) {
+        // closed_hot_segments_.push_back(seg);
+      // }
     }
     
     log_->all_segments_[i] = seg;
   }
 
   {
-    std::lock_guard<SpinLock> guard(log_->free_list_lock_);
+    // std::lock_guard<SpinLock> guard(log_->free_list_lock_);
     int num_free = tmp_free_queue.size();
     while (!tmp_free_queue.empty()) {
-      log_->free_segments_.push(tmp_free_queue.front());
+      // log_->free_segments_.push(tmp_free_queue.front());
       tmp_free_queue.pop();
     }
     log_->num_free_segments_ += num_free;
@@ -95,11 +88,8 @@ void LogCleaner::RecoveryInfo() {
         if (sz == sizeof(KVItem)) {
           break;
         }
-#ifdef INTERLEAVED
-        ValueType val = TaggedPointer((char *)kv, sz, 0);
-#else
-        ValueType val = TaggedPointer((char *)kv, sz);
-#endif
+        ValueType val = 0;
+        // ValueType val = TaggedPointer((char *)kv, sz);
         Slice key = kv->GetKey();
         ValueType real_val = db_->index_->Get(key);
         if (val != real_val) {
@@ -138,8 +128,9 @@ void LogCleaner::RecoveryAll() {
 
   std::queue<LogSegment *> tmp_free_queue;
   for (int i = cleaner_id_; i < log_->num_segments_; i += num_cleaners) {
-    LogSegment *seg =
-        new LogSegment(log_start + i * SEGMENT_SIZE, SEGMENT_SIZE, false);
+    // LogSegment *seg =
+        // new LogSegment(log_start + i * SEGMENT_SIZE, SEGMENT_SIZE, false);
+    LogSegment *seg = nullptr;
     seg->InitBitmap();
 #ifdef GC_SHORTCUT
     bool has_shortcut = seg->header_->has_shortcut;
@@ -168,11 +159,8 @@ void LogCleaner::RecoveryAll() {
         if (sz == sizeof(KVItem)) {
           break;
         }
-#ifdef INTERLEAVED
-        ValueType val = TaggedPointer((char *)kv, sz, i++);
-#else
-        ValueType val = TaggedPointer((char *)kv, sz);
-#endif
+        ValueType val = 0;
+        // ValueType val = TaggedPointer((char *)kv, sz);
         Slice key = kv->GetKey();
         LogEntryHelper le_helper(val);
         db_->index_->Put(key, le_helper);
@@ -191,26 +179,18 @@ void LogCleaner::RecoveryAll() {
       seg->tail_ = p;
       seg->Close();
 
-      if (seg->is_hot_) {
-#ifdef HOT_COLD_SEPARATE
-        if (seg->IsHot()) {
-          closed_hot_segments_.push_back(seg);
-        } else {
-          closed_cold_segments_.push_back({seg, 0.});
-        }
-#else
-        closed_hot_segments_.push_back(seg);
-#endif
-      }
+      // if (seg->is_hot_) {
+        // closed_hot_segments_.push_back(seg);
+      // }
     }
   }
 
 
   {
-    std::lock_guard<SpinLock> guard(log_->free_list_lock_);
+    // std::lock_guard<SpinLock> guard(log_->free_list_lock_);
     int num_free = tmp_free_queue.size();
     while (!tmp_free_queue.empty()) {
-      log_->free_segments_.push(tmp_free_queue.front());
+      // log_->free_segments_.push(tmp_free_queue.front());
       tmp_free_queue.pop();
     }
     log_->num_free_segments_ += num_free;

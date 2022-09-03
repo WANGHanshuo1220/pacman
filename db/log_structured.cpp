@@ -16,21 +16,24 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
     : num_workers_(num_workers),
       num_cleaners_(4),
       total_log_size_(log_size),
-      num_class0_segments_(log_size * class0_prop / SEGMENT_SIZE0),
-      num_class1_segments_(log_size * class1_prop / SEGMENT_SIZE1),
-      num_class2_segments_(log_size * class2_prop / SEGMENT_SIZE2),
-      num_class3_segments_( (log_size - 
+      class0_list_lock_("free_list_class0"),
+      class1_list_lock_("free_list_class1"),
+      class2_list_lock_("free_list_class2"),
+      class3_list_lock_("free_list_class3"),
+      num_limit_free_segments_(num_workers * (10 - num_cleaners))
+  {
+      num_class0_segments_ = (log_size * class0_prop / SEGMENT_SIZE0);
+      num_class1_segments_ = (log_size * class1_prop / SEGMENT_SIZE1);
+      num_class2_segments_ = (log_size * class2_prop / SEGMENT_SIZE2);
+      num_class3_segments_ = (log_size - 
                             num_class0_segments_ * SEGMENT_SIZE0 - 
                             num_class1_segments_ * SEGMENT_SIZE1 - 
                             num_class2_segments_ * SEGMENT_SIZE2 
-                            )  / SEGMENT_SIZE3
-                          ),
-      num_segments_(num_class0_segments_ + 
-                    num_class1_segments_ + 
-                    num_class2_segments_ +
-                    num_class3_segments_),
-      free_list_lock_("free_list"),
-      num_limit_free_segments_(num_workers * (10 - num_cleaners)) {
+                            )  / SEGMENT_SIZE3;
+      num_segments_ = num_class0_segments_ + 
+                      num_class1_segments_ + 
+                      num_class2_segments_ +
+                      num_class3_segments_;
 #ifdef LOG_PERSISTENT
   std::string log_pool_path = db_path + "/log_pool";
   int log_pool_fd = open(log_pool_path.c_str(), O_CREAT | O_RDWR, 0644);
@@ -48,7 +51,9 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
                              MAP_SHARED | MAP_ANONYMOUS, -1, 0);
   madvise(pool_start_, total_log_size_, MADV_HUGEPAGE);
 #endif
-
+  printf("%ld\n", (int)(log_size * class0_prop) / SEGMENT_SIZE0);
+  printf("%ld\n", (int)(log_size * class1_prop) / SEGMENT_SIZE1);
+  printf("%ld\n", (int)(log_size * class2_prop) / SEGMENT_SIZE2);
 
   printf("num_seg_class0 = %d, num_seg_class1 = %d, " 
          "num_seg_class2 = %d, num_seg_class3 = %d, num_seg = %d\n",
@@ -68,44 +73,57 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
 
   int i = 0, j = 0;
   char * pool_start = pool_start_;
+  class1_pool_start_ = pool_start_ + num_class0_segments_ * SEGMENT_SIZE0;
+  class2_pool_start_ = class1_pool_start_ + num_class1_segments_ * SEGMENT_SIZE1;
+  class3_pool_start_ = class2_pool_start_ + num_class2_segments_ * SEGMENT_SIZE2;
   for (i = 0, j = 0; i < num_segments_; i++) {
     // for class0
     if(i < num_class0_segments_ - 1)
     {
       all_segments_[i] =
-          new LogSegment(pool_start, SEGMENT_SIZE0);
+          new LogSegment(pool_start, SEGMENT_SIZE0, 0);
       free_segments_class0.push(all_segments_[i]);
       pool_start += SEGMENT_SIZE0;
+      num_free_list_class0 ++;
+      all_segments_[i]->set_class(0);
     }
     else if(i == num_class0_segments_ - 1)
     {
       all_segments_[i] =
-          new LogSegment(pool_start, SEGMENT_SIZE0);
+          new LogSegment(pool_start, SEGMENT_SIZE0, 0);
       log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i]);
       pool_start += SEGMENT_SIZE0;
+      all_segments_[i]->set_class(0);
+      all_segments_[i]->set_reserved();
       j++;
     }
     // for class1
     else if(i < (num_class0_segments_ + num_class1_segments_ - 1) * 0.8)
     {
       all_segments_[i] =
-          new LogSegment(pool_start, SEGMENT_SIZE1);
+          new LogSegment(pool_start, SEGMENT_SIZE1, 1);
       class1_segments_.push_back(all_segments_[i]);
       pool_start += SEGMENT_SIZE1;
+      all_segments_[i]->set_class(1);
+      all_segments_[i]->set_touse();
     }
     else if(i < num_class0_segments_ + num_class1_segments_ - 1)
     {
       all_segments_[i] =
-          new LogSegment(pool_start, SEGMENT_SIZE1);
+          new LogSegment(pool_start, SEGMENT_SIZE1, 1);
       free_segments_class1.push(all_segments_[i]);
       pool_start += SEGMENT_SIZE1;
+      num_free_list_class1 ++;
+      all_segments_[i]->set_class(1);
     }
     else if(i == num_class0_segments_ + num_class1_segments_ - 1)
     {
       all_segments_[i] =
-          new LogSegment(pool_start, SEGMENT_SIZE1);
+          new LogSegment(pool_start, SEGMENT_SIZE1, 1);
       log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i]);
       pool_start += SEGMENT_SIZE1;
+      all_segments_[i]->set_class(1);
+      all_segments_[i]->set_reserved();
       j++;
     }
     // for class2
@@ -114,27 +132,33 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
                  num_class2_segments_ - 1) * 0.8)
     {
       all_segments_[i] =
-          new LogSegment(pool_start, SEGMENT_SIZE2);
+          new LogSegment(pool_start, SEGMENT_SIZE2, 2);
       class2_segments_.push_back(all_segments_[i]);
       pool_start += SEGMENT_SIZE2;
+      all_segments_[i]->set_class(2);
+      all_segments_[i]->set_touse();
     }
     else if(i < num_class0_segments_ + 
                 num_class1_segments_ + 
                 num_class2_segments_ - 1)
     {
       all_segments_[i] =
-          new LogSegment(pool_start, SEGMENT_SIZE2);
+          new LogSegment(pool_start, SEGMENT_SIZE2, 2);
       free_segments_class2.push(all_segments_[i]);
       pool_start += SEGMENT_SIZE2;
+      num_free_list_class2 ++;
+      all_segments_[i]->set_class(2);
     }
     else if(i == num_class0_segments_ + 
                  num_class1_segments_ + 
                  num_class2_segments_ - 1)
     {
       all_segments_[i] =
-          new LogSegment(pool_start, SEGMENT_SIZE2);
+          new LogSegment(pool_start, SEGMENT_SIZE2, 2);
       log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i]);
       pool_start += SEGMENT_SIZE2;
+      all_segments_[i]->set_class(2);
+      all_segments_[i]->set_reserved();
       j++;
     }
     // for class3
@@ -144,9 +168,11 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
                  num_class3_segments_ - 1) * 0.8)
     {
       all_segments_[i] =
-          new LogSegment(pool_start, SEGMENT_SIZE3);
+          new LogSegment(pool_start, SEGMENT_SIZE3, 3);
       class3_segments_.push_back(all_segments_[i]);
       pool_start += SEGMENT_SIZE3;
+      all_segments_[i]->set_class(3);
+      all_segments_[i]->set_touse();
     }
     else if(i < num_class0_segments_ + 
                 num_class1_segments_ + 
@@ -154,9 +180,11 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
                 num_class3_segments_ - 1)
     {
       all_segments_[i] =
-          new LogSegment(pool_start, SEGMENT_SIZE3);
+          new LogSegment(pool_start, SEGMENT_SIZE3, 3);
       free_segments_class3.push(all_segments_[i]);
       pool_start += SEGMENT_SIZE3;
+      num_free_list_class3 ++;
+      all_segments_[i]->set_class(3);
     }
     else if(i == num_class0_segments_ + 
                  num_class1_segments_ + 
@@ -164,14 +192,17 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
                  num_class3_segments_ - 1)
     {
       all_segments_[i] =
-          new LogSegment(pool_start, SEGMENT_SIZE3);
+          new LogSegment(pool_start, SEGMENT_SIZE3, 3);
       log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i]);
+      all_segments_[i]->set_class(3);
+      all_segments_[i]->set_reserved();
       assert(pool_start - pool_start_ + SEGMENT_SIZE3 > log_size);
     }
   }
 
   for (int j = 0; j < num_cleaners_; j++) {
-    log_cleaners_[j]->StartGCThread();
+    log_cleaners_[j]->set_class(j);
+    log_cleaners_[j]->StartGCThread(j);
   }
 
   if (num_cleaners_ == 0) {
@@ -183,32 +214,37 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
   void LogStructured::start_GCThreads()
   {
     for (int j = 0; j < num_cleaners_; j++) {
-      log_cleaners_[j]->StartGCThread();
+      log_cleaners_[j]->StartGCThread(j);
     }
   }
 #endif
 
-#ifdef INTERLEAVED
 void LogStructured::get_seg_usage_info()
 {
-  uint64_t cold_usage = 0;
-  uint64_t hot_usage = 0;
-  for(int i = 0; i < num_cold_segments_; i++)
+  uint64_t class0 = 0, class1 = 0, class2 = 0, class3 = 0;
+  for(int i = 1; i < num_class1_segments_; i++)
   {
-    cold_usage += cold_segments_[i]->get_offset();
+    class1 += class1_segments_[i]->get_offset();
   }
-  for(int i = 0; i < num_hot_segments_; i++)
+  for(int i = 1; i < num_class2_segments_; i++)
   {
-    hot_usage += hot_segments_[i]->get_offset();
+    class2 += class2_segments_[i]->get_offset();
   }
-  printf("cold seg usage: %ld / %ld = %.3f\n",
-    cold_usage, num_cold_segments_ * SEGMENT_SIZE, 
-    (double)cold_usage/(num_cold_segments_ * SEGMENT_SIZE));
-  printf("hot seg usage: %ld / %ld = %.3f\n",
-    hot_usage, num_hot_segments_ * SEGMENT_SIZE, 
-    (double)hot_usage/(num_hot_segments_ * SEGMENT_SIZE));
+  for(int i = 1; i < num_class3_segments_; i++)
+  {
+    class3 += class3_segments_[i]->get_offset();
+  }
+
+  printf("class1 seg usage: %ld / %ld = %.3f\n",
+    class1, num_class1_segments_ * SEGMENT_SIZE1, 
+    (double)class1/(num_class1_segments_ * SEGMENT_SIZE1));
+  printf("class2 seg usage: %ld / %ld = %.3f\n",
+    class2, num_class2_segments_ * SEGMENT_SIZE2, 
+    (double)class2/(num_class2_segments_ * SEGMENT_SIZE2));
+  printf("class3 seg usage: %ld / %ld = %.3f\n",
+    class3, num_class3_segments_ * SEGMENT_SIZE3, 
+    (double)class3/(num_class3_segments_ * SEGMENT_SIZE3));
 }
-#endif
 
 LogStructured::~LogStructured() {
 #ifdef GC_EVAL
@@ -236,7 +272,10 @@ LogStructured::~LogStructured() {
   LOG("num_newSegment %d new_hot %d new_cold %d", num_new_segment_.load(),
       num_new_hot_.load(), num_new_cold_.load());
   munmap(pool_start_, total_log_size_);
-  free_list_lock_.report();
+  class0_list_lock_.report();
+  class1_list_lock_.report();
+  class2_list_lock_.report();
+  class3_list_lock_.report();
 }
 
 #ifdef GC_EVAL
@@ -253,60 +292,133 @@ std::pair<int, long> *LogStructured::get_cleaners_info()
 }
 #endif
 
-LogSegment *LogStructured::NewSegment(bool hot) {
+LogSegment *LogStructured::NewSegment(int class_) {
   // printf("in NewSegment\n");
   LogSegment *ret = nullptr;
   // uint64_t waiting_time = 0;
   // TIMER_START(waiting_time);
-  while (true) {
-#ifdef INTERLEAVED
-    // printf("new segment (%ld)\n", new_count ++);
-#endif
-    if (num_free_segments_ > 0) {
-      // printf("  new segment\n");
-      std::lock_guard<SpinLock> guard(free_list_lock_);
-      if (!free_segments_.empty()) {
-        ret = free_segments_.front();
-        free_segments_.pop();
-        // printf("  (new seg)%d\n", num_free_segments_.load());
-        --num_free_segments_;
-        // printf("  (new seg)%d\n", num_free_segments_.load());
+  switch (class_)
+  {
+  case 0:
+    while (true) {
+      if (num_free_list_class0 > 0) {
+        // printf("  new segment\n");
+        std::lock_guard<SpinLock> guard(class0_list_lock_);
+        if (!free_segments_class0.empty()) {
+          ret = free_segments_class0.front();
+          free_segments_class0.pop();
+          // printf("  (new seg)%d\n", num_free_segments_.load());
+          --num_free_list_class0;
+          // printf("  (new seg)%d\n", num_free_segments_.load());
+        }
+      } else {
+        // printf("no new segment\n");
+        if (num_cleaners_ == 0) {
+          ERROR_EXIT("No free segments and no cleaners");
+        }
+        usleep(1);
       }
-    } else {
-      // printf("no new segment\n");
-      if (num_cleaners_ == 0) {
-        ERROR_EXIT("No free segments and no cleaners");
+      if (ret) {
+        break;
       }
-      usleep(1);
     }
-    if (ret) {
-      break;
+    break;
+  case 1:
+    while (true) {
+      if (num_free_list_class1 > 0) {
+        // printf("  new segment\n");
+        std::lock_guard<SpinLock> guard(class1_list_lock_);
+        if (!free_segments_class1.empty()) {
+          ret = free_segments_class1.front();
+          free_segments_class1.pop();
+          // printf("  (new seg)%d\n", num_free_segments_.load());
+          --num_free_list_class1;
+          // printf("  (new seg)%d\n", num_free_segments_.load());
+        }
+      } else {
+        // printf("no new segment\n");
+        if (num_cleaners_ == 0) {
+          ERROR_EXIT("No free segments and no cleaners");
+        }
+        usleep(1);
+      }
+      if (ret) {
+        break;
+      }
     }
+    break;
+  case 2:
+    while (true) {
+      if (num_free_list_class2> 0) {
+        // printf("  new segment\n");
+        std::lock_guard<SpinLock> guard(class2_list_lock_);
+        if (!free_segments_class2.empty()) {
+          ret = free_segments_class2.front();
+          free_segments_class2.pop();
+          // printf("  (new seg)%d\n", num_free_segments_.load());
+          --num_free_list_class2;
+          // printf("  (new seg)%d\n", num_free_segments_.load());
+        }
+      } else {
+        // printf("no new segment\n");
+        if (num_cleaners_ == 0) {
+          ERROR_EXIT("No free segments and no cleaners");
+        }
+        usleep(1);
+      }
+      if (ret) {
+        break;
+      }
+    }
+    break;
+  case 3:
+    while (true) {
+      if (num_free_list_class3 > 0) {
+        // printf("  new segment\n");
+        std::lock_guard<SpinLock> guard(class3_list_lock_);
+        if (!free_segments_class3.empty()) {
+          ret = free_segments_class3.front();
+          free_segments_class3.pop();
+          // printf("  (new seg)%d\n", num_free_segments_.load());
+          --num_free_list_class3;
+          // printf("  (new seg)%d\n", num_free_segments_.load());
+        }
+      } else {
+        // printf("no new segment\n");
+        if (num_cleaners_ == 0) {
+          ERROR_EXIT("No free segments and no cleaners");
+        }
+        usleep(1);
+      }
+      if (ret) {
+        break;
+      }
+    }
+    break;
+  
+  default:
+    break;
   }
   // TIMER_STOP(waiting_time);
 
   COUNTER_ADD_LOGGING(num_new_segment_, 1);
-#ifdef HOT_COLD_SEPARATE
   // not store shortcuts for hot segment
-  ret->StartUsing(hot, !hot);
-#else
-  ret->StartUsing(hot, true);
-#endif
+  ret->StartUsing(true);
 
-  if (hot) {
-    COUNTER_ADD_LOGGING(num_new_hot_, 1);
-  } else {
-    COUNTER_ADD_LOGGING(num_new_cold_, 1);
-  }
+  // if (hot) {
+  //   COUNTER_ADD_LOGGING(num_new_hot_, 1);
+  // } else {
+  //   COUNTER_ADD_LOGGING(num_new_cold_, 1);
+  // }
 
-  UpdateCleanThreshold();
+  // UpdateCleanThreshold();
   return ret;
 }
 
-void LogStructured::FreezeSegment(LogSegment *old_segment) {
+void LogStructured::FreezeSegment(LogSegment *old_segment, int class_) {
   if (old_segment != nullptr && num_cleaners_ > 0) {
     old_segment->Close();
-    AddClosedSegment(old_segment);
+    AddClosedSegment(old_segment, class_);
   }
 }
 
@@ -327,17 +439,25 @@ LogSegment *LogStructured::GetSegment(int segment_id) {
 int LogStructured::GetSegmentID(const char *addr) {
   assert(addr >= pool_start_);
   int seg_id;
-  // if(addr < cleaner_pool_start_)
-  // {
-  //   seg_id = (addr - pool_start_) / SEGMENT_SIZE;
-  //   assert(seg_id < num_segments_);
-  // }
-  // else
-  // {
-  //   seg_id = num_segments_ + (addr - cleaner_pool_start_) / Reservation_SEGMENT_SIZE;
-  //   assert(seg_id < num_segments_ + 2 * num_cleaners_);
-  // }
-  seg_id = (addr - pool_start_) / SEGMENT_SIZE;
+  if(addr < class1_pool_start_)
+  {
+    seg_id = (addr - pool_start_) / SEGMENT_SIZE0;
+  }
+  else if(addr < class2_pool_start_)
+  {
+    seg_id = num_class0_segments_ + 
+             (addr - class1_pool_start_) / SEGMENT_SIZE1;
+  }
+  else if(addr < class3_pool_start_)
+  {
+    seg_id = num_class0_segments_ + num_class1_segments_ +
+             (addr - class2_pool_start_) / SEGMENT_SIZE2;
+  }
+  else
+  {
+    seg_id = num_class0_segments_ + num_class1_segments_ + num_class2_segments_ +
+             (addr - class3_pool_start_) / SEGMENT_SIZE3;
+  }
   assert(seg_id < num_segments_);
   return seg_id;
 }
@@ -346,9 +466,10 @@ int LogStructured::GetSegmentCleanerID(const char *addr) {
   return GetSegmentID(addr) % num_cleaners_;
 }
 
-void LogStructured::AddClosedSegment(LogSegment *segment) {
-  int cleaner_id = GetSegmentCleanerID(segment->get_segment_start());
-  log_cleaners_[cleaner_id]->AddClosedSegment(segment);
+void LogStructured::AddClosedSegment(LogSegment *segment, int class_) {
+  // int cleaner_id = GetSegmentCleanerID(segment->get_segment_start());
+  assert(class_ >= 0 && class_ <= 3);
+  log_cleaners_[class_]->AddClosedSegment(segment);
 }
 
 void LogStructured::StartCleanStatistics() {
@@ -381,12 +502,13 @@ double LogStructured::GetCompactionThroughput() {
   }
 
   double total_tp = 0.;
+  int SEG_SIZE[4] = {SEGMENT_SIZE0, SEGMENT_SIZE1, SEGMENT_SIZE2, SEGMENT_SIZE3};
   for (int i = 0; i < num_cleaners_; i++) {
     int clean_seg_count = log_cleaners_[i]->clean_seg_count_ -
                           log_cleaners_[i]->clean_seg_count_before_;
     uint64_t clean_time_ns = log_cleaners_[i]->clean_time_ns_ -
                              log_cleaners_[i]->clean_time_ns_before_;
-    double tp = 1.0 * clean_seg_count * LogSegment::SEGMENT_DATA_SIZE * 1e9 /
+    double tp = 1.0 * clean_seg_count * SEG_SIZE[i] * 1e9 /
                 clean_time_ns;
     total_tp += tp;
   }
@@ -440,144 +562,144 @@ void LogStructured::UpdateCleanThreshold() {
 
 
 void LogStructured::RecoverySegments(DB *db) {
-  // stop compaction first.
-  stop_flag_.store(true, std::memory_order_release);
-  for (int i = 0; i < num_cleaners_; i++) {
-    if (log_cleaners_[i]) {
-      log_cleaners_[i]->StopThread();
-    }
-  }
-  for (int i = 0; i < num_cleaners_; i++) {
-    if (log_cleaners_[i]) {
-      delete log_cleaners_[i];
-      log_cleaners_[i] = nullptr;
-    }
-  }
+  // // stop compaction first.
+  // stop_flag_.store(true, std::memory_order_release);
+  // for (int i = 0; i < num_cleaners_; i++) {
+  //   if (log_cleaners_[i]) {
+  //     log_cleaners_[i]->StopThread();
+  //   }
+  // }
+  // for (int i = 0; i < num_cleaners_; i++) {
+  //   if (log_cleaners_[i]) {
+  //     delete log_cleaners_[i];
+  //     log_cleaners_[i] = nullptr;
+  //   }
+  // }
 
-  assert(free_segments_.size() == num_free_segments_.load());
-  printf("before recovery: %ld free segments\n", free_segments_.size());
+  // assert(free_segments_.size() == num_free_segments_.load());
+  // printf("before recovery: %ld free segments\n", free_segments_.size());
   
-  // clean segments, simulate a clean restart.
-  while (!free_segments_.empty()) {
-    free_segments_.pop();
-  }
-  num_free_segments_ = 0;
+  // // clean segments, simulate a clean restart.
+  // while (!free_segments_.empty()) {
+  //   free_segments_.pop();
+  // }
+  // num_free_segments_ = 0;
 
-  for (int i = 0; i < num_segments_; i++) {
-    if (all_segments_[i]) {
-      delete all_segments_[i];
-    }
-  }
-  all_segments_.clear();
-  all_segments_.resize(num_segments_, nullptr);
+  // for (int i = 0; i < num_segments_; i++) {
+  //   if (all_segments_[i]) {
+  //     delete all_segments_[i];
+  //   }
+  // }
+  // all_segments_.clear();
+  // all_segments_.resize(num_segments_, nullptr);
 
-  recovery_counter_ = 0;
+  // recovery_counter_ = 0;
   
-  // start recovery
-  for (int i = 0; i < num_cleaners_; i++) {
-    log_cleaners_[i] = new LogCleaner(db, i, this, nullptr);
-  }
+  // // start recovery
+  // for (int i = 0; i < num_cleaners_; i++) {
+  //   log_cleaners_[i] = new LogCleaner(db, i, this, nullptr);
+  // }
 
-  uint64_t rec_time = 0;
-  TIMER_START(rec_time);
-  for (int i = 0; i < num_cleaners_; i++) {
-    log_cleaners_[i]->StartRecoverySegments();
-  }
+  // uint64_t rec_time = 0;
+  // TIMER_START(rec_time);
+  // for (int i = 0; i < num_cleaners_; i++) {
+  //   log_cleaners_[i]->StartRecoverySegments();
+  // }
 
-  // wait for recovery over
-  {
-    std::unique_lock<std::mutex> lk(rec_mu_);
-    while (recovery_counter_ < num_cleaners_) {
-      rec_cv_.wait(lk);
-    }
-  }
-  TIMER_STOP(rec_time);
-  printf("after recovery: %ld free segments\n", free_segments_.size());
-  assert(free_segments_.size() == num_free_segments_.load());
-  printf("recovery segments time %lu us\n", rec_time / 1000);
+  // // wait for recovery over
+  // {
+  //   std::unique_lock<std::mutex> lk(rec_mu_);
+  //   while (recovery_counter_ < num_cleaners_) {
+  //     rec_cv_.wait(lk);
+  //   }
+  // }
+  // TIMER_STOP(rec_time);
+  // printf("after recovery: %ld free segments\n", free_segments_.size());
+  // assert(free_segments_.size() == num_free_segments_.load());
+  // printf("recovery segments time %lu us\n", rec_time / 1000);
 }
 
 void LogStructured::RecoveryInfo(DB *db) {
-  if (recovery_counter_ != num_cleaners_) {
-    ERROR_EXIT("Should recovery segments first");
-  }
-  recovery_counter_ = 0;
-  uint64_t rec_time = 0;
-  TIMER_START(rec_time);
-  for (int i = 0; i < num_cleaners_; i++) {
-    log_cleaners_[i]->StartRecoveryInfo();
-  }
+  // if (recovery_counter_ != num_cleaners_) {
+  //   ERROR_EXIT("Should recovery segments first");
+  // }
+  // recovery_counter_ = 0;
+  // uint64_t rec_time = 0;
+  // TIMER_START(rec_time);
+  // for (int i = 0; i < num_cleaners_; i++) {
+  //   log_cleaners_[i]->StartRecoveryInfo();
+  // }
 
-  // wait for recovery over
-  {
-    std::unique_lock<std::mutex> lk(rec_mu_);
-    while (recovery_counter_ < num_cleaners_) {
-      rec_cv_.wait(lk);
-    }
-  }
-  TIMER_STOP(rec_time);
-  printf("recovery info time %lu us\n", rec_time / 1000);
+  // // wait for recovery over
+  // {
+  //   std::unique_lock<std::mutex> lk(rec_mu_);
+  //   while (recovery_counter_ < num_cleaners_) {
+  //     rec_cv_.wait(lk);
+  //   }
+  // }
+  // TIMER_STOP(rec_time);
+  // printf("recovery info time %lu us\n", rec_time / 1000);
 }
 
 
 void LogStructured::RecoveryAll(DB *db) {
-  // stop compaction first.
-  stop_flag_.store(true, std::memory_order_release);
-  for (int i = 0; i < num_cleaners_; i++) {
-    if (log_cleaners_[i]) {
-      log_cleaners_[i]->StopThread();
-    }
-  }
-  for (int i = 0; i < num_cleaners_; i++) {
-    if (log_cleaners_[i]) {
-      delete log_cleaners_[i];
-      log_cleaners_[i] = nullptr;
-    }
-  }
+//   // stop compaction first.
+//   stop_flag_.store(true, std::memory_order_release);
+//   for (int i = 0; i < num_cleaners_; i++) {
+//     if (log_cleaners_[i]) {
+//       log_cleaners_[i]->StopThread();
+//     }
+//   }
+//   for (int i = 0; i < num_cleaners_; i++) {
+//     if (log_cleaners_[i]) {
+//       delete log_cleaners_[i];
+//       log_cleaners_[i] = nullptr;
+//     }
+//   }
 
-  assert(free_segments_.size() == num_free_segments_.load());
-  printf("before recovery: %ld free segments\n", free_segments_.size());
-  // clear old segments
-  while (!free_segments_.empty()) {
-    free_segments_.pop();
-  }
-  num_free_segments_ = 0;
+//   assert(free_segments_.size() == num_free_segments_.load());
+//   printf("before recovery: %ld free segments\n", free_segments_.size());
+//   // clear old segments
+//   while (!free_segments_.empty()) {
+//     free_segments_.pop();
+//   }
+//   num_free_segments_ = 0;
 
-  for (int i = 0; i < num_segments_; i++) {
-    if (all_segments_[i]) {
-      delete all_segments_[i];
-    }
-  }
-  all_segments_.clear();
-  all_segments_.resize(num_segments_, nullptr);
+//   for (int i = 0; i < num_segments_; i++) {
+//     if (all_segments_[i]) {
+//       delete all_segments_[i];
+//     }
+//   }
+//   all_segments_.clear();
+//   all_segments_.resize(num_segments_, nullptr);
 
-  // delete old index
-#ifndef IDX_PERSISTENT
-  db->NewIndexForRecoveryTest();
-#endif
+//   // delete old index
+// #ifndef IDX_PERSISTENT
+//   db->NewIndexForRecoveryTest();
+// #endif
 
-  recovery_counter_ = 0;
+//   recovery_counter_ = 0;
   
-  // start recovery
-  for (int i = 0; i < num_cleaners_; i++) {
-    log_cleaners_[i] = new LogCleaner(db, i, this, nullptr);
-  }
+//   // start recovery
+//   for (int i = 0; i < num_cleaners_; i++) {
+//     log_cleaners_[i] = new LogCleaner(db, i, this, nullptr);
+//   }
 
-  uint64_t rec_time = 0;
-  TIMER_START(rec_time);
-  for (int i = 0; i < num_cleaners_; i++) {
-    log_cleaners_[i]->StartRecoveryAll();
-  }
+//   uint64_t rec_time = 0;
+//   TIMER_START(rec_time);
+//   for (int i = 0; i < num_cleaners_; i++) {
+//     log_cleaners_[i]->StartRecoveryAll();
+//   }
 
-  // wait for recovery over
-  {
-    std::unique_lock<std::mutex> lk(rec_mu_);
-    while (recovery_counter_ < num_cleaners_) {
-      rec_cv_.wait(lk);
-    }
-  }
-  TIMER_STOP(rec_time);
-  printf("after recovery: %ld free segments\n", free_segments_.size());
-  assert(free_segments_.size() == num_free_segments_.load());
-  printf("recovery all time %lu us\n", rec_time / 1000);
+//   // wait for recovery over
+//   {
+//     std::unique_lock<std::mutex> lk(rec_mu_);
+//     while (recovery_counter_ < num_cleaners_) {
+//       rec_cv_.wait(lk);
+//     }
+//   }
+//   TIMER_STOP(rec_time);
+//   printf("after recovery: %ld free segments\n", free_segments_.size());
+//   assert(free_segments_.size() == num_free_segments_.load());
+//   printf("recovery all time %lu us\n", rec_time / 1000);
 }

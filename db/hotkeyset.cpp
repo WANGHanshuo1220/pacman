@@ -29,7 +29,7 @@ HotKeySet::~HotKeySet() {
   }
 }
 
-void HotKeySet::Record(const Slice &key, int worker_id, bool hit) {
+void HotKeySet::Record(const Slice &key, int worker_id, int class_) {
   // printf("in Record %ld\n", Record_c);
   UpdateKeyRecord &record = update_record_[worker_id];
   if (need_record_) {
@@ -41,11 +41,16 @@ void HotKeySet::Record(const Slice &key, int worker_id, bool hit) {
       record.records.reserve(RECORD_BUFFER_SIZE);
     }
   } else if (need_count_hit_) {
-    record.hit_cnt += hit;
+    if(class_ != 0) 
+    {
+      record.hit_cnt[class_] ++;
+    }
     ++record.total_cnt;
-    if (record.total_cnt == RECORD_BATCH_CNT) { // sampling rate
+    if (class_ != 0 && record.total_cnt == RECORD_BATCH_CNT) { // sampling rate
       // printf("hit ratio = %.1lf%%\n", 100. * record.hit_cnt / record.total_cnt);
-      if (record.hit_cnt < RECORD_BATCH_CNT * 0.5) { /* means many keys that has been accessed 
+      if (record.hit_cnt[3] < RECORD_BATCH_CNT * 0.9 ||
+          record.hit_cnt[2] < RECORD_BATCH_CNT * 0.7 ||
+          record.hit_cnt[1] < RECORD_BATCH_CNT * 0.5 ) { /* means many keys that has been accessed 
                                                       * frequently in a sampling period have not 
                                                       * been add in to current_set_, so current_set
                                                       * need to be updated. 
@@ -55,7 +60,7 @@ void HotKeySet::Record(const Slice &key, int worker_id, bool hit) {
           BeginUpdateHotKeySet();
         }
       }
-      record.hit_cnt = record.total_cnt = 0;
+      record.hit_cnt[1] = record.hit_cnt[2] = record.hit_cnt[3] = record.total_cnt = 0;
     }
   }
   // Record_c++;
@@ -157,7 +162,9 @@ void HotKeySet::UpdateHotSet() {
         else new_set_class3->insert(topK.top().key);
         topK.pop();
       }
-      LOG("new set size %lu", new_set->size());
+      LOG("new class1 set size %lu", new_set_class1->size());
+      LOG("new class2 set size %lu", new_set_class2->size());
+      LOG("new class3 set size %lu", new_set_class3->size());
     }
   }
 
@@ -169,7 +176,8 @@ void HotKeySet::UpdateHotSet() {
     // need_record_ is false, other threads cannot operate on records
     update_record_[i].records.clear();
     update_record_[i].records_list.clear();
-    update_record_[i].hit_cnt = update_record_[i].total_cnt = 0;
+    for(int j = 0; j < 4; j++) update_record_[i].hit_cnt[j] = 0; 
+    update_record_[i].total_cnt = 0;
   }
   if (old_set_class1) {
     delete old_set_class1;

@@ -25,8 +25,8 @@ class LogStructured {
                          int num_workers, int num_cleaners);
   ~LogStructured();
 
-  LogSegment *NewSegment(bool hot);
-  void FreezeSegment(LogSegment *old_segment);
+  LogSegment *NewSegment(int class_);
+  void FreezeSegment(LogSegment *old_segment, int class_);
   void SyncCleanerGarbageBytes(std::vector<size_t> &tmp_garbage_bytes);
   LogSegment *GetSegment(int segment_id);
   int GetSegmentID(const char *addr);
@@ -39,15 +39,16 @@ class LogStructured {
   void RecoveryInfo(DB *db);
   void RecoveryAll(DB *db);
 
-#ifdef INTERLEAVED
-  int get_num_hot_segments_() { return num_hot_segments_; }
-  int get_num_cold_segments_() { return num_cold_segments_; }
-  LogSegment **get_hot_segment_(int i) {return &hot_segments_[i]; } 
-  LogSegment **get_cold_segment_(int i) {return &cold_segments_[i]; } 
-  void set_hot_segment_(int i, LogSegment *s) { hot_segments_[i] = s; } 
-  void set_cold_segment_(int i, LogSegment *s) { cold_segments_[i] = s; } 
+  int get_num_class1_segments_() { return num_class1_segments_; }
+  int get_num_class2_segments_() { return num_class2_segments_; }
+  int get_num_class3_segments_() { return num_class3_segments_; }
+  LogSegment **get_class1_segment_(int i) {return &class1_segments_[i]; } 
+  LogSegment **get_class2_segment_(int i) {return &class2_segments_[i]; } 
+  LogSegment **get_class3_segment_(int i) {return &class3_segments_[i]; } 
+  void set_class1_segment_(int i, LogSegment *s) { class1_segments_[i] = s; } 
+  void set_class2_segment_(int i, LogSegment *s) { class2_segments_[i] = s; } 
+  void set_class3_segment_(int i, LogSegment *s) { class3_segments_[i] = s; } 
   void start_GCThreads();
-#endif
 
   // GC_EVAL
 #ifdef GC_EVAL
@@ -63,18 +64,28 @@ class LogStructured {
   const int num_workers_;
   const int num_cleaners_;
   char *pool_start_;
-  char *cleaner_pool_start_;
+  char *class1_pool_start_;
+  char *class2_pool_start_;
+  char *class3_pool_start_;
   const size_t total_log_size_;
-  const int num_segments_;
+  int num_segments_;
   // SpinLock reserved_list_lock_;
   std::atomic<bool> stop_flag_{false};
   // const int max_reserved_segments_;
-  SpinLock free_list_lock_;
+  SpinLock class0_list_lock_;
+  SpinLock class1_list_lock_;
+  SpinLock class2_list_lock_;
+  SpinLock class3_list_lock_;
 
-  const int num_class0_segments_;
-  const int num_class1_segments_;
-  const int num_class2_segments_;
-  const int num_class3_segments_;
+  int num_class0_segments_;
+  int num_class1_segments_;
+  int num_class2_segments_;
+  int num_class3_segments_;
+
+  std::atomic<int> num_free_list_class0{0};
+  std::atomic<int> num_free_list_class1{0};
+  std::atomic<int> num_free_list_class2{0};
+  std::atomic<int> num_free_list_class3{0};
 
   std::vector<LogSegment *> all_segments_;
   std::vector<LogCleaner *> log_cleaners_;
@@ -98,7 +109,7 @@ class LogStructured {
   std::atomic<int> num_free_segments_{0};
   std::atomic<int> alloc_counter_{0};
   const int num_limit_free_segments_;
-  volatile int clean_threshold_ = 50;
+  volatile int clean_threshold_ = 20;
 
   volatile FreeStatus free_status_ = FS_Sufficient;
   std::atomic_flag FS_flag_{ATOMIC_FLAG_INIT};
@@ -119,9 +130,9 @@ class LogStructured {
 #endif
   uint64_t start_clean_statistics_time_ = 0;
 
-  void AddClosedSegment(LogSegment *segment);
-  void LockFreeList() { free_list_lock_.lock(); }
-  void UnlockFreeList() { free_list_lock_.unlock(); }
+  void AddClosedSegment(LogSegment *segment, int class_);
+  // void LockFreeList() { free_list_lock_.lock(); }
+  // void UnlockFreeList() { free_list_lock_.unlock(); }
   void UpdateCleanThreshold();
 
 
