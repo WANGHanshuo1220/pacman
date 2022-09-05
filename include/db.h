@@ -63,21 +63,13 @@ class DB {
 #endif
     // int num_hot_segments_;
     // int num_cold_segments_;
-    uint32_t class1_seg_working_on;
-    uint32_t class2_seg_working_on;
-    uint32_t class3_seg_working_on;
 #ifdef LOG_BATCHING
     uint32_t change_seg_threshold = LOG_BATCHING_SIZE;
     bool hot_batch_persistent = false;
     bool cold_batch_persistent = false;
-#else
-    uint64_t change_seg_threshold_class1 = SEGMENT_SIZE1 / 2;
-    uint64_t change_seg_threshold_class2 = SEGMENT_SIZE2 / 2;
-    uint64_t change_seg_threshold_class3 = SEGMENT_SIZE3 / 2;
 #endif
-    uint32_t accumulative_sz_class1 = 0;
-    uint32_t accumulative_sz_class2 = 0;
-    uint32_t accumulative_sz_class3 = 0;
+    uint32_t class_seg_working_on[num_class];
+    uint32_t accumulative_sz_class[num_class] = {0};
     // int roll_back_count = 0;
 
   // only for test
@@ -86,10 +78,7 @@ class DB {
    private:
     int worker_id_;
     DB *db_;
-    LogSegment *log_head_class0 = nullptr;
-    LogSegment *log_head_class1 = nullptr;
-    LogSegment *log_head_class2 = nullptr;
-    LogSegment *log_head_class3 = nullptr;
+    LogSegment *log_head_class[num_class] = {nullptr};
 
     // lazily update garbage bytes for cleaner, avoid too many FAAs
     std::vector<size_t> tmp_cleaner_garbage_bytes_;
@@ -152,47 +141,18 @@ class DB {
   void enque_roll_back_queue(LogSegment * s) { roll_back_queue.CQ_enque(s); }
   LogSegment *deque_roll_back_queue() { return roll_back_queue.CQ_deque(); }
 
-  std::pair<int, LogSegment **> get_class1_segment()
+  std::pair<uint32_t, LogSegment **> get_class_segment(int class_)
   {
-    std::lock_guard<SpinLock> guard(class1_segment_list);
-    std::pair<int, LogSegment **> ret;
-    ret.second = log_->get_class1_segment_(next_class1_segment_);
-    ret.first = next_class1_segment_;
+    std::lock_guard<SpinLock> guard(class_segment_list_lock[class_]);
+    std::pair<uint32_t, LogSegment **> ret;
+    ret.second = log_->get_class_segment_(class_, next_class_segment_[class_]);
+    ret.first = next_class_segment_[class_];
     (*ret.second)->set_using();
-    next_class1_segment_ ++;
-    if(next_class1_segment_ == db_num_class1_segs)
+    next_class_segment_[class_] ++;
+    assert(next_class_segment_[class_] <= db_num_class_segs[class_]);
+    if(next_class_segment_[class_] == db_num_class_segs[class_])
     {
-      next_class1_segment_ = 0;
-    }
-    return ret;
-  }
-
-  std::pair<int, LogSegment **> get_class2_segment()
-  {
-    std::lock_guard<SpinLock> guard(class2_segment_list);
-    std::pair<int, LogSegment **> ret;
-    ret.second = log_->get_class2_segment_(next_class2_segment_);
-    ret.first = next_class2_segment_;
-    (*ret.second)->set_using();
-    next_class2_segment_ ++;
-    if(next_class2_segment_ == db_num_class2_segs)
-    {
-      next_class2_segment_ = 0;
-    }
-    return ret;
-  }
-
-  std::pair<int, LogSegment **> get_class3_segment()
-  {
-    std::lock_guard<SpinLock> guard(class3_segment_list);
-    std::pair<int, LogSegment **> ret;
-    ret.second = log_->get_class3_segment_(next_class3_segment_);
-    ret.first = next_class3_segment_;
-    (*ret.second)->set_using();
-    next_class3_segment_ ++;
-    if(next_class3_segment_ == db_num_class3_segs)
-    {
-      next_class3_segment_ = 0;
+      next_class_segment_[class_] = 0;
     }
     return ret;
   }
@@ -201,6 +161,7 @@ class DB {
 #ifdef GC_EVAL
   LogStructured *get_log_() { return log_; }
 #endif
+  uint32_t get_threshold(int class_) { return change_seg_threshold_class[class_]; }
 
  private:
   std::queue<LogSegment *> roll_back_list;
@@ -214,15 +175,10 @@ class DB {
   std::atomic<int> cur_num_workers_{0};
   HotKeySet *hot_key_set_ = nullptr;
   ThreadStatus thread_status_;
-  std::atomic<int> next_class1_segment_;
-  std::atomic<int> next_class2_segment_;
-  std::atomic<int> next_class3_segment_;
-  SpinLock class1_segment_list;
-  SpinLock class2_segment_list;
-  SpinLock class3_segment_list;
-  int db_num_class1_segs = 0;
-  int db_num_class2_segs = 0;
-  int db_num_class3_segs = 0;
+  std::atomic<int> next_class_segment_[num_class] = {0, 0, 0, 0};
+  uint64_t change_seg_threshold_class[num_class];
+  SpinLock class_segment_list_lock[num_class];
+  uint64_t db_num_class_segs[num_class] = {0};
   long roll_back_count = 0;
   uint64_t roll_back_bytes = 0;
 

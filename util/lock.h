@@ -12,6 +12,8 @@ class SpinLock {
   SpinLock() : mutex(false) {}
   SpinLock(std::string name) : mutex(false), name(name) {}
 
+  void set_name(std::string s) { name = s; }
+
   bool try_lock() {
     bool expect = false;
     return mutex.compare_exchange_strong(

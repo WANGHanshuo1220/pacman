@@ -15,10 +15,9 @@ using KeyType = uint64_t;
 using ValueType = uint64_t;
 static constexpr ValueType INVALID_VALUE = 0;
 
-static constexpr uint64_t SEGMENT_SIZE0 = 1ul << 22;
-static constexpr uint64_t SEGMENT_SIZE1 = 1ul << 20;
-static constexpr uint64_t SEGMENT_SIZE2 = 1ul << 16;
-static constexpr uint64_t SEGMENT_SIZE3 = 1ul << 12;
+static constexpr uint64_t num_class     = 4;
+static constexpr uint64_t SEGMENT_SIZE[num_class] = 
+    {1ul << 22, 1ul << 20, 1ul << 16, 1ul << 12};
 
 // shortcut
 class __attribute__((__packed__)) Shortcut {
@@ -56,11 +55,11 @@ static_assert(sizeof(Shortcut) == 6);
 // KVItem: log entry
 struct KVItem {
   uint16_t key_size;
-  uint16_t num; // max kvs in a segment = 2^16
   uint16_t val_size;
   // uint32_t checksum = 0;
   // uint64_t epoch;
   uint32_t epoch;
+  uint32_t num; // max kvs in a segment = 2^16
   // uint64_t magic = 0xDEADBEAF;
   uint8_t kv_pair[0];
 
@@ -130,15 +129,14 @@ struct TaggedPointer {
   };
 
   TaggedPointer(char *ptr, uint64_t sz, uint64_t num_, int class_) {
+    addr = (uint64_t)ptr;
     if(class_ == 0)
     {
       // printf("in Taggedpointer, %d\n", class_);
-      addr = (uint64_t)ptr;
       size_or_num = sz <= 0xFFFF ? sz : 0;
     }
     else
     {
-      addr = (uint64_t)ptr;
       size_or_num = num_ < 0xFFFF ? num_ : 0xFFFF;
     }
   }

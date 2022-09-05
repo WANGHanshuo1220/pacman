@@ -45,12 +45,11 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
   // init log-structured
   log_ =
       new LogStructured(db_path, log_size, this, num_workers_, num_cleaners_);
-  db_num_class1_segs = log_->get_num_class1_segments_();
-  db_num_class2_segs = log_->get_num_class2_segments_();
-  db_num_class3_segs = log_->get_num_class3_segments_();
-  next_class1_segment_.store(0);
-  next_class2_segment_.store(0);
-  next_class3_segment_.store(0);
+  for(int i = 1; i < num_class; i ++) 
+  {
+    db_num_class_segs[i] = log_->get_num_class_segments_(i);
+    change_seg_threshold_class[i] = SEGMENT_SIZE[i] / 2;
+  }
   // roll_back_queue = new CircleQueue(2 * num_workers);
   // // roll_back_queue.init(2 * num_workers);
   // StartRBThread();
@@ -184,21 +183,16 @@ void DB::roll_back_()
 DB::Worker::Worker(DB *db) : db_(db) {
   worker_id_ = db_->cur_num_workers_.fetch_add(1);
   tmp_cleaner_garbage_bytes_.resize(db_->num_cleaners_, 0);
-  std::pair<int, LogSegment **> p;
+  std::pair<uint32_t, LogSegment **> p;
 
-  // log_head_class0 = db_->log_->NewSegment(0);
+  log_head_class[0] = db_->log_->NewSegment(0);
 
-  // p = db_->get_class1_segment();
-  // log_head_class1 = *p.second;
-  // class1_seg_working_on = p.first;
-  
-  // p = db_->get_class2_segment();
-  // log_head_class2 = *p.second;
-  // class2_seg_working_on = p.first;
-
-  // p = db_->get_class3_segment();
-  // log_head_class3 = *p.second;
-  // class3_seg_working_on = p.first;
+  for(int i = 1; i < num_class; i++)
+  {
+    p = db_->get_class_segment(i);
+    log_head_class[i] = *p.second;
+    class_seg_working_on[i] = p.first;
+  }
 
 #if INDEX_TYPE == 3
   reinterpret_cast<MasstreeIndex *>(db_->index_)
@@ -241,14 +235,11 @@ DB::Worker::~Worker() {
   BatchIndexInsert(cold_buffer_queue_.size(), false);
 #endif
 #endif
-  if(log_head_class0) FreezeSegment(log_head_class0, 0);
-  if(log_head_class1) FreezeSegment(log_head_class1, 1);
-  if(log_head_class2) FreezeSegment(log_head_class2, 2);
-  if(log_head_class3) FreezeSegment(log_head_class3, 3);
-  log_head_class0 = nullptr;
-  log_head_class1 = nullptr;
-  log_head_class2 = nullptr;
-  log_head_class3 = nullptr;
+  for(int i = 0; i < num_class; i++)
+  {
+    if(log_head_class[i]) FreezeSegment(log_head_class[i], i);
+    log_head_class[i] = nullptr;
+  }
   db_->cur_num_workers_--;
 }
 
@@ -456,6 +447,7 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 #else
 ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
                                  int class_) {
+  assert(class_ >= 0 && class_ <= num_class);
 #ifdef GC_EVAL
   struct timeval change_seg_start, change_seg_end, append_start, append_end;
   gettimeofday(&change_seg_start, NULL);
@@ -467,52 +459,23 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 
   uint32_t sz = sizeof(KVItem) + key.size() + value.size();
   LogSegment * segment = nullptr;
-  switch (class_)
+
+  if(class_ == 0)
   {
-    case 0:
-      segment = log_head_class0;
-      break;
-    case 1:
-      accumulative_sz_class1 += sz;
-      if(accumulative_sz_class1 > change_seg_threshold_class1)
-      {
-        std::pair<int, LogSegment **> p = db_->get_class1_segment();
-        log_head_class1->set_touse();
-        log_head_class1 = *p.second;
-        class1_seg_working_on = p.first;
-        accumulative_sz_class1 = sz;
-      }
-      segment = log_head_class1;
-      break;
-    case 2:
-      accumulative_sz_class2 += sz;
-      if(accumulative_sz_class2 > change_seg_threshold_class2)
-      {
-        std::pair<int, LogSegment **> p = db_->get_class2_segment();
-        log_head_class2->set_touse();
-        log_head_class2 = *p.second;
-        class2_seg_working_on = p.first;
-        accumulative_sz_class2 = sz;
-      }
-      segment = log_head_class2;
-      break;
-    case 3:
-      accumulative_sz_class3 += sz;
-      if(accumulative_sz_class3 > change_seg_threshold_class3)
-      {
-        std::pair<int, LogSegment **> p = db_->get_class3_segment();
-        log_head_class3->set_touse();
-        log_head_class3 = *p.second;
-        class3_seg_working_on = p.first;
-        accumulative_sz_class3 = sz;
-      }
-      segment = log_head_class3;
-      break;
-    
-    default:
-      printf("class error\n");
-      exit(0);
-      break;
+    segment = log_head_class[class_];
+  }
+  else
+  {
+    accumulative_sz_class[class_] += sz;
+    if(accumulative_sz_class[class_] > db_->get_threshold(class_))
+    {
+      std::pair<uint32_t, LogSegment **> p = db_->get_class_segment(class_);
+      log_head_class[class_]->set_touse();
+      log_head_class[class_] = *p.second;
+      class_seg_working_on[class_] = p.first;
+      accumulative_sz_class[class_] = sz;
+    }
+    segment = log_head_class[class_];
   }
 
 #ifdef GC_EVAL
@@ -531,29 +494,16 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     struct timeval s1, e1;
     gettimeofday(&s1, NULL);
 #endif
-    switch (class_)
-    {
-      case 0:
-        log_head_class0 = segment;
-        break;
-      case 1:
-        accumulative_sz_class1 = sz;
-        db_->log_->set_class1_segment_(class1_seg_working_on, segment);
-        log_head_class1 = segment;
-        break;
-      case 2:
-        accumulative_sz_class2 = sz;
-        db_->log_->set_class2_segment_(class2_seg_working_on, segment);
-        log_head_class2 = segment;
-        break;
-      case 3:
-        accumulative_sz_class3 = sz;
-        db_->log_->set_class3_segment_(class3_seg_working_on, segment);
-        log_head_class3 = segment;
-        break;
-      default:
-        break;
-    }
+  if(class_ == 0)
+  {
+    log_head_class[class_] = segment;
+  }
+  else
+  {
+    accumulative_sz_class[class_] = sz;
+    printf("%d, %d, %p\n", class_, class_seg_working_on[class_], segment);
+    db_->log_->set_class_segment_(class_, class_seg_working_on[class_], segment);
+  }
 #ifdef GC_EVAL
     gettimeofday(&e1, NULL);
     set_seg_time += TIMEDIFF(s1, e1);
@@ -635,7 +585,7 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
     }
 
     segment->roll_back_map[num_].first = true;
-    uint16_t sz = segment->roll_back_map[num_].second;
+    uint32_t sz = segment->roll_back_map[num_].second;
     segment->add_garbage_bytes(sz);
     tmp_cleaner_garbage_bytes_[class_] += sz;
 
@@ -648,6 +598,7 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
       {
         uint32_t roll_back_sz = sz;
         uint32_t RB_count = 1;
+        segment->roll_back_map[n-1].first = false;
         // uint8_t status;
         // db_->roll_back_count++;
         for(int i = n - 2; i >= 0; i--)

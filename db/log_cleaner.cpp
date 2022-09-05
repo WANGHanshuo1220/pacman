@@ -35,32 +35,10 @@ bool LogCleaner::NeedCleaning() {
   uint64_t Free, Available, Total;
   double threshold = (double)log_->clean_threshold_ / 100;
 
-  switch (class_)
-  {
-    case 0:
-      Free = (uint64_t)log_->num_free_list_class0 * SEGMENT_SIZE0;
-      Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
-      Total = log_->num_class0_segments_ * SEGMENT_SIZE0;
-      threshold = std::min(threshold, (double)Available / Total / 2);
-      break;
-    case 1:
-      Free = (uint64_t)log_->num_free_list_class1 * SEGMENT_SIZE1;
-      Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
-      Total = log_->num_class1_segments_ * SEGMENT_SIZE1 * log_->class1_prop;
-      break;
-    case 2:
-      Free = (uint64_t)log_->num_free_list_class2 * SEGMENT_SIZE2;
-      Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
-      Total = log_->num_class2_segments_ * SEGMENT_SIZE2 * log_->class2_prop;
-      break;
-    case 3:
-      Free = (uint64_t)log_->num_free_list_class3 * SEGMENT_SIZE3;
-      Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
-      Total = log_->num_class3_segments_ * SEGMENT_SIZE3 * log_->class3_prop;
-      break;
-    default:
-      break;
-  }
+  Free = (uint64_t)log_->num_free_list_class[class_] * SEGMENT_SIZE[class_];
+  Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
+  Total = log_->num_class_segments_[class_] * SEGMENT_SIZE[class_];
+  if(class_ == 0) threshold = std::min(threshold, (double)Available / Total / 2);
 
   
   // free < 10% of total storage and cleanr_garbage_btyes > free
@@ -234,7 +212,9 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment) {
   if (backup_segment_ == nullptr) {
     backup_segment_ = segment;
   } else {
-    update_free_list(class_, segment);
+    std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_]);
+    log_->free_segments_class[class_].push(segment);
+    ++log_->num_free_list_class[class_];
   }
   ++clean_seg_count_;
 }
@@ -243,7 +223,6 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment) {
 // CompactSegment is used if not defined BATCH_COMPACTION
 void LogCleaner::CompactSegment(LogSegment *segment) {
   // while(segment->is_segment_RB());
-  // printf("in compactsegment\n");
   char *p = segment->get_data_start();
   char *tail = segment->get_tail();
   std::vector<char *> flush_addr;
@@ -359,7 +338,9 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
     backup_segment_ = segment;
     backup_segment_->set_reserved();
   } else {
-    update_free_list(class_, segment);
+    std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_]);
+    log_->free_segments_class[class_].push(segment);
+    ++log_->num_free_list_class[class_];
   }
 }
 

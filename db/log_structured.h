@@ -39,15 +39,13 @@ class LogStructured {
   void RecoveryInfo(DB *db);
   void RecoveryAll(DB *db);
 
-  int get_num_class1_segments_() { return num_class1_segments_; }
-  int get_num_class2_segments_() { return num_class2_segments_; }
-  int get_num_class3_segments_() { return num_class3_segments_; }
-  LogSegment **get_class1_segment_(int i) {return &class1_segments_[i]; } 
-  LogSegment **get_class2_segment_(int i) {return &class2_segments_[i]; } 
-  LogSegment **get_class3_segment_(int i) {return &class3_segments_[i]; } 
-  void set_class1_segment_(int i, LogSegment *s) { class1_segments_[i] = s; } 
-  void set_class2_segment_(int i, LogSegment *s) { class2_segments_[i] = s; } 
-  void set_class3_segment_(int i, LogSegment *s) { class3_segments_[i] = s; } 
+  uint64_t get_num_class_segments_(int class_) { return class_segments_[class_].size(); }
+  LogSegment **get_class_segment_(int class_, int i) {return &class_segments_[class_][i]; } 
+  void set_class_segment_(int class_, uint32_t i, LogSegment *s) 
+  { 
+    printf("%d, %d, %p\n", class_, i, s);
+    class_segments_[class_][i] = s; 
+  } 
   void start_GCThreads();
 
   // GC_EVAL
@@ -58,58 +56,49 @@ class LogStructured {
   LogSegment *get_segments_(int i) { return all_segments_[i]; }
 #endif
   void get_seg_usage_info();
-  int get_num_class_segment(int i)
-  {
-    if(i == 0) return num_class0_segments_;
-    else if(i == 1) return num_class1_segments_;
-    else if(i == 2) return num_class2_segments_;
-    else if(i == 3) return num_class3_segments_;
-  }
 
   // char *get_pool_start() { return pool_start_; }
  private:
   const int num_workers_;
   const int num_cleaners_;
-  char *pool_start_;
-  char *class1_pool_start_;
-  char *class2_pool_start_;
-  char *class3_pool_start_;
+  char *class_pool_start_[num_class];
   const size_t total_log_size_;
-  int num_segments_;
+  int num_segments_ = 0;
   // SpinLock reserved_list_lock_;
   std::atomic<bool> stop_flag_{false};
   // const int max_reserved_segments_;
-  SpinLock class0_list_lock_;
-  SpinLock class1_list_lock_;
-  SpinLock class2_list_lock_;
-  SpinLock class3_list_lock_;
+  SpinLock class_list_lock_[num_class];
+  // SpinLock class1_list_lock_;
+  // SpinLock class2_list_lock_;
+  // SpinLock class3_list_lock_;
 
-  int num_class0_segments_;
-  int num_class1_segments_;
-  int num_class2_segments_;
-  int num_class3_segments_;
+  int num_class_segments_[num_class];
+  // int num_class1_segments_;
+  // int num_class2_segments_;
+  // int num_class3_segments_;
 
-  std::atomic<int> num_free_list_class0{0};
-  std::atomic<int> num_free_list_class1{0};
-  std::atomic<int> num_free_list_class2{0};
-  std::atomic<int> num_free_list_class3{0};
+  std::atomic<int> num_free_list_class[num_class] = {0, 0, 0, 0};
+  // std::atomic<int> num_free_list_class1{0};
+  // std::atomic<int> num_free_list_class2{0};
+  // std::atomic<int> num_free_list_class3{0};
 
   std::vector<LogSegment *> all_segments_;
   std::vector<LogCleaner *> log_cleaners_;
 
-  std::queue<LogSegment *> free_segments_class0;
-  std::queue<LogSegment *> free_segments_class1;
-  std::queue<LogSegment *> free_segments_class2;
-  std::queue<LogSegment *> free_segments_class3;
+  std::vector<std::queue<LogSegment *>> free_segments_class{num_class};
+  // std::queue<LogSegment *> free_segments_class1;
+  // std::queue<LogSegment *> free_segments_class2;
+  // std::queue<LogSegment *> free_segments_class3;
 
-  std::vector<LogSegment *> class1_segments_;
-  std::vector<LogSegment *> class2_segments_;
-  std::vector<LogSegment *> class3_segments_;
+  std::vector<std::vector<LogSegment *>> class_segments_{num_class};
+  // std::vector<LogSegment *> class2_segments_;
+  // std::vector<LogSegment *> class3_segments_;
 
   const float class0_prop = 0.4;
   const float class1_prop = 0.2;
   const float class2_prop = 0.2;
   const float class3_prop = 1. - class0_prop - class1_prop - class2_prop;
+  const float class_prop[num_class] = {class0_prop, class1_prop, class2_prop, class3_prop};
   uint64_t new_count = 0;
   // std::queue<LogSegment *> reserved_segments_;
 

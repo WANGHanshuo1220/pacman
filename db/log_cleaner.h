@@ -102,7 +102,9 @@ class LogCleaner {
       log_->FreezeSegment(reserved_segment_, class_);
     }
     if (backup_segment_) {
-      update_free_list(class_, backup_segment_);
+      std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_]);
+      log_->free_segments_class[class_].push(backup_segment_);
+      ++log_->num_free_list_class[class_];
     }
 
     printf("%dth(%d): closed_segment_ list size = %ld, %p\n", 
@@ -148,44 +150,6 @@ class LogCleaner {
     LockUsedList();
     closed_segments_.push_back(segment);
     UnlockUsedList();
-  }
-
-  void update_free_list(int class_, LogSegment * segment)
-  {
-    switch (class_)
-    {
-    case 0:
-      {
-        std::lock_guard<SpinLock> guard(log_->class0_list_lock_);
-        log_->free_segments_class0.push(segment);
-        ++log_->num_free_list_class0;
-      }
-      break;
-    case 1:
-      {
-        std::lock_guard<SpinLock> guard(log_->class1_list_lock_);
-        log_->free_segments_class1.push(segment);
-        ++log_->num_free_list_class1;
-      }
-      break;
-    case 2:
-      {
-        std::lock_guard<SpinLock> guard(log_->class2_list_lock_);
-        log_->free_segments_class2.push(segment);
-        ++log_->num_free_list_class2;
-      }
-      break;
-    case 3:
-      {
-        std::lock_guard<SpinLock> guard(log_->class3_list_lock_);
-        log_->free_segments_class3.push(segment);
-        ++log_->num_free_list_class3;
-      }
-      break;
-    
-    default:
-      break;
-    }
   }
 
  private:

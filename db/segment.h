@@ -54,7 +54,7 @@ class BaseSegment {
   // static constexpr uint32_t SEGMENT_DATA_SIZE = (SEGMENT_SIZE - HEADERS_SIZE);
   static constexpr uint32_t BYTES_PER_BIT = 32;
   static constexpr uint32_t BITMAP_SIZE =
-      (SEGMENT_SIZE0 / BYTES_PER_BIT + 7) / 8;
+      (SEGMENT_SIZE[0] / BYTES_PER_BIT + 7) / 8;
 
   int cur_cnt_ = 0;
 #ifdef GC_EVAL
@@ -124,12 +124,7 @@ class BaseSegment {
   };
   char *const data_start_;
   char *const end_; // const
-#ifdef INTERLEAVED
-  // std::atomic<char *> tail_;
-  char * tail_;
-#else
   char *tail_;
-#endif
   
   bool has_shortcut_ = false;
 
@@ -141,14 +136,7 @@ class LogSegment : public BaseSegment {
   LogSegment(char *start_addr, uint64_t size, int class__)
       : BaseSegment(start_addr, size), garbage_bytes_(0), class_(class__) {
     assert(((uint64_t)header_ & (HEADER_ALIGN_SIZE - 1)) == 0);
-    if(class__ == 0)
-    {
-      Init_class0();
-    }
-    else
-    {
-      Init_class123(class_);
-    }
+    Init();
   }
 
   uint64_t get_seg_id() { return seg_id; }
@@ -172,30 +160,15 @@ class LogSegment : public BaseSegment {
   std::mutex seg_lock;
   uint32_t num_kvs = 0;
   // vector for pairs <IsGarbage, kv_size>
-  std::vector<std::pair<bool, uint16_t>> roll_back_map;
+  std::vector<std::pair<bool, uint32_t>> roll_back_map;
   //  = std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE/32);
   // std::vector<std::pair<bool, uint16_t>> roll_back_map{SEGMENT_SIZE/32, std::pair<bool, uint16_t>(false, 0)};
 
-  void init_RB_map(int class_)
+  void init_RB_map()
   {
-    switch (class_)
-    {
-      case 1:
-        roll_back_map =
-        std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE1/32, std::pair<bool, uint16_t>(false, 0));
-        break;
-      case 2:
-        roll_back_map =
-        std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE2/32, std::pair<bool, uint16_t>(false, 0));
-        break;
-      case 3:
-        roll_back_map =
-        std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE3/32, std::pair<bool, uint16_t>(false, 0));
-        break;
-    
-      default:
-        break;
-    }
+    roll_back_map =
+    std::vector<std::pair<bool, uint32_t>>(SEGMENT_SIZE[class_]/32, std::pair<bool, uint16_t>(false, 0));
+    clear_num_kvs();
   }
 
   void RB_num_kvs(uint32_t a)
@@ -206,35 +179,20 @@ class LogSegment : public BaseSegment {
   uint16_t get_num_kvs() { return num_kvs; }
   void clear_num_kvs() { num_kvs = 0; }
 
-  void Init_class0() {
+  void Init() {
     tail_ = data_start_;
     header_->status = StatusAvailable;
-    InitBitmap();
-    SEGMENT_SIZE = SEGMENT_SIZE0;
+    if(class_ == 0) InitBitmap();
+    else init_RB_map();
+    SEGMENT_SIZE_ = SEGMENT_SIZE[class_];
     // header_->offset = 0;
     // header_->objects_tail_offset = 0;
     // header_->Flush();
-    // clear_num_kvs();
 #ifdef LOG_BATCHING
     flush_tail_ = data_start_;
 #endif
   }
 
-  void Init_class123(int class__) {
-    tail_ = data_start_;
-    header_->status = StatusAvailable;
-    init_RB_map(class__);
-    if(class__ == 1) SEGMENT_SIZE = SEGMENT_SIZE1;
-    else if(class__ == 2) SEGMENT_SIZE = SEGMENT_SIZE2;
-    else if(class__ == 3) SEGMENT_SIZE = SEGMENT_SIZE3;
-    clear_num_kvs();
-    // header_->offset = 0;
-    // header_->objects_tail_offset = 0;
-    // header_->Flush();
-#ifdef LOG_BATCHING
-    flush_tail_ = data_start_;
-#endif
-  }
 
   void InitBitmap() {
 #ifdef REDUCE_PM_ACCESS
@@ -358,7 +316,7 @@ class LogSegment : public BaseSegment {
     // header_->Flush();
     clear_num_kvs();
     roll_back_map =
-    std::vector<std::pair<bool, uint16_t>>{SEGMENT_SIZE/32, std::pair<bool, uint16_t>(false, 0)};
+    std::vector<std::pair<bool, uint32_t>>{SEGMENT_SIZE_/32, std::pair<bool, uint16_t>(false, 0)};
 #ifdef GC_EVAL
     make_new_kv_time = 0;
 #endif
@@ -376,7 +334,8 @@ class LogSegment : public BaseSegment {
   }
 
   // append kv to log
-  ValueType Append(const Slice &key, const Slice &value, uint32_t epoch, int class_) {
+  ValueType Append(const Slice &key, const Slice &value,
+                   uint32_t epoch, int class_) {
     // printf("in append, %d\n", class_);
 #ifdef GC_EVAL
     struct timeval make_new_kv_start;
@@ -521,14 +480,14 @@ class LogSegment : public BaseSegment {
     garbage_bytes_ += sz;
   }
 
-  void add_garbage_bytes(int b) 
+  void add_garbage_bytes(uint32_t b) 
   { 
-    garbage_bytes_ += b; 
-    assert(garbage_bytes_ <= end_ - data_start_);
+    garbage_bytes_.fetch_add(b); 
+    assert(garbage_bytes_ <= SEGMENT_SIZE_);
   }
-  void reduce_garbage_bytes(int b) 
+  void reduce_garbage_bytes(uint32_t b) 
   { 
-    garbage_bytes_ -= b; 
+    garbage_bytes_.fetch_sub(b); 
     assert(garbage_bytes_ >= 0);
   }
   int get_class() { return class_; }
@@ -546,7 +505,7 @@ class LogSegment : public BaseSegment {
 
   std::atomic<int> garbage_bytes_;
   const int class_ = 0;
-  uint64_t SEGMENT_SIZE = 0;
+  uint64_t SEGMENT_SIZE_ = 0;
 
 #ifdef GC_SHORTCUT
   std::vector<Shortcut> *shortcut_buffer_ = nullptr;
