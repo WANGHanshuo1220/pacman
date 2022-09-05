@@ -186,19 +186,19 @@ DB::Worker::Worker(DB *db) : db_(db) {
   tmp_cleaner_garbage_bytes_.resize(db_->num_cleaners_, 0);
   std::pair<int, LogSegment **> p;
 
-  log_head_class0 = db_->log_->NewSegment(0);
+  // log_head_class0 = db_->log_->NewSegment(0);
 
-  p = db_->get_class1_segment();
-  log_head_class1 = *p.second;
-  class1_seg_working_on = p.first;
+  // p = db_->get_class1_segment();
+  // log_head_class1 = *p.second;
+  // class1_seg_working_on = p.first;
   
-  p = db_->get_class2_segment();
-  log_head_class2 = *p.second;
-  class2_seg_working_on = p.first;
+  // p = db_->get_class2_segment();
+  // log_head_class2 = *p.second;
+  // class2_seg_working_on = p.first;
 
-  p = db_->get_class3_segment();
-  log_head_class3 = *p.second;
-  class3_seg_working_on = p.first;
+  // p = db_->get_class3_segment();
+  // log_head_class3 = *p.second;
+  // class3_seg_working_on = p.first;
 
 #if INDEX_TYPE == 3
   reinterpret_cast<MasstreeIndex *>(db_->index_)
@@ -241,10 +241,10 @@ DB::Worker::~Worker() {
   BatchIndexInsert(cold_buffer_queue_.size(), false);
 #endif
 #endif
-  FreezeSegment(log_head_class0, 0);
-  FreezeSegment(log_head_class1, 1);
-  FreezeSegment(log_head_class2, 2);
-  FreezeSegment(log_head_class3, 3);
+  if(log_head_class0) FreezeSegment(log_head_class0, 0);
+  if(log_head_class1) FreezeSegment(log_head_class1, 1);
+  if(log_head_class2) FreezeSegment(log_head_class2, 2);
+  if(log_head_class3) FreezeSegment(log_head_class3, 3);
   log_head_class0 = nullptr;
   log_head_class1 = nullptr;
   log_head_class2 = nullptr;
@@ -277,6 +277,7 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
   gettimeofday(&check_hotcold_start, NULL);
 #endif
   int class_ = db_->hot_key_set_->Exist(key);
+  // printf("in put, class = %d\n", class_);
 #ifdef GC_EVAL
   struct timeval check_hotcold_end;
   gettimeofday(&check_hotcold_end, NULL);
@@ -532,26 +533,26 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 #endif
     switch (class_)
     {
-    case 0:
-      log_head_class0 = segment;
-      break;
-    case 1:
-      accumulative_sz_class1 = sz;
-      db_->log_->set_class1_segment_(class1_seg_working_on, segment);
-      log_head_class1 = segment;
-      break;
-    case 2:
-      accumulative_sz_class2 = sz;
-      db_->log_->set_class2_segment_(class2_seg_working_on, segment);
-      log_head_class2 = segment;
-      break;
-    case 3:
-      accumulative_sz_class3 = sz;
-      db_->log_->set_class3_segment_(class3_seg_working_on, segment);
-      log_head_class3 = segment;
-      break;
-    default:
-      break;
+      case 0:
+        log_head_class0 = segment;
+        break;
+      case 1:
+        accumulative_sz_class1 = sz;
+        db_->log_->set_class1_segment_(class1_seg_working_on, segment);
+        log_head_class1 = segment;
+        break;
+      case 2:
+        accumulative_sz_class2 = sz;
+        db_->log_->set_class2_segment_(class2_seg_working_on, segment);
+        log_head_class2 = segment;
+        break;
+      case 3:
+        accumulative_sz_class3 = sz;
+        db_->log_->set_class3_segment_(class3_seg_working_on, segment);
+        log_head_class3 = segment;
+        break;
+      default:
+        break;
     }
 #ifdef GC_EVAL
     gettimeofday(&e1, NULL);
@@ -615,7 +616,7 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
 
   if(class_ == 0)
   {
-    uint32_t sz = tp.size;
+    uint32_t sz = tp.size_or_num;
     if (sz == 0) {
       ERROR_EXIT("size == 0");
       KVItem *kv = tp.GetKVItem();
@@ -626,7 +627,7 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
   }
   else
   {
-    uint16_t num_ = tp.num;
+    uint16_t num_ = tp.size_or_num;
     if(num_ == 0xFFFF)
     {
       printf("num == 0xFFFF\n");

@@ -11,8 +11,8 @@
 #include "config.h"
 #include "util/lock.h"
 
-static constexpr size_t HOT_NUM = 1024 * 1024;
-static constexpr int RECORD_BATCH_CNT = 4096 * 64;
+static constexpr size_t HOT_NUM = 256 * 1024;
+static constexpr int RECORD_BATCH_CNT = 4096;
 static constexpr size_t RECORD_BUFFER_SIZE = 16 * 1024;
 
 struct RecordEntry {

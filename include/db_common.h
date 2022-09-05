@@ -125,23 +125,21 @@ struct TaggedPointer {
     uint64_t data = 0;
     struct {
       uint64_t addr : 48;
-      union{
-        uint64_t size : 16;
-        uint64_t num  : 16;
-      };
+      uint64_t size_or_num : 16;
     };
   };
 
   TaggedPointer(char *ptr, uint64_t sz, uint64_t num_, int class_) {
     if(class_ == 0)
     {
+      // printf("in Taggedpointer, %d\n", class_);
       addr = (uint64_t)ptr;
-      size = sz <= 0xFFFF ? sz : 0;
+      size_or_num = sz <= 0xFFFF ? sz : 0;
     }
     else
     {
       addr = (uint64_t)ptr;
-      num = num_ < 0xFFFF ? num_ : 0xFFFF;
+      size_or_num = num_ < 0xFFFF ? num_ : 0xFFFF;
     }
   }
 

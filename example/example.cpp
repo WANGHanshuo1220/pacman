@@ -28,7 +28,7 @@ std::uniform_real_distribution<> distrib(0, 1);
 struct timeval start, checkpoint1, checkpoint2;
 struct timeval zipf_s, zipf_e;
 long zipf_time_cost = 0;
-int zipf();
+uint64_t zipf();
 void init_zipf();
 
 uint64_t NUM_KVS = 200000000;
@@ -82,7 +82,7 @@ void job1()
 void job2()
 {
   printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
-  std::map<uint64_t, std::string> kvs;
+  // std::map<uint64_t, std::string> kvs;
   std::string val;
   std::string res;
   uint64_t key;
@@ -111,7 +111,7 @@ void job2()
     key = zipf();
     value = value + std::to_string(i%10);
     value.resize(32);
-    kvs[key] = value;
+    // kvs[key] = value;
     gettimeofday(&start, NULL);
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
     gettimeofday(&checkpoint1, NULL);
@@ -308,7 +308,7 @@ int main(int argc, char **argv) {
     }
   }
   init_zipf();
-  for (int i = 0; i < 10; i++)
+  for (int i = 0; i < 1; i++)
   {  
     printf("----------------%d-----------------\n", i);
     (*jobs[atoi(arg)])();
@@ -332,7 +332,7 @@ void init_zipf()
   printf("finished...\n");
 }
 
-int zipf()
+uint64_t zipf()
 {
   double z;                     // Uniform random number (0 < z < 1)
   int zipf_value;               // Computed exponential value to be returned

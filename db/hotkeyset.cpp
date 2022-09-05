@@ -46,7 +46,7 @@ void HotKeySet::Record(const Slice &key, int worker_id, int class_) {
       record.hit_cnt[class_] ++;
     }
     ++record.total_cnt;
-    if (class_ != 0 && record.total_cnt == RECORD_BATCH_CNT) { // sampling rate
+    if (record.total_cnt == RECORD_BATCH_CNT) { // sampling rate
       // printf("hit ratio = %.1lf%%\n", 100. * record.hit_cnt / record.total_cnt);
       if (record.hit_cnt[3] < RECORD_BATCH_CNT * 0.9 ||
           record.hit_cnt[2] < RECORD_BATCH_CNT * 0.7 ||
@@ -99,7 +99,6 @@ int HotKeySet::Exist(const Slice &key) {
 }
 
 void HotKeySet::UpdateHotSet() {
-  // printf("UpdatehotSet\n");
   // bind_core_on_numa(db_->num_workers_);
 
   std::unordered_map<uint64_t, int> count;

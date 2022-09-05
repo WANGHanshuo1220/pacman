@@ -58,6 +58,13 @@ class LogStructured {
   LogSegment *get_segments_(int i) { return all_segments_[i]; }
 #endif
   void get_seg_usage_info();
+  int get_num_class_segment(int i)
+  {
+    if(i == 0) return num_class0_segments_;
+    else if(i == 1) return num_class1_segments_;
+    else if(i == 2) return num_class2_segments_;
+    else if(i == 3) return num_class3_segments_;
+  }
 
   // char *get_pool_start() { return pool_start_; }
  private:

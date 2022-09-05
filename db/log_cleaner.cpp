@@ -13,16 +13,16 @@
   #define TEST_CPU_TIME 1 // 1 for cpu time, 0 for real time
 #endif
 
-void LogCleaner::CleanerEntry(int class_) {
+void LogCleaner::CleanerEntry() {
   // bind_core_on_numa(log_->num_workers_ + cleaner_id_);
 #if INDEX_TYPE == 3
   reinterpret_cast<MasstreeIndex *>(db_->index_)
       ->MasstreeThreadInit(log_->num_workers_ + cleaner_id_);
 #endif
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
-    if (NeedCleaning(class_)) {
+    if (NeedCleaning()) {
       GC_times.fetch_add(1, std::memory_order_relaxed);
-      DoMemoryClean(class_);
+      DoMemoryClean();
       Timer timer(clean_time_ns_);
     } else {
       usleep(10);
@@ -30,40 +30,38 @@ void LogCleaner::CleanerEntry(int class_) {
   }
 }
 
-bool LogCleaner::NeedCleaning(int class_) {
+bool LogCleaner::NeedCleaning() {
 
   uint64_t Free, Available, Total;
+  double threshold = (double)log_->clean_threshold_ / 100;
 
   switch (class_)
   {
-  case 0:
-    Free = (uint64_t)log_->num_free_list_class0 * SEGMENT_SIZE0;
-    Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
-    Total = log_->num_class0_segments_ * SEGMENT_SIZE0;
-    break;
-  case 1:
-    Free = (uint64_t)log_->num_free_list_class1 * SEGMENT_SIZE1;
-    Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
-    Total = log_->num_class1_segments_ * SEGMENT_SIZE1;
-    break;
-  case 2:
-    Free = (uint64_t)log_->num_free_list_class2 * SEGMENT_SIZE2;
-    Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
-    Total = log_->num_class2_segments_ * SEGMENT_SIZE2;
-    break;
-  case 3:
-    Free = (uint64_t)log_->num_free_list_class3 * SEGMENT_SIZE3;
-    Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
-    Total = log_->num_class3_segments_ * SEGMENT_SIZE3;
-    break;
-  
-  default:
-    break;
+    case 0:
+      Free = (uint64_t)log_->num_free_list_class0 * SEGMENT_SIZE0;
+      Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
+      Total = log_->num_class0_segments_ * SEGMENT_SIZE0;
+      threshold = std::min(threshold, (double)Available / Total / 2);
+      break;
+    case 1:
+      Free = (uint64_t)log_->num_free_list_class1 * SEGMENT_SIZE1;
+      Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
+      Total = log_->num_class1_segments_ * SEGMENT_SIZE1 * log_->class1_prop;
+      break;
+    case 2:
+      Free = (uint64_t)log_->num_free_list_class2 * SEGMENT_SIZE2;
+      Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
+      Total = log_->num_class2_segments_ * SEGMENT_SIZE2 * log_->class2_prop;
+      break;
+    case 3:
+      Free = (uint64_t)log_->num_free_list_class3 * SEGMENT_SIZE3;
+      Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
+      Total = log_->num_class3_segments_ * SEGMENT_SIZE3 * log_->class3_prop;
+      break;
+    default:
+      break;
   }
 
-  double threshold = (double)log_->clean_threshold_ / 100;
-  // from RAMCloud'FAST14
-  threshold = std::min(threshold, (double)Available / Total / 2);
   
   // free < 10% of total storage and cleanr_garbage_btyes > free
   return ((double)Free / Total) < threshold;  
@@ -163,7 +161,7 @@ void LogCleaner::BatchIndexUpdate() {
   valid_items_.clear();
 }
 
-void LogCleaner::CopyValidItemToBuffer(LogSegment *segment, int class_) {
+void LogCleaner::CopyValidItemToBuffer(LogSegment *segment) {
   
   char *p = const_cast<char *>(segment->get_data_start());
   char *tail = segment->get_tail();
@@ -193,7 +191,7 @@ void LogCleaner::CopyValidItemToBuffer(LogSegment *segment, int class_) {
       BatchIndexUpdate();
       // new reserved segment
       reserved_segment_->cur_cnt_ += volatile_segment_->cur_cnt_;
-      FreezeReservedAndGetNew(class_);
+      FreezeReservedAndGetNew();
       volatile_segment_->Clear();
     }
     if (!IsGarbage(kv, num_old)) {
@@ -215,14 +213,14 @@ void LogCleaner::CopyValidItemToBuffer(LogSegment *segment, int class_) {
 }
 
 // Batch Compact if defined BATCH_COMPACTION
-void LogCleaner::BatchCompactSegment(LogSegment *segment, int class_) {
+void LogCleaner::BatchCompactSegment(LogSegment *segment) {
   // printf("in BatchCompaction\n");
 #ifdef INTERLEAVED
   if(!segment->is_segment_cleaning()) segment->set_cleaning();
   assert(segment->is_segment_cleaning());
 #endif
   // copy to DRAM buffer
-  CopyValidItemToBuffer(segment, class_);
+  CopyValidItemToBuffer(segment);
   // flush reserved segment and update reference
   BatchFlush();
   BatchIndexUpdate();
@@ -243,7 +241,7 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment, int class_) {
 
 
 // CompactSegment is used if not defined BATCH_COMPACTION
-void LogCleaner::CompactSegment(LogSegment *segment, int class_) {
+void LogCleaner::CompactSegment(LogSegment *segment) {
   // while(segment->is_segment_RB());
   // printf("in compactsegment\n");
   char *p = segment->get_data_start();
@@ -262,7 +260,7 @@ void LogCleaner::CompactSegment(LogSegment *segment, int class_) {
       break;
     }
     if (!reserved_segment_->HasSpaceFor(sz)) {
-      FreezeReservedAndGetNew(class_);
+      FreezeReservedAndGetNew();
     }
     Shortcut sc;
 #ifdef GC_SHORTCUT
@@ -308,7 +306,6 @@ void LogCleaner::CompactSegment(LogSegment *segment, int class_) {
 // #endif
       if (le_helper.old_val == val) {
         MarkGarbage(val);
-        reserved_segment_->roll_back_map[reserved_segment_->num_kvs -1].first = true;
         COUNTER_ADD_LOGGING(garbage_move_count_, 1);
       }
 #if defined(BATCH_FLUSH_INDEX_ENTRY) && defined(IDX_PERSISTENT)
@@ -366,7 +363,7 @@ void LogCleaner::CompactSegment(LogSegment *segment, int class_) {
   }
 }
 
-void LogCleaner::FreezeReservedAndGetNew(int class_) {
+void LogCleaner::FreezeReservedAndGetNew() {
   assert(backup_segment_);
   if (reserved_segment_) {
 #if defined(LOG_BATCHING) && !defined(BATCH_COMPACTION)
@@ -386,7 +383,7 @@ void LogCleaner::FreezeReservedAndGetNew(int class_) {
 #endif
 }
 
-void LogCleaner::DoMemoryClean(int class_) {
+void LogCleaner::DoMemoryClean() {
   // printf("in domemoryclean\n");
   TIMER_START_LOGGING(pick_time_);
   LockUsedList();
@@ -457,35 +454,35 @@ void LogCleaner::DoMemoryClean(int class_) {
 #ifdef BATCH_COMPACTION
   BatchCompactSegment(segment);
 #else
-  CompactSegment(segment, class_);
+  CompactSegment(segment);
 #endif
 }
 
 void LogCleaner::MarkGarbage(ValueType tagged_val) {
   TaggedPointer tp(tagged_val);
-  uint32_t num = tp.num;
-  if(num = 0xFF)
+
+  int class_ = reserved_segment_->get_class();
+
+  if(class_ == 0)
   {
-    num = tp.GetKVItem()->num;
+    uint32_t sz = tp.size_or_num;
+    if (sz == 0) {
+      ERROR_EXIT("size == 0");
+      KVItem *kv = tp.GetKVItem();
+      sz = sizeof(KVItem) + kv->key_size + kv->val_size;
+    }
+    reserved_segment_->MarkGarbage(tp.GetAddr(), sz);
+    tmp_cleaner_garbage_bytes_[class_] += sz;
   }
-// #ifdef REDUCE_PM_ACCESS
-//   uint32_t sz = tp.size;
-//   if (sz == 0) {
-//     ERROR_EXIT("size == 0");
-//     KVItem *kv = tp.GetKVItem();
-//     sz = sizeof(KVItem) + kv->key_size + kv->val_size;
-//   }
-// #else
-//   KVItem *kv = tp.GetKVItem();
-//   uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
-// #endif
-  int segment_id = log_->GetSegmentID(tp.GetAddr());
-  LogSegment *segment = log_->GetSegment(segment_id);
-  segment->roll_back_map[num].first = true;
-  // segment->MarkGarbage(tp.GetAddr(), sz);
-  // // update temp cleaner garbage bytes
-  // if (db_->num_cleaners_ > 0) {
-  //   int cleaner_id = log_->GetSegmentCleanerID(tp.GetAddr());
-  //   tmp_cleaner_garbage_bytes_[cleaner_id] += sz;
-  // }
+  else
+  {
+    uint16_t num_ = tp.size_or_num;
+    if(num_ == 0xFFFF)
+    {
+      printf("num == 0xFFFF\n");
+      num_ = tp.GetKVItem()->num;
+    }
+
+    reserved_segment_->roll_back_map[num_].first = true;
+  }
 }
