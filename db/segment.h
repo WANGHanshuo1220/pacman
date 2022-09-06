@@ -33,14 +33,9 @@ class BaseSegment {
 
   struct alignas(HEADER_ALIGN_SIZE) Header {
     bool has_shortcut;
-#ifdef INTERLEAVED
-    // std::atomic<uint32_t> status;
-    uint32_t status;
-#else
     uint32_t offset; // only valid when status is closed
     uint32_t status;
     uint32_t objects_tail_offset;
-#endif
 
     void Flush() {
 #ifdef LOG_PERSISTENT
@@ -118,10 +113,8 @@ class BaseSegment {
   void set_has_shortcut(bool has_shortcut) { has_shortcut_ = has_shortcut; }
 
  protected:
-  union {
-    char *const segment_start_; // const
-    Header *header_;
-  };
+  char *const segment_start_; // const
+  Header *header_;
   char *const data_start_;
   char *const end_; // const
   char *tail_;
@@ -135,7 +128,7 @@ class LogSegment : public BaseSegment {
  public:
   LogSegment(char *start_addr, uint64_t size, int class__)
       : BaseSegment(start_addr, size), garbage_bytes_(0), class_(class__) {
-    assert(((uint64_t)header_ & (HEADER_ALIGN_SIZE - 1)) == 0);
+    // assert(((uint64_t)header_ & (HEADER_ALIGN_SIZE - 1)) == 0);
     Init();
   }
 
@@ -166,8 +159,7 @@ class LogSegment : public BaseSegment {
 
   void init_RB_map()
   {
-    roll_back_map =
-    std::vector<std::pair<bool, uint32_t>>(SEGMENT_SIZE[class_]/32, std::pair<bool, uint16_t>(false, 0));
+    roll_back_map.resize(SEGMENT_SIZE_, std::pair<bool, uint32_t>(false, 0));
     clear_num_kvs();
   }
 
@@ -180,11 +172,13 @@ class LogSegment : public BaseSegment {
   void clear_num_kvs() { num_kvs = 0; }
 
   void Init() {
+    header_ = new Header;
     tail_ = data_start_;
     header_->status = StatusAvailable;
+    SEGMENT_SIZE_ = SEGMENT_SIZE[class_];
     if(class_ == 0) InitBitmap();
     else init_RB_map();
-    SEGMENT_SIZE_ = SEGMENT_SIZE[class_];
+    garbage_bytes_ = 0;
     // header_->offset = 0;
     // header_->objects_tail_offset = 0;
     // header_->Flush();
@@ -258,6 +252,7 @@ class LogSegment : public BaseSegment {
   }
 
   virtual ~LogSegment() {
+    if(header_) delete header_;
 #ifdef REDUCE_PM_ACCESS
     if (volatile_tombstone_) {
       free(volatile_tombstone_);
@@ -283,6 +278,7 @@ class LogSegment : public BaseSegment {
   }
 
   void Close() {
+    header_->status = StatusClosed;
     // if (HasSpaceFor(sizeof(KVItem))) {
     //   KVItem *end = new (tail_) KVItem();
     //   end->Flush();
@@ -300,7 +296,6 @@ class LogSegment : public BaseSegment {
 #endif
     close_time_ = NowMicros();
     // header_->offset = get_offset();
-    header_->status = StatusClosed;
     // header_->objects_tail_offset = get_offset();
     // header_->has_shortcut = has_shortcut_;
     // header_->Flush();
@@ -311,12 +306,10 @@ class LogSegment : public BaseSegment {
     tail_ = data_start_;
     garbage_bytes_ = 0;
     header_->status = StatusAvailable;
+    clear_num_kvs();
     // header_->objects_tail_offset = 0;
     // header_->has_shortcut = false;
     // header_->Flush();
-    clear_num_kvs();
-    roll_back_map =
-    std::vector<std::pair<bool, uint32_t>>{SEGMENT_SIZE_/32, std::pair<bool, uint16_t>(false, 0)};
 #ifdef GC_EVAL
     make_new_kv_time = 0;
 #endif
@@ -335,7 +328,7 @@ class LogSegment : public BaseSegment {
 
   // append kv to log
   ValueType Append(const Slice &key, const Slice &value,
-                   uint32_t epoch, int class_) {
+                   uint32_t epoch) {
     // printf("in append, %d\n", class_);
 #ifdef GC_EVAL
     struct timeval make_new_kv_start;
@@ -350,6 +343,11 @@ class LogSegment : public BaseSegment {
     KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
     if(class_ != 0)
     {
+      // if(sz != 52) printf("sz = %d\n", sz);
+      // if(cur_num > SEGMENT_SIZE_/52) printf("cur_num = %d\n", cur_num);
+      // printf("class_      = %d\n", class_);
+      // printf("cur_num     = %d\n", cur_num);
+      // printf("RB_map.size = %ld\n", roll_back_map.size());
       roll_back_map[cur_num].second = sz;
       num_kvs ++;
     }
@@ -433,6 +431,7 @@ class LogSegment : public BaseSegment {
 #endif
 
   double GetGarbageProportion() {
+    printf("garbage bytes = %d\n", garbage_bytes_.load());
     return (double)(garbage_bytes_.load(std::memory_order_relaxed)) /
            get_offset();
   }
@@ -482,6 +481,11 @@ class LogSegment : public BaseSegment {
 
   void add_garbage_bytes(uint32_t b) 
   { 
+    if(garbage_bytes_ + b > SEGMENT_SIZE_)
+    {
+      printf("class_ = %d(%d), GB_btye = %u, b = %u, SEG_size = %lu\n",
+        class_, header_->status, garbage_bytes_.load(), b, SEGMENT_SIZE_);
+    }
     garbage_bytes_.fetch_add(b); 
     assert(garbage_bytes_ <= SEGMENT_SIZE_);
   }

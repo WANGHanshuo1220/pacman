@@ -147,7 +147,9 @@ class DB {
     std::pair<uint32_t, LogSegment **> ret;
     ret.second = log_->get_class_segment_(class_, next_class_segment_[class_]);
     ret.first = next_class_segment_[class_];
+    assert((*ret.second)->is_segment_touse());
     (*ret.second)->set_using();
+    assert((*ret.second)->is_segment_using());
     next_class_segment_[class_] ++;
     assert(next_class_segment_[class_] <= db_num_class_segs[class_]);
     if(next_class_segment_[class_] == db_num_class_segs[class_])

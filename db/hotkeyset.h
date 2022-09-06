@@ -11,7 +11,7 @@
 #include "config.h"
 #include "util/lock.h"
 
-static constexpr size_t HOT_NUM = 256 * 1024;
+static constexpr size_t HOT_NUM = 128 * 1024;
 static constexpr int RECORD_BATCH_CNT = 4096;
 static constexpr size_t RECORD_BUFFER_SIZE = 16 * 1024;
 

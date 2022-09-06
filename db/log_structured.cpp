@@ -14,7 +14,7 @@
 LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
                              int num_workers, int num_cleaners)
     : num_workers_(num_workers),
-      num_cleaners_(4),
+      num_cleaners_(num_cleaners),
       total_log_size_(log_size),
       num_limit_free_segments_(num_workers * (10 - num_cleaners))
   {
@@ -85,6 +85,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
         free_segments_class[j].push(all_segments_[i]);
         pool_start += SEGMENT_SIZE[j];
         num_free_list_class[j] ++;
+        assert(all_segments_[i]->is_segment_available());
       }
       else if(i == num_class_segments_[j] - 1)
       {
@@ -93,6 +94,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
         log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i], j);
         pool_start += SEGMENT_SIZE[j];
         all_segments_[i]->set_reserved();
+        assert(all_segments_[i]->is_segment_reserved());
         j++;
         num = 0;
         for(int n = 0; n < j; n ++) num += num_class_segments_[n];
@@ -108,6 +110,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
         class_segments_[j].push_back(all_segments_[i]);
         pool_start += SEGMENT_SIZE[j];
         all_segments_[i]->set_touse();
+        assert(all_segments_[i]->is_segment_touse());
       }
       else if(i < num + num_class_segments_[j] - 1)
       {
@@ -116,6 +119,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
         free_segments_class[j].push(all_segments_[i]);
         pool_start += SEGMENT_SIZE[j];
         num_free_list_class[j] ++;
+        assert(all_segments_[i]->is_segment_available());
       }
       else if(i == num + num_class_segments_[j] - 1)
       {
@@ -124,6 +128,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
         log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i], j);
         pool_start += SEGMENT_SIZE[j];
         all_segments_[i]->set_reserved();
+        assert(all_segments_[i]->is_segment_reserved());
         j++;
         num = 0;
         for(int n = 0; n < j; n ++) num += num_class_segments_[n];
@@ -193,30 +198,19 @@ LogStructured::~LogStructured() {
       log_cleaners_[i]->StopThread();
     }
   }
-  printf("stop all cleaner threads\n");
-  for(int i = 0; i < num_class; i++)
-  {
-    printf("%p\n", log_cleaners_[i]);
-  }
+
   for (int i = 0; i < num_cleaners_; i++) {
     if (log_cleaners_[i]) {
       delete log_cleaners_[i];
     }
   }
-  printf("delete all log_cleaners\n");
 
   for (int i = 0; i < num_segments_; i++) {
     if (all_segments_[i]) {
       delete all_segments_[i];
     }
   }
-  printf("delete all all_segments\n");
   all_segments_.clear();
-  for(int i = 0; i < num_class; i++)
-  {
-    printf("%p\n", log_cleaners_[i]);
-  }
-  printf("all_segments.clear()\n");
 
   LOG("num_newSegment %d new_hot %d new_cold %d", num_new_segment_.load(),
       num_new_hot_.load(), num_new_cold_.load());
@@ -225,7 +219,6 @@ LogStructured::~LogStructured() {
   {
     class_list_lock_[i].report();
   }
-  printf("end\n");
 }
 
 #ifdef GC_EVAL

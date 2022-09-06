@@ -37,9 +37,16 @@ bool LogCleaner::NeedCleaning() {
 
   Free = (uint64_t)log_->num_free_list_class[class_] * SEGMENT_SIZE[class_];
   Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
-  Total = log_->num_class_segments_[class_] * SEGMENT_SIZE[class_];
-  if(class_ == 0) threshold = std::min(threshold, (double)Available / Total / 2);
-
+  if(class_ == 0) 
+  {
+    Total = (log_->num_class_segments_[class_] - 1) * SEGMENT_SIZE[class_];
+    threshold = std::min(threshold, (double)Available / Total / 2);
+  }
+  else
+  {
+    Total = (log_->num_class_segments_[class_] - log_->class_segments_[class_].size() - 1)
+             * SEGMENT_SIZE[class_];
+  }
   
   // free < 10% of total storage and cleanr_garbage_btyes > free
   return ((double)Free / Total) < threshold;  
@@ -222,6 +229,7 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment) {
 
 // CompactSegment is used if not defined BATCH_COMPACTION
 void LogCleaner::CompactSegment(LogSegment *segment) {
+  // printf("in compaction, class_ = %d\n", segment->get_class());
   // while(segment->is_segment_RB());
   char *p = segment->get_data_start();
   char *tail = segment->get_tail();
@@ -231,14 +239,17 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
   bool has_shortcut = segment->HasShortcut();
   Shortcut *shortcuts = (Shortcut *)tail;
 #endif
-  uint64_t num_old = 0;
+  uint32_t num_old = 0;
   while (p < tail) {
     KVItem *kv = reinterpret_cast<KVItem *>(p);
     uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
     if (sz == sizeof(KVItem)) {
       break;
     }
+    // printf("  %uth kv_sz = %u\n", num_old, sz);
     if (!reserved_segment_->HasSpaceFor(sz)) {
+      // printf("  no space: tail_ = %p, end_ = %p, sz = %u\n",
+        // reserved_segment_->get_tail(), reserved_segment_->get_end(), sz);
       FreezeReservedAndGetNew();
     }
     Shortcut sc;
@@ -272,7 +283,7 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
       Slice key = kv->GetKey();
       Slice data = kv->GetValue();
       TIMER_START_LOGGING(copy_time_);
-      ValueType val = reserved_segment_->Append(key, data, kv->epoch, class_);
+      ValueType val = reserved_segment_->Append(key, data, kv->epoch);
       TIMER_STOP_LOGGING(copy_time_);
       LogEntryHelper le_helper(val);
       le_helper.old_val = TaggedPointer(p, sz, num_old, class_);
@@ -308,12 +319,15 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
       COUNTER_ADD_LOGGING(fast_path_, le_helper.fast_path);
 #endif  // end of #IF LOG_BATCHING
     }
+    else
+    {
+      if(class_ != 0) segment->roll_back_map[num_old].first = false;
+    }
     p += sz;
 #ifdef INTERLEAVED
     num_old ++;
 #endif
   }
-  // printf("??????\n");
 
 #ifdef LOG_BATCHING
   TIMER_START_LOGGING(copy_time_);
@@ -335,13 +349,16 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
   ++clean_seg_count_;
   segment->Clear();
   if (backup_segment_ == nullptr) {
+    // printf("  backup\n");
     backup_segment_ = segment;
     backup_segment_->set_reserved();
   } else {
+    // printf("  add to free list\n");
     std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_]);
     log_->free_segments_class[class_].push(segment);
     ++log_->num_free_list_class[class_];
   }
+  // printf("compaction done...\n");
 }
 
 void LogCleaner::FreezeReservedAndGetNew() {
@@ -365,7 +382,7 @@ void LogCleaner::FreezeReservedAndGetNew() {
 }
 
 void LogCleaner::DoMemoryClean() {
-  // printf("in domemoryclean\n");
+  // printf("in domemoryclean, class_ = %d\n", class_);
   TIMER_START_LOGGING(pick_time_);
   LockUsedList();
   to_compact_segments_.splice(to_compact_segments_.end(),
@@ -396,6 +413,7 @@ void LogCleaner::DoMemoryClean() {
   }
   else
   {
+    printf("here: max_score = %lf\n", max_score);
     int i = 0;
     for (auto it = to_compact_segments_.begin();
          i < 50 && it != to_compact_segments_.end(); it++, i++) {
@@ -404,7 +422,12 @@ void LogCleaner::DoMemoryClean() {
       double cur_score = 1000. * cur_garbage_proportion /
                          (1 - cur_garbage_proportion) *
                          (cur_time - (*it)->get_close_time());
+      printf("here: cur_score = %lf, cur_GB_prop = %lf, time_gap = %ld, class_ = %d "
+             "tail_ = %p, end_ = %p, offset = %ld, seg_status = %d\n",
+        cur_score, cur_garbage_proportion, cur_time - (*it)->get_close_time(), (*it)->get_class(),
+        (*it)->get_tail(), (*it)->get_end(), (*it)->get_offset(), (*it)->get_status());
       if (cur_score > max_score) {
+        printf("cur_score = %lf, max_score = %lf\n", cur_score, max_score);
         // to record the segment with the most garbage proportion
         max_score = cur_score;
         max_garbage_proportion = cur_garbage_proportion;
@@ -417,20 +440,22 @@ void LogCleaner::DoMemoryClean() {
     segment = *gc_it;
     to_compact_segments_.erase(gc_it);
   } else {
+    printf("return class_ = %d, to_compact_list.sz = %ld\n",
+      class_, to_compact_segments_.size());
     return;
   }
 
   // update statistics
-  TIMER_STOP_LOGGING(pick_time_);
+  // TIMER_STOP_LOGGING(pick_time_);
 
-  COUNTER_ADD_LOGGING(clean_garbage_bytes_,
-                      segment->garbage_bytes_.load(std::memory_order_relaxed));
-  COUNTER_ADD_LOGGING(clean_total_bytes_, segment->get_offset());
+  // COUNTER_ADD_LOGGING(clean_garbage_bytes_,
+  //                     segment->garbage_bytes_.load(std::memory_order_relaxed));
+  // COUNTER_ADD_LOGGING(clean_total_bytes_, segment->get_offset());
 
-  COUNTER_ADD_LOGGING(clean_hot_count_, 1);
-  COUNTER_ADD_LOGGING(hot_clean_garbage_bytes_,
-                      segment->garbage_bytes_.load(std::memory_order_relaxed));
-  COUNTER_ADD_LOGGING(hot_clean_total_bytes_, segment->get_offset());
+  // COUNTER_ADD_LOGGING(clean_hot_count_, 1);
+  // COUNTER_ADD_LOGGING(hot_clean_garbage_bytes_,
+  //                     segment->garbage_bytes_.load(std::memory_order_relaxed));
+  // COUNTER_ADD_LOGGING(hot_clean_total_bytes_, segment->get_offset());
 
 #ifdef BATCH_COMPACTION
   BatchCompactSegment(segment);
@@ -465,5 +490,7 @@ void LogCleaner::MarkGarbage(ValueType tagged_val) {
     }
 
     reserved_segment_->roll_back_map[num_].first = true;
+    // printf("from LogCleaner::MarkGarbage ");
+    // reserved_segment_->add_garbage_bytes(reserved_segment_->roll_back_map[num_].second);
   }
 }

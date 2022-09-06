@@ -20,7 +20,7 @@ static_assert(false, "error index kind");
 
 DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
     : num_workers_(num_workers),
-      num_cleaners_(num_cleaners),
+      num_cleaners_(num_class), // change to num_class
       thread_status_(num_workers) {
 #if defined(USE_PMDK) && defined(IDX_PERSISTENT)
   g_index_allocator = new PMDKAllocator(db_path + "/idx_pool", IDX_POOL_SIZE);
@@ -192,6 +192,11 @@ DB::Worker::Worker(DB *db) : db_(db) {
     p = db_->get_class_segment(i);
     log_head_class[i] = *p.second;
     class_seg_working_on[i] = p.first;
+  }
+
+  for(int i = 0; i < num_class; i++)
+  {
+    assert(log_head_class[i]->is_segment_using());
   }
 
 #if INDEX_TYPE == 3
@@ -469,8 +474,8 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     accumulative_sz_class[class_] += sz;
     if(accumulative_sz_class[class_] > db_->get_threshold(class_))
     {
-      std::pair<uint32_t, LogSegment **> p = db_->get_class_segment(class_);
       log_head_class[class_]->set_touse();
+      std::pair<uint32_t, LogSegment **> p = db_->get_class_segment(class_);
       log_head_class[class_] = *p.second;
       class_seg_working_on[class_] = p.first;
       accumulative_sz_class[class_] = sz;
@@ -487,7 +492,7 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
   gettimeofday(&append_start, NULL);
 #endif
   while (segment == nullptr ||
-         (ret = segment->Append(key, value, epoch, class_)) == INVALID_VALUE) {
+         (ret = segment->Append(key, value, epoch)) == INVALID_VALUE) {
     FreezeSegment(segment, class_);
     segment = db_->log_->NewSegment(class_);
 #ifdef GC_EVAL
@@ -501,7 +506,8 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
   else
   {
     accumulative_sz_class[class_] = sz;
-    printf("%d, %d, %p\n", class_, class_seg_working_on[class_], segment);
+    log_head_class[class_] = segment;
+    // printf("%d, %d, %p\n", class_, class_seg_working_on[class_], segment);
     db_->log_->set_class_segment_(class_, class_seg_working_on[class_], segment);
   }
 #ifdef GC_EVAL
@@ -586,6 +592,7 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
 
     segment->roll_back_map[num_].first = true;
     uint32_t sz = segment->roll_back_map[num_].second;
+    // printf("from Woker::Markgarbage ");
     segment->add_garbage_bytes(sz);
     tmp_cleaner_garbage_bytes_[class_] += sz;
 
@@ -593,7 +600,8 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
     if( n-1 == num_)
     {
       if( segment->get_class() != 0 &&
-          (segment->is_segment_touse() || segment->is_segment_closed())
+          segment->is_segment_touse()
+          // (segment->is_segment_touse() || segment->is_segment_closed())
         )
       {
         uint32_t roll_back_sz = sz;

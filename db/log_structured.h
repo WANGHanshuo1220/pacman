@@ -43,7 +43,7 @@ class LogStructured {
   LogSegment **get_class_segment_(int class_, int i) {return &class_segments_[class_][i]; } 
   void set_class_segment_(int class_, uint32_t i, LogSegment *s) 
   { 
-    printf("%d, %d, %p\n", class_, i, s);
+    // printf("%d, %d, %p\n", class_, i, s);
     class_segments_[class_][i] = s; 
   } 
   void start_GCThreads();
