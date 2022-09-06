@@ -74,7 +74,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
     class_pool_start_[i] = class_pool_start_[i-1] +
                           num_class_segments_[i-1] * SEGMENT_SIZE[i-1];
   }
-  for (i = 0, j = 0; i < num_segments_; i++) {
+  for (i = 0, j = 0; i < num_segments_, j < num_cleaners_; i++) {
     // for class0
     if(j == 0)
     {
@@ -90,7 +90,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
       {
         all_segments_[i] =
             new LogSegment(pool_start, SEGMENT_SIZE[j], j);
-        log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i], 0);
+        log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i], j);
         pool_start += SEGMENT_SIZE[j];
         all_segments_[i]->set_reserved();
         j++;
@@ -194,10 +194,13 @@ LogStructured::~LogStructured() {
     }
   }
   printf("stop all cleaner threads\n");
+  for(int i = 0; i < num_class; i++)
+  {
+    printf("%p\n", log_cleaners_[i]);
+  }
   for (int i = 0; i < num_cleaners_; i++) {
     if (log_cleaners_[i]) {
       delete log_cleaners_[i];
-      log_cleaners_[i] = nullptr;
     }
   }
   printf("delete all log_cleaners\n");
@@ -205,7 +208,6 @@ LogStructured::~LogStructured() {
   for (int i = 0; i < num_segments_; i++) {
     if (all_segments_[i]) {
       delete all_segments_[i];
-      all_segments_[i] = nullptr;
     }
   }
   printf("delete all all_segments\n");

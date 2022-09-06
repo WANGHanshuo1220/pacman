@@ -48,8 +48,8 @@ void HotKeySet::Record(const Slice &key, int worker_id, int class_) {
     ++record.total_cnt;
     if (record.total_cnt == RECORD_BATCH_CNT) { // sampling rate
       // printf("hit ratio = %.1lf%%\n", 100. * record.hit_cnt / record.total_cnt);
-      if (record.hit_cnt[3] < RECORD_BATCH_CNT * 0.9 ||
-          record.hit_cnt[2] < RECORD_BATCH_CNT * 0.7 ||
+      if (record.hit_cnt[3] < RECORD_BATCH_CNT * 0.8 ||
+          record.hit_cnt[2] < RECORD_BATCH_CNT * 0.6 ||
           record.hit_cnt[1] < RECORD_BATCH_CNT * 0.5 ) { /* means many keys that has been accessed 
                                                       * frequently in a sampling period have not 
                                                       * been add in to current_set_, so current_set
@@ -145,11 +145,15 @@ void HotKeySet::UpdateHotSet() {
   std::unordered_set<uint64_t> *new_set_class2 = nullptr;
   std::unordered_set<uint64_t> *new_set_class3 = nullptr;
   int sz = topK.size();
+  int a1, a2, a3;
+  a1 = topK.size()/3;
+  a2 = topK.size()/3;
+  a3 = topK.size() - a1 - a2;
   if (!topK.empty()) {
     if (max_cnt > 3 * topK.top().cnt) {
-      new_set_class1 = new std::unordered_set<uint64_t>();
-      new_set_class2 = new std::unordered_set<uint64_t>();
-      new_set_class3 = new std::unordered_set<uint64_t>();
+      new_set_class1 = new std::unordered_set<uint64_t>(a1);
+      new_set_class2 = new std::unordered_set<uint64_t>(a2);
+      new_set_class3 = new std::unordered_set<uint64_t>(a3);
       new_set_class1->reserve(topK.size()/3);
       new_set_class2->reserve(topK.size()/3);
       new_set_class3->reserve(topK.size() 

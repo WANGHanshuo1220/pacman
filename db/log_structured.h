@@ -68,31 +68,17 @@ class LogStructured {
   std::atomic<bool> stop_flag_{false};
   // const int max_reserved_segments_;
   SpinLock class_list_lock_[num_class];
-  // SpinLock class1_list_lock_;
-  // SpinLock class2_list_lock_;
-  // SpinLock class3_list_lock_;
 
   int num_class_segments_[num_class];
-  // int num_class1_segments_;
-  // int num_class2_segments_;
-  // int num_class3_segments_;
 
   std::atomic<int> num_free_list_class[num_class] = {0, 0, 0, 0};
-  // std::atomic<int> num_free_list_class1{0};
-  // std::atomic<int> num_free_list_class2{0};
-  // std::atomic<int> num_free_list_class3{0};
 
   std::vector<LogSegment *> all_segments_;
   std::vector<LogCleaner *> log_cleaners_;
 
   std::vector<std::queue<LogSegment *>> free_segments_class{num_class};
-  // std::queue<LogSegment *> free_segments_class1;
-  // std::queue<LogSegment *> free_segments_class2;
-  // std::queue<LogSegment *> free_segments_class3;
 
   std::vector<std::vector<LogSegment *>> class_segments_{num_class};
-  // std::vector<LogSegment *> class2_segments_;
-  // std::vector<LogSegment *> class3_segments_;
 
   const float class0_prop = 0.4;
   const float class1_prop = 0.2;
