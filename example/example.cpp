@@ -196,7 +196,7 @@ void job3()
   std::unique_ptr<DB::Worker> worker = db->GetWorker();
 
   printf("prefilling\n");
-  for(uint64_t i = 0; i <  prefilling_rate * log_size / 48; i++)
+  for(uint64_t i = 0; i <  prefilling_rate * log_size / 52; i++)
   {
     key = zipf();
     std::string value = "hello world 22-08-24";
@@ -222,7 +222,6 @@ void job3()
   for(int i = 0; i < num_workers; i++)
   {
     pthread_join(tid[i], NULL);
-    printf("join %dth worker\n", i);
   }
 
   gettimeofday(&checkpoint1, NULL);
@@ -308,7 +307,7 @@ int main(int argc, char **argv) {
     }
   }
   init_zipf();
-  for (int i = 0; i < 1; i++)
+  for (int i = 0; i < 10; i++)
   {  
     printf("----------------%d-----------------\n", i);
     (*jobs[atoi(arg)])();

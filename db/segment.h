@@ -279,6 +279,7 @@ class LogSegment : public BaseSegment {
 
   void Close() {
     header_->status = StatusClosed;
+    close_time_ = NowMicros();
     // if (HasSpaceFor(sizeof(KVItem))) {
     //   KVItem *end = new (tail_) KVItem();
     //   end->Flush();
@@ -294,7 +295,6 @@ class LogSegment : public BaseSegment {
       shortcut_buffer_ = nullptr;
     }
 #endif
-    close_time_ = NowMicros();
     // header_->offset = get_offset();
     // header_->objects_tail_offset = get_offset();
     // header_->has_shortcut = has_shortcut_;
@@ -329,7 +329,6 @@ class LogSegment : public BaseSegment {
   // append kv to log
   ValueType Append(const Slice &key, const Slice &value,
                    uint32_t epoch) {
-    // printf("in append, %d\n", class_);
 #ifdef GC_EVAL
     struct timeval make_new_kv_start;
     struct timeval make_new_kv_end;
@@ -343,17 +342,12 @@ class LogSegment : public BaseSegment {
     KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
     if(class_ != 0)
     {
-      // if(sz != 52) printf("sz = %d\n", sz);
-      // if(cur_num > SEGMENT_SIZE_/52) printf("cur_num = %d\n", cur_num);
-      // printf("class_      = %d\n", class_);
-      // printf("cur_num     = %d\n", cur_num);
-      // printf("RB_map.size = %ld\n", roll_back_map.size());
       roll_back_map[cur_num].second = sz;
       num_kvs ++;
     }
     kv->Flush();
     tail_ += sz;
-    ++cur_cnt_;
+    // ++cur_cnt_;
 
 #ifdef GC_EVAL
     gettimeofday(&make_new_kv_end, NULL);
@@ -431,7 +425,6 @@ class LogSegment : public BaseSegment {
 #endif
 
   double GetGarbageProportion() {
-    printf("garbage bytes = %d\n", garbage_bytes_.load());
     return (double)(garbage_bytes_.load(std::memory_order_relaxed)) /
            get_offset();
   }

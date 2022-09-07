@@ -56,9 +56,9 @@ class HotKeySet {
 
  private:
   DB *db_;
-  std::unordered_set<uint64_t> *current_set_class1;
-  std::unordered_set<uint64_t> *current_set_class2;
-  std::unordered_set<uint64_t> *current_set_class3;
+  std::unordered_set<uint64_t> *current_set_class1 = nullptr;
+  std::unordered_set<uint64_t> *current_set_class2 = nullptr;
+  std::unordered_set<uint64_t> *current_set_class3 = nullptr;
   std::unique_ptr<UpdateKeyRecord[]> update_record_;
   std::thread update_hot_set_thread_;
   std::atomic_flag update_schedule_flag_{ATOMIC_FLAG_INIT};

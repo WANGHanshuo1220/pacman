@@ -175,6 +175,7 @@ void LogStructured::get_seg_usage_info()
     }
     else
     {
+      class_[j] += log_cleaners_[j]->get_closed_list_sz() * SEGMENT_SIZE[j];
       i = 0;
       j++;
     }
@@ -294,7 +295,6 @@ void LogStructured::SyncCleanerGarbageBytes(
 }
 
 LogSegment *LogStructured::GetSegment(int segment_id) {
-  // assert(segment_id < num_segments_ + 2 * num_cleaners_);
   assert(segment_id < num_segments_);
   return all_segments_[segment_id];
 }
@@ -334,7 +334,6 @@ int LogStructured::GetSegmentCleanerID(const char *addr) {
 
 void LogStructured::AddClosedSegment(LogSegment *segment, int class_) {
   // int cleaner_id = GetSegmentCleanerID(segment->get_segment_start());
-  assert(class_ >= 0 && class_ <= 3);
   log_cleaners_[class_]->AddClosedSegment(segment);
 }
 

@@ -132,7 +132,6 @@ struct TaggedPointer {
     addr = (uint64_t)ptr;
     if(class_ == 0)
     {
-      // printf("in Taggedpointer, %d\n", class_);
       size_or_num = sz <= 0xFFFF ? sz : 0;
     }
     else

@@ -107,17 +107,14 @@ class LogCleaner {
       ++log_->num_free_list_class[class_];
     }
 
-    printf("%dth(%d): closed_segment_ list size = %ld, %p\n", 
-      get_cleaner_id(), class_, closed_segments_.size(), closed_segments_.front());
     closed_segments_.clear();
     to_compact_segments_.clear();
     // printf("~LogCleaner %dth", get_cleaner_id());
   }
 
-  void show_closed_list_sz() 
+  uint64_t get_closed_list_sz() 
   { 
-    printf("%dth cleaner(%d): sz = %ld\n",
-      get_cleaner_id(), class_, closed_segments_.size()); 
+    return closed_segments_.size();
   }
 
   void StopThread() {

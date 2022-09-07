@@ -43,7 +43,6 @@ class LogStructured {
   LogSegment **get_class_segment_(int class_, int i) {return &class_segments_[class_][i]; } 
   void set_class_segment_(int class_, uint32_t i, LogSegment *s) 
   { 
-    // printf("%d, %d, %p\n", class_, i, s);
     class_segments_[class_][i] = s; 
   } 
   void start_GCThreads();
@@ -80,9 +79,9 @@ class LogStructured {
 
   std::vector<std::vector<LogSegment *>> class_segments_{num_class};
 
-  const float class0_prop = 0.4;
-  const float class1_prop = 0.2;
-  const float class2_prop = 0.2;
+  const float class0_prop = 0.7;
+  const float class1_prop = 0.1;
+  const float class2_prop = 0.1;
   const float class3_prop = 1. - class0_prop - class1_prop - class2_prop;
   const float class_prop[num_class] = {class0_prop, class1_prop, class2_prop, class3_prop};
   uint64_t new_count = 0;

@@ -70,8 +70,8 @@ DB::~DB() {
   // StopRBThread();
   // printf("roll_back_queue full times = %ld\n", roll_back_queue.get_full_times());
   // printf("roll_back_times = %ld, bytes = %ld byte (%ldKB, %ldMB)\n", 
-  //   roll_back_count, roll_back_bytes, 
-  //   roll_back_bytes/1024, roll_back_bytes/(1024*1024));
+    // roll_back_count, roll_back_bytes, 
+    // roll_back_bytes/1024, roll_back_bytes/(1024*1024));
 #endif
   delete log_;
   delete index_;
@@ -214,7 +214,7 @@ DB::Worker::~Worker() {
   }
   printf("\nlatency breakdown  = \t%ld us \t(%.2f s)\n", insert_time + update_index_time + check_hotcold_time,
       ((float)insert_time + update_index_time + check_hotcold_time)/1000000);
-  printf("max_kv_sz = %d\n", max_kv_sz);
+  // printf("max_kv_sz = %d\n", max_kv_sz);
   printf("  check_hotcold_time = \t%ld us   \t(%.2f s)\n",check_hotcold_time, (float)check_hotcold_time/1000000);
   printf("  insert time        = \t%ld us   \t(%.2f s)\n", insert_time, (float)insert_time/1000000);
   printf("    change_seg_time  = \t%ld us   \t(%.2f s)\n",change_seg_time, (float)change_seg_time/1000000);
@@ -273,7 +273,6 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
   gettimeofday(&check_hotcold_start, NULL);
 #endif
   int class_ = db_->hot_key_set_->Exist(key);
-  // printf("in put, class = %d\n", class_);
 #ifdef GC_EVAL
   struct timeval check_hotcold_end;
   gettimeofday(&check_hotcold_end, NULL);
@@ -452,7 +451,6 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 #else
 ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
                                  int class_) {
-  assert(class_ >= 0 && class_ <= num_class);
 #ifdef GC_EVAL
   struct timeval change_seg_start, change_seg_end, append_start, append_end;
   gettimeofday(&change_seg_start, NULL);
@@ -463,13 +461,8 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
   uint32_t epoch = db_->GetKeyEpoch(i_key);
 
   uint32_t sz = sizeof(KVItem) + key.size() + value.size();
-  LogSegment * segment = nullptr;
 
-  if(class_ == 0)
-  {
-    segment = log_head_class[class_];
-  }
-  else
+  if(class_ != 0)
   {
     accumulative_sz_class[class_] += sz;
     if(accumulative_sz_class[class_] > db_->get_threshold(class_))
@@ -480,8 +473,8 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
       class_seg_working_on[class_] = p.first;
       accumulative_sz_class[class_] = sz;
     }
-    segment = log_head_class[class_];
   }
+  LogSegment *&segment = log_head_class[class_];
 
 #ifdef GC_EVAL
   gettimeofday(&change_seg_end, NULL);
@@ -491,25 +484,20 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 #ifdef GC_EVAL
   gettimeofday(&append_start, NULL);
 #endif
-  while (segment == nullptr ||
-         (ret = segment->Append(key, value, epoch)) == INVALID_VALUE) {
+  while ((ret = segment->Append(key, value, epoch)) == INVALID_VALUE) {
     FreezeSegment(segment, class_);
     segment = db_->log_->NewSegment(class_);
 #ifdef GC_EVAL
     struct timeval s1, e1;
     gettimeofday(&s1, NULL);
 #endif
-  if(class_ == 0)
+  if(class_ != 0)
   {
-    log_head_class[class_] = segment;
-  }
-  else
-  {
+    std::lock_guard<SpinLock> guard(db_->class_segment_list_lock[class_]);
     accumulative_sz_class[class_] = sz;
-    log_head_class[class_] = segment;
-    // printf("%d, %d, %p\n", class_, class_seg_working_on[class_], segment);
     db_->log_->set_class_segment_(class_, class_seg_working_on[class_], segment);
   }
+  // log_head_class[class_] = segment;
 #ifdef GC_EVAL
     gettimeofday(&e1, NULL);
     set_seg_time += TIMEDIFF(s1, e1);
@@ -586,10 +574,11 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
     uint16_t num_ = tp.size_or_num;
     if(num_ == 0xFFFF)
     {
-      printf("num == 0xFFFF\n");
+      ERROR_EXIT("num == 0xFFFF\n");
       num_ = tp.GetKVItem()->num;
     }
 
+    assert(segment->roll_back_map[num_].first == false);
     segment->roll_back_map[num_].first = true;
     uint32_t sz = segment->roll_back_map[num_].second;
     // printf("from Woker::Markgarbage ");

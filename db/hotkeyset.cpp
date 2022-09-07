@@ -47,14 +47,17 @@ void HotKeySet::Record(const Slice &key, int worker_id, int class_) {
     }
     ++record.total_cnt;
     if (record.total_cnt == RECORD_BATCH_CNT) { // sampling rate
+      uint32_t total_hit = 0;
+      for(int i = 1; i < num_class; i++) total_hit += record.hit_cnt[i];
       // printf("hit ratio = %.1lf%%\n", 100. * record.hit_cnt / record.total_cnt);
-      if (record.hit_cnt[3] < RECORD_BATCH_CNT * 0.8 ||
-          record.hit_cnt[2] < RECORD_BATCH_CNT * 0.6 ||
-          record.hit_cnt[1] < RECORD_BATCH_CNT * 0.5 ) { /* means many keys that has been accessed 
-                                                      * frequently in a sampling period have not 
-                                                      * been add in to current_set_, so current_set
-                                                      * need to be updated. 
-                                                      */
+      if (     total_hit    < RECORD_BATCH_CNT  * 0.5
+          // record.hit_cnt[3] < record.hit_cnt[2] * 1.0 ||
+          // record.hit_cnt[2] < record.hit_cnt[1] * 1.0 
+         ) { /* means many keys that has been accessed 
+              * frequently in a sampling period have not 
+              * been add in to current_set_, so current_set
+              * need to be updated. 
+              */
         // LOG("hit ratio = %.1lf%%", 100. * record.hit_cnt / record.total_cnt);
         if (!update_schedule_flag_.test_and_set()) {
           BeginUpdateHotKeySet();
@@ -77,20 +80,24 @@ void HotKeySet::BeginUpdateHotKeySet() {
 
 int HotKeySet::Exist(const Slice &key) {
   uint64_t i_key = *(uint64_t *)key.data();
-  if(current_set_class1 && 
-     current_set_class1->find(i_key) != current_set_class1->end())
+  if(!current_set_class1)
   {
-    return 1;
+    return 0;
+  }
+  else if(current_set_class3 && 
+     current_set_class3->find(i_key) != current_set_class3->end())
+  {
+    return 3;
   }
   else if(current_set_class2 && 
           current_set_class2->find(i_key) != current_set_class2->end())
   {
     return 2;
   }
-  else if(current_set_class3 && 
-          current_set_class3->find(i_key) != current_set_class3->end())
+  else if(current_set_class1 && 
+          current_set_class1->find(i_key) != current_set_class1->end())
   {
-    return 3;
+    return 1;
   }
   else
   {
@@ -137,6 +144,18 @@ void HotKeySet::UpdateHotSet() {
       }
     }
   }
+  // printf("############################\n");
+
+  // std::priority_queue<RecordEntry, std::vector<RecordEntry>,
+  //                     std::greater<RecordEntry>>
+  //     topK_ = topK;
+  // for(int i = 0; i < topK_.size(); i ++)
+  // {
+  //   printf("%ld ", topK_.top().cnt);
+  //   topK_.pop();
+  //   if(i%50 == 0 && i != 0) printf("\n");
+  // }
+  // printf("\n############################\n");
 
   std::unordered_set<uint64_t> *old_set_class1 = current_set_class1;
   std::unordered_set<uint64_t> *old_set_class2 = current_set_class2;
@@ -146,22 +165,17 @@ void HotKeySet::UpdateHotSet() {
   std::unordered_set<uint64_t> *new_set_class3 = nullptr;
   int sz = topK.size();
   int a1, a2, a3;
-  a1 = topK.size()/3;
+  a3 = topK.size()/4;
   a2 = topK.size()/3;
-  a3 = topK.size() - a1 - a2;
+  a1 = topK.size() - a3 - a2;
   if (!topK.empty()) {
     if (max_cnt > 3 * topK.top().cnt) {
       new_set_class1 = new std::unordered_set<uint64_t>(a1);
       new_set_class2 = new std::unordered_set<uint64_t>(a2);
       new_set_class3 = new std::unordered_set<uint64_t>(a3);
-      new_set_class1->reserve(topK.size()/3);
-      new_set_class2->reserve(topK.size()/3);
-      new_set_class3->reserve(topK.size() 
-                      - new_set_class1->size() 
-                      - new_set_class2->size());
       for(int i = 0; !topK.empty(); i ++) {
-        if(i < sz/3) new_set_class1->insert(topK.top().key);
-        else if(i < sz * 2 / 3) new_set_class2->insert(topK.top().key);
+        if(i < a1) new_set_class1->insert(topK.top().key);
+        else if(i < a1 + a2) new_set_class2->insert(topK.top().key);
         else new_set_class3->insert(topK.top().key);
         topK.pop();
       }
@@ -179,7 +193,7 @@ void HotKeySet::UpdateHotSet() {
     // need_record_ is false, other threads cannot operate on records
     update_record_[i].records.clear();
     update_record_[i].records_list.clear();
-    for(int j = 0; j < 4; j++) update_record_[i].hit_cnt[j] = 0; 
+    for(int j = 0; j < num_class; j++) update_record_[i].hit_cnt[j] = 0; 
     update_record_[i].total_cnt = 0;
   }
   if (old_set_class1) {

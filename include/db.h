@@ -147,6 +147,7 @@ class DB {
     std::pair<uint32_t, LogSegment **> ret;
     ret.second = log_->get_class_segment_(class_, next_class_segment_[class_]);
     ret.first = next_class_segment_[class_];
+    if(!(*ret.second)->is_segment_touse()) printf("%d\n", (*ret.second)->get_status());
     assert((*ret.second)->is_segment_touse());
     (*ret.second)->set_using();
     assert((*ret.second)->is_segment_using());

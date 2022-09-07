@@ -413,7 +413,6 @@ void LogCleaner::DoMemoryClean() {
   }
   else
   {
-    printf("here: max_score = %lf\n", max_score);
     int i = 0;
     for (auto it = to_compact_segments_.begin();
          i < 50 && it != to_compact_segments_.end(); it++, i++) {
@@ -422,12 +421,7 @@ void LogCleaner::DoMemoryClean() {
       double cur_score = 1000. * cur_garbage_proportion /
                          (1 - cur_garbage_proportion) *
                          (cur_time - (*it)->get_close_time());
-      printf("here: cur_score = %lf, cur_GB_prop = %lf, time_gap = %ld, class_ = %d "
-             "tail_ = %p, end_ = %p, offset = %ld, seg_status = %d\n",
-        cur_score, cur_garbage_proportion, cur_time - (*it)->get_close_time(), (*it)->get_class(),
-        (*it)->get_tail(), (*it)->get_end(), (*it)->get_offset(), (*it)->get_status());
       if (cur_score > max_score) {
-        printf("cur_score = %lf, max_score = %lf\n", cur_score, max_score);
         // to record the segment with the most garbage proportion
         max_score = cur_score;
         max_garbage_proportion = cur_garbage_proportion;
@@ -440,8 +434,6 @@ void LogCleaner::DoMemoryClean() {
     segment = *gc_it;
     to_compact_segments_.erase(gc_it);
   } else {
-    printf("return class_ = %d, to_compact_list.sz = %ld\n",
-      class_, to_compact_segments_.size());
     return;
   }
 
@@ -491,6 +483,6 @@ void LogCleaner::MarkGarbage(ValueType tagged_val) {
 
     reserved_segment_->roll_back_map[num_].first = true;
     // printf("from LogCleaner::MarkGarbage ");
-    // reserved_segment_->add_garbage_bytes(reserved_segment_->roll_back_map[num_].second);
+    reserved_segment_->add_garbage_bytes(reserved_segment_->roll_back_map[num_].second);
   }
 }
