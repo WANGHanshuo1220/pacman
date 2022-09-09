@@ -17,7 +17,7 @@ static constexpr ValueType INVALID_VALUE = 0;
 
 static constexpr uint64_t num_class     = 4;
 static constexpr uint64_t SEGMENT_SIZE[num_class] = 
-    {1ul << 22, 1ul << 20, 1ul << 16, 1ul << 12};
+    {1ul << 22, 1ul << 20, 1ul << 18, 1ul << 16};
 
 // shortcut
 class __attribute__((__packed__)) Shortcut {

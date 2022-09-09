@@ -50,6 +50,15 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
     db_num_class_segs[i] = log_->get_num_class_segments_(i);
     change_seg_threshold_class[i] = SEGMENT_SIZE[i] / 2;
   }
+  next_class_segment_.resize(num_class);
+  for(int i = 0; i < num_class; i++)
+  {
+    next_class_segment_[i].resize(num_workers_);
+    for(int j = 0; j < num_workers_; j++)
+    {
+      next_class_segment_[i][j] = j;
+    }
+  }
   // roll_back_queue = new CircleQueue(2 * num_workers);
   // // roll_back_queue.init(2 * num_workers);
   // StartRBThread();
@@ -189,7 +198,7 @@ DB::Worker::Worker(DB *db) : db_(db) {
 
   for(int i = 1; i < num_class; i++)
   {
-    p = db_->get_class_segment(i);
+    p = db_->get_class_segment(i, worker_id_);
     log_head_class[i] = *p.second;
     class_seg_working_on[i] = p.first;
   }
@@ -240,10 +249,10 @@ DB::Worker::~Worker() {
   BatchIndexInsert(cold_buffer_queue_.size(), false);
 #endif
 #endif
+  db_->log_->SyncCleanerGarbageBytes(tmp_cleaner_garbage_bytes_);
   for(int i = 0; i < num_class; i++)
   {
-    if(log_head_class[i]) FreezeSegment(log_head_class[i], i);
-    log_head_class[i] = nullptr;
+    log_head_class[i]->set_touse();
   }
   db_->cur_num_workers_--;
 }
@@ -468,13 +477,13 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     if(accumulative_sz_class[class_] > db_->get_threshold(class_))
     {
       log_head_class[class_]->set_touse();
-      std::pair<uint32_t, LogSegment **> p = db_->get_class_segment(class_);
+      std::pair<uint32_t, LogSegment **> p = db_->get_class_segment(class_, worker_id_);
       log_head_class[class_] = *p.second;
       class_seg_working_on[class_] = p.first;
       accumulative_sz_class[class_] = sz;
     }
   }
-  LogSegment *&segment = log_head_class[class_];
+  LogSegment *segment = log_head_class[class_];
 
 #ifdef GC_EVAL
   gettimeofday(&change_seg_end, NULL);
@@ -493,11 +502,10 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 #endif
   if(class_ != 0)
   {
-    std::lock_guard<SpinLock> guard(db_->class_segment_list_lock[class_]);
     accumulative_sz_class[class_] = sz;
     db_->log_->set_class_segment_(class_, class_seg_working_on[class_], segment);
   }
-  // log_head_class[class_] = segment;
+  log_head_class[class_] = segment;
 #ifdef GC_EVAL
     gettimeofday(&e1, NULL);
     set_seg_time += TIMEDIFF(s1, e1);

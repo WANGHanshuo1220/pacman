@@ -139,10 +139,10 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
 
   printf("num_seg_class0 = %d, num_seg_class1 = %d (%ld), " 
          "num_seg_class2 = %d (%ld), num_seg_class3 = %d (%ld), "
-         "num_seg = %d, cleaners = %d\n",
+         "num_seg = %d\nworkers = %d, cleaners = %d\n",
         num_class_segments_[0], num_class_segments_[1], class_segments_[1].size(), 
         num_class_segments_[2], class_segments_[2].size(), num_class_segments_[3],
-        class_segments_[3].size(), num_segments_, num_cleaners_);
+        class_segments_[3].size(), num_segments_, num_workers_, num_cleaners_);
 
   for (int j = 0; j < num_cleaners_; j++) {
     // log_cleaners_[j]->show_closed_list_sz();

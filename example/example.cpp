@@ -30,7 +30,30 @@ struct timeval zipf_s, zipf_e;
 long zipf_time_cost = 0;
 uint64_t zipf();
 void init_zipf();
-
+int get_random();
+class Random {
+ private:
+  uint32_t seed_;
+ public:
+  explicit Random(uint32_t s) : seed_(s & 0x7fffffffu) {
+    if (seed_ == 0 || seed_ == 2147483647L) {
+      seed_ = 1;
+    }
+  }
+  uint32_t Next() {
+    static const uint32_t M = 2147483647L;  // 2^31-1
+    static const uint64_t A = 16807;        // bits 14, 8, 7, 5, 2, 1, 0
+    uint64_t product = seed_ * A;
+    seed_ = static_cast<uint32_t>((product >> 31) + (product & M));
+    if (seed_ > M) {
+      seed_ -= M;
+    }
+    return seed_;
+  }
+  uint32_t Uniform(int n) { return Next() % n; }
+  bool OneIn(int n) { return (Next() % n) == 0; }
+  uint32_t Skewed(int max_log) { return Uniform(1 << Uniform(max_log + 1)); }
+};
 uint64_t NUM_KVS = 200000000;
 uint64_t dup_rate = 10;
 
@@ -166,23 +189,49 @@ std::map<uint64_t, std::string> kvs;
 void *put_KVS(void *)
 {
   uint64_t key;
+  int op;
+  std::string value = "hello world 22-08-24";
   std::unique_ptr<DB::Worker> worker = db->GetWorker();
+  value.resize(32);
 
   for(uint64_t i = 0; i < NUM_KVS; i++)
   {
     key = zipf();
-    std::string value = "hello world 22-08-24";
+    op = get_random();
+    if(op < 50)
+    {
+      worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
+    }
+    else
+    {
+      std::string value;
+      bool found = worker->Get(Slice((const char *)&key, sizeof(KeyType)), &value);
+    }
+  }
+
+  worker.reset();
+}
+
+void *prefilling(void *)
+{
+  uint64_t key;
+  std::unique_ptr<DB::Worker> worker = db->GetWorker();
+  std::string value = "hello world 22-09-08";
+
+  for(uint64_t i = 0; i <  prefilling_rate * log_size / (52 * num_workers); i++)
+  {
+    key = zipf();
     value.resize(32);
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
   }
-
   worker.reset();
 }
 
 void job3()
 {
   num_cleaners = 2;
-  num_workers = 4;
+  num_workers = 6;
+  pthread_t *tid_prefilling = new pthread_t[num_workers];
   pthread_t *tid = new pthread_t[num_workers];
   int ret;
   long runtime = 0;
@@ -192,22 +241,24 @@ void job3()
   
   printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
 
-  uint64_t key;
-  std::unique_ptr<DB::Worker> worker = db->GetWorker();
-
   printf("prefilling\n");
-  for(uint64_t i = 0; i <  prefilling_rate * log_size / 52; i++)
+  for(int i = 0; i < num_workers; i++)
   {
-    key = zipf();
-    std::string value = "hello world 22-08-24";
-    value.resize(32);
-    worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
+    ret = pthread_create(&tid_prefilling[i], NULL, &prefilling, NULL); 
+    if(ret != 0)
+    {
+      printf("%dth thread create error\n", i);
+      exit(0);
+    }
   }
-  worker.reset();
+  for(int i = 0; i < num_workers; i++)
+  {
+    pthread_join(tid_prefilling[i], NULL);
+  }
   printf("prefilling done...\n");
 
-  gettimeofday(&start, NULL);
   // db->start_GCThreads();
+  gettimeofday(&start, NULL);
 
   for(int i = 0; i < num_workers; i++)
   {
@@ -307,7 +358,7 @@ int main(int argc, char **argv) {
     }
   }
   init_zipf();
-  for (int i = 0; i < 10; i++)
+  for (int i = 0; i < 5; i++)
   {  
     printf("----------------%d-----------------\n", i);
     (*jobs[atoi(arg)])();
@@ -366,3 +417,10 @@ uint64_t zipf()
   // zipf_time_cost += TIMEDIFF(zipf_s, zipf_e);
   return(zipf_value);
 }
+
+Random re((unsigned)time(NULL));
+int get_random()
+{
+  return re.Next()%100;
+}
+

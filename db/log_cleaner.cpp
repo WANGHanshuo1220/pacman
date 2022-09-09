@@ -21,9 +21,9 @@ void LogCleaner::CleanerEntry() {
 #endif
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning()) {
+      Timer timer(clean_time_ns_);
       GC_times.fetch_add(1, std::memory_order_relaxed);
       DoMemoryClean();
-      Timer timer(clean_time_ns_);
     } else {
       usleep(10);
     }
@@ -415,7 +415,7 @@ void LogCleaner::DoMemoryClean() {
   {
     int i = 0;
     for (auto it = to_compact_segments_.begin();
-         i < 50 && it != to_compact_segments_.end(); it++, i++) {
+         i < 100 && it != to_compact_segments_.end(); it++, i++) {
       assert(*it);
       double cur_garbage_proportion = (*it)->GetGarbageProportion();
       double cur_score = 1000. * cur_garbage_proportion /

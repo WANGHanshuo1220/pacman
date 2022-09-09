@@ -141,21 +141,36 @@ class DB {
   void enque_roll_back_queue(LogSegment * s) { roll_back_queue.CQ_enque(s); }
   LogSegment *deque_roll_back_queue() { return roll_back_queue.CQ_deque(); }
 
-  std::pair<uint32_t, LogSegment **> get_class_segment(int class_)
+  // std::pair<uint32_t, LogSegment **> get_class_segment(int class_)
+  // {
+  //   std::lock_guard<SpinLock> guard(class_segment_list_lock[class_]);
+  //   std::pair<uint32_t, LogSegment **> ret;
+  //   ret.second = log_->get_class_segment_(class_, next_class_segment_[class_]);
+  //   ret.first = next_class_segment_[class_];
+  //   if(!(*ret.second)->is_segment_touse()) printf("%d\n", (*ret.second)->get_status());
+  //   assert((*ret.second)->is_segment_touse());
+  //   (*ret.second)->set_using();
+  //   assert((*ret.second)->is_segment_using());
+  //   next_class_segment_[class_] ++;
+  //   assert(next_class_segment_[class_] <= db_num_class_segs[class_]);
+  //   if(next_class_segment_[class_] == db_num_class_segs[class_])
+  //   {
+  //     next_class_segment_[class_] = 0;
+  //   }
+  //   return ret;
+  // }
+
+  std::pair<uint32_t, LogSegment **> get_class_segment(int class_, int worker_id)
   {
-    std::lock_guard<SpinLock> guard(class_segment_list_lock[class_]);
     std::pair<uint32_t, LogSegment **> ret;
-    ret.second = log_->get_class_segment_(class_, next_class_segment_[class_]);
-    ret.first = next_class_segment_[class_];
-    if(!(*ret.second)->is_segment_touse()) printf("%d\n", (*ret.second)->get_status());
+    ret.second = log_->get_class_segment_(class_, next_class_segment_[class_][worker_id]);
+    ret.first = next_class_segment_[class_][worker_id];
     assert((*ret.second)->is_segment_touse());
     (*ret.second)->set_using();
-    assert((*ret.second)->is_segment_using());
-    next_class_segment_[class_] ++;
-    assert(next_class_segment_[class_] <= db_num_class_segs[class_]);
-    if(next_class_segment_[class_] == db_num_class_segs[class_])
+    next_class_segment_[class_][worker_id] += num_workers_;
+    if(next_class_segment_[class_][worker_id] >= db_num_class_segs[class_])
     {
-      next_class_segment_[class_] = 0;
+      next_class_segment_[class_][worker_id] = worker_id;
     }
     return ret;
   }
@@ -178,7 +193,8 @@ class DB {
   std::atomic<int> cur_num_workers_{0};
   HotKeySet *hot_key_set_ = nullptr;
   ThreadStatus thread_status_;
-  std::atomic<int> next_class_segment_[num_class] = {0, 0, 0, 0};
+  // std::atomic<int> next_class_segment_[num_class] = {0, 0, 0, 0};
+  std::vector<std::vector<int>> next_class_segment_;
   uint64_t change_seg_threshold_class[num_class];
   SpinLock class_segment_list_lock[num_class];
   uint64_t db_num_class_segs[num_class] = {0};
