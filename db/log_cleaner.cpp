@@ -38,7 +38,7 @@ void LogCleaner::CleanerEntry_12() {
 #endif
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning_123()) {
-      // Timer timer(clean_time_ns_);
+      // Timer timer(clean_time_ns_)
       // GC_times.fetch_add(1, std::memory_order_relaxed);
       DoMemoryClean_12();
     } else {
