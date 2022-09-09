@@ -144,24 +144,18 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
         num_class_segments_[2], class_segments_[2].size(), num_class_segments_[3],
         class_segments_[3].size(), num_segments_, num_workers_, num_cleaners_);
 
-  for (int j = 0; j < num_cleaners_; j++) {
-    // log_cleaners_[j]->show_closed_list_sz();
-    log_cleaners_[j]->StartGCThread();
-  }
+  // for (int j = 0; j < num_cleaners_; j++) {
+  //   log_cleaners_[j]->StartGCThread();
+  // }
+  log_cleaners_[0]->StartGCThread0();
+  log_cleaners_[1]->StartGCThread12();
+  log_cleaners_[2]->StartGCThread12();
+  log_cleaners_[3]->StartGCThread3();
 
   if (num_cleaners_ == 0) {
     stop_flag_.store(true, std::memory_order_release);
   }
 }
-
-#ifdef INTERLEAVED
-  void LogStructured::start_GCThreads()
-  {
-    for (int j = 0; j < num_cleaners_; j++) {
-      log_cleaners_[j]->StartGCThread();
-    }
-  }
-#endif
 
 void LogStructured::get_seg_usage_info()
 {

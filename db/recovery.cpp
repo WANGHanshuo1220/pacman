@@ -171,7 +171,7 @@ void LogCleaner::RecoveryAll() {
 #endif
         if (le_helper.old_val != INVALID_VALUE) {
           // Mark other as garbage
-          MarkGarbage(le_helper.old_val);
+          // MarkGarbage(le_helper.old_val);
         }
         seg->cur_cnt_++;
         p += sz;

@@ -64,14 +64,6 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
   // StartRBThread();
 };
 
-#ifdef INTERLEAVED
-void DB::start_GCThreads()
-{
-  log_->start_GCThreads();
-  printf("start GC threads\n");
-}
-#endif
-
 DB::~DB() {
 #ifdef INTERLEAVED
   // printf("hot set size = %ld\n", hot_key_set_->get_set_sz());
@@ -589,16 +581,15 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
     assert(segment->roll_back_map[num_].first == false);
     segment->roll_back_map[num_].first = true;
     uint32_t sz = segment->roll_back_map[num_].second;
-    // printf("from Woker::Markgarbage ");
     segment->add_garbage_bytes(sz);
     tmp_cleaner_garbage_bytes_[class_] += sz;
 
     uint32_t n = segment->num_kvs;
-    if( n-1 == num_)
+    if( n-1 == num_ && segment->get_class() != 0)
     {
-      if( segment->get_class() != 0 &&
+      if( 
+          // segment->is_segment_touse() || segment->is_segment_closed()
           segment->is_segment_touse()
-          // (segment->is_segment_touse() || segment->is_segment_closed())
         )
       {
         uint32_t roll_back_sz = sz;

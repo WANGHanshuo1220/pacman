@@ -73,8 +73,8 @@ class LogCleaner {
   }
 
   ~LogCleaner() {
-    printf("%dth cleaner: GC_times = %d, clean_time_ns_ = %ldns (%.3f s)\n",
-      get_cleaner_id(), show_GC_times(), clean_time_ns_, (float)clean_time_ns_/1000000000);
+    // printf("%dth cleaner: GC_times = %d, clean_time_ns_ = %ldns (%.3f s)\n",
+      // get_cleaner_id(), show_GC_times(), clean_time_ns_, (float)clean_time_ns_/1000000000);
 #ifdef BATCH_COMPACTION
     delete volatile_segment_;
 #endif
@@ -123,9 +123,19 @@ class LogCleaner {
     }
   }
 
-  void StartGCThread() {
+  void StartGCThread0() {
     StopThread();
-    gc_thread_ = std::thread(&LogCleaner::CleanerEntry, this);
+    gc_thread_ = std::thread(&LogCleaner::CleanerEntry_0, this);
+  }
+  
+  void StartGCThread12() {
+    StopThread();
+    gc_thread_ = std::thread(&LogCleaner::CleanerEntry_12, this);
+  }
+
+  void StartGCThread3() {
+    StopThread();
+    gc_thread_ = std::thread(&LogCleaner::CleanerEntry_3, this);
   }
 
   void StartRecoverySegments() {
@@ -188,16 +198,23 @@ class LogCleaner {
   void LockUsedList() { list_lock_.lock(); }
   void UnlockUsedList() { list_lock_.unlock(); }
 
-  void CleanerEntry();
-  bool NeedCleaning();
+  void CleanerEntry_0();
+  void CleanerEntry_12();
+  void CleanerEntry_3();
+  bool NeedCleaning_0();
+  bool NeedCleaning_123();
+  void DoMemoryClean_0();
+  void DoMemoryClean_12();
+  void DoMemoryClean_3();
   void BatchFlush();
   void BatchIndexUpdate();
   void CopyValidItemToBuffer(LogSegment *segment);
   void BatchCompactSegment(LogSegment *segment);
-  void CompactSegment(LogSegment *segment);
+  void CompactSegment_0(LogSegment *segment);
+  void CompactSegment_123(LogSegment *segment);
   void FreezeReservedAndGetNew();
-  void MarkGarbage(ValueType tagged_val);
-  void DoMemoryClean();
+  void MarkGarbage_0(ValueType tagged_val);
+  void MarkGarbage_123(ValueType tagged_val);
 
   void RecoverySegments();
   void RecoveryInfo();

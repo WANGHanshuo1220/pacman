@@ -107,6 +107,8 @@ class BaseSegment {
 
   char *get_tail() { return tail_; }
 
+  char **get_tail_addr() { return &tail_; }
+
   char *get_end() { return end_; }
 
   bool HasShortcut() { return has_shortcut_; }

@@ -118,17 +118,6 @@ class DB {
   void RecoveryAll();
   void NewIndexForRecoveryTest();
 
-  void start_GCThreads();
-
-  void StopRBThread() {
-    for(int i = 0; i < 2; i++)
-    {
-      if (roll_back_thread_[i].joinable()) {
-        roll_back_thread_[i].join();
-      }
-    }
-  }
-
   // void StartRBThread() {
   //   StopRBThread();
   //   printf("start RB Thread1\n");
