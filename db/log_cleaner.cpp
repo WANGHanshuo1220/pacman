@@ -394,39 +394,19 @@ void LogCleaner::DoMemoryClean() {
   double max_garbage_proportion = 0.;
   std::list<LogSegment *>::iterator gc_it = to_compact_segments_.end();
   uint64_t cur_time = NowMicros();
-  if(class_ != 3)
-  {
-    for (auto it = to_compact_segments_.begin();
-         it != to_compact_segments_.end(); it++) {
-      assert(*it);
-      double cur_garbage_proportion = (*it)->GetGarbageProportion();
-      double cur_score = 1000. * cur_garbage_proportion /
-                         (1 - cur_garbage_proportion) *
-                         (cur_time - (*it)->get_close_time());
-      if (cur_score > max_score) {
-        // to record the segment with the most garbage proportion
-        max_score = cur_score;
-        max_garbage_proportion = cur_garbage_proportion;
-        gc_it = it;
-      }
-    }
-  }
-  else
-  {
-    int i = 0;
-    for (auto it = to_compact_segments_.begin();
-         i < 100 && it != to_compact_segments_.end(); it++, i++) {
-      assert(*it);
-      double cur_garbage_proportion = (*it)->GetGarbageProportion();
-      double cur_score = 1000. * cur_garbage_proportion /
-                         (1 - cur_garbage_proportion) *
-                         (cur_time - (*it)->get_close_time());
-      if (cur_score > max_score) {
-        // to record the segment with the most garbage proportion
-        max_score = cur_score;
-        max_garbage_proportion = cur_garbage_proportion;
-        gc_it = it;
-      }
+  int i = 0;
+  for (auto it = to_compact_segments_.begin();
+       i < 100 && it != to_compact_segments_.end(); it++, i++) {
+    assert(*it);
+    double cur_garbage_proportion = (*it)->GetGarbageProportion();
+    double cur_score = 1000. * cur_garbage_proportion /
+                       (1 - cur_garbage_proportion) *
+                       (cur_time - (*it)->get_close_time());
+    if (cur_score > max_score) {
+      // to record the segment with the most garbage proportion
+      max_score = cur_score;
+      max_garbage_proportion = cur_garbage_proportion;
+      gc_it = it;
     }
   }
 
