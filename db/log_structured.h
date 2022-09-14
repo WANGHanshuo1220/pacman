@@ -85,9 +85,9 @@ class LogStructured {
 
   std::vector<std::vector<LogSegment *>> class_segments_{num_class};
 
-  const float class0_prop = 0.4;
+  const float class0_prop = 0.5;
   const float class1_prop = 0.25;
-  const float class2_prop = 0.2;
+  const float class2_prop = 0.15;
   const float class3_prop = 1. - class0_prop - class1_prop - class2_prop;
   const float class_prop[num_class] = {class0_prop, class1_prop, class2_prop, class3_prop};
   uint64_t new_count = 0;
@@ -96,7 +96,7 @@ class LogStructured {
   std::atomic<int> num_free_segments_{0};
   std::atomic<int> alloc_counter_{0};
   const int num_limit_free_segments_;
-  volatile int clean_threshold_ = 20;
+  volatile int clean_threshold_ = 10;
 
   volatile FreeStatus free_status_ = FS_Sufficient;
   std::atomic_flag FS_flag_{ATOMIC_FLAG_INIT};

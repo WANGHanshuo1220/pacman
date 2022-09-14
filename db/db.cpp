@@ -274,6 +274,7 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
   gettimeofday(&check_hotcold_start, NULL);
 #endif
   int class_ = db_->hot_key_set_->Exist(key);
+  // int class_ = 0;
 #ifdef GC_EVAL
   struct timeval check_hotcold_end;
   gettimeofday(&check_hotcold_end, NULL);

@@ -51,6 +51,17 @@ class LogCleaner {
   uint64_t clean_time_ns_ = 0;
   int clean_seg_count_before_ = 0;
   uint64_t clean_time_ns_before_ = 0;
+#ifdef GC_EVAL
+  uint64_t DoMemoryClean_time_ns_ = 0;
+  uint64_t DoMemoryClean_time1_ns_ = 0;
+  uint64_t DoMemoryClean_time2_ns_ = 0;
+  uint64_t DoMemoryClean_time3_ns_ = 0;
+  uint64_t CompactionSeg_time_ns_ = 0;
+  uint64_t CompactionSeg_time1_ns_ = 0;
+  uint64_t CompactionSeg_time1_1_ns_ = 0;
+  uint64_t CompactionSeg_time1_2_ns_ = 0;
+  uint64_t CompactionSeg_time2_ns_ = 0;
+#endif
 
   LogCleaner(DB *db, int cleaner_id, LogStructured *log,
              LogSegment *reserved_segment, int class__)
@@ -73,8 +84,32 @@ class LogCleaner {
   }
 
   ~LogCleaner() {
+#ifndef GC_EVAL
     printf("%dth cleaner: GC_times = %d, clean_time_ns_ = %ldns (%.3f s)\n",
       get_cleaner_id(), show_GC_times(), clean_time_ns_, (float)clean_time_ns_/1000000000);
+#else
+    printf("%dth cleaner: GC_times = %d\n", get_cleaner_id(), show_GC_times());
+    printf("  clean_time_ns_               = %ldns (%.3f s)\n", 
+      clean_time_ns_, (float)clean_time_ns_/1000000000);
+    printf("    DomemoryClean_times_ns_    = %ldns (%.3f s)\n", 
+      DoMemoryClean_time_ns_, (float)DoMemoryClean_time_ns_/1000000000);
+    printf("      DomemoryClean_times1_ns_ = %ldns (%.3f s)\n", 
+      DoMemoryClean_time1_ns_, (float)DoMemoryClean_time1_ns_/1000000000);
+    printf("      DomemoryClean_times2_ns_ = %ldns (%.3f s)\n", 
+      DoMemoryClean_time2_ns_, (float)DoMemoryClean_time2_ns_/1000000000);
+    printf("      DomemoryClean_times3_ns_ = %ldns (%.3f s)\n", 
+      DoMemoryClean_time3_ns_, (float)DoMemoryClean_time3_ns_/1000000000);
+    printf("      Compaction_times_ns_     = %ldns (%.3f s)\n", 
+      CompactionSeg_time_ns_, (float)CompactionSeg_time_ns_/1000000000);
+    printf("        Compaction_times1_ns_  = %ldns (%.3f s)\n", 
+      CompactionSeg_time1_ns_, (float)CompactionSeg_time1_ns_/1000000000);
+    printf("          Compaction_times1_1_ns_  = %ldns (%.3f s)\n", 
+      CompactionSeg_time1_1_ns_, (float)CompactionSeg_time1_1_ns_/1000000000);
+    printf("          Compaction_times1_2_ns_  = %ldns (%.3f s)\n", 
+      CompactionSeg_time1_2_ns_, (float)CompactionSeg_time1_2_ns_/1000000000);
+    printf("        Compaction_times2_ns_  = %ldns (%.3f s)\n", 
+      CompactionSeg_time2_ns_, (float)CompactionSeg_time2_ns_/1000000000);
+#endif
 #ifdef BATCH_COMPACTION
     delete volatile_segment_;
 #endif
@@ -109,7 +144,6 @@ class LogCleaner {
 
     closed_segments_.clear();
     to_compact_segments_.clear();
-    // printf("~LogCleaner %dth", get_cleaner_id());
   }
 
   uint64_t get_closed_list_sz() 
@@ -165,25 +199,12 @@ class LogCleaner {
   SpinLock list_lock_;
   const uint32_t class_;
 
-#ifdef INTERLEAVED
   uint64_t free_count = 0;
   uint64_t num_new = 0;
-#endif
 
-  bool IsGarbage(KVItem *kv, uint32_t num) {
-#ifdef WRITE_TOMBSTONE
-#ifdef REDUCE_PM_ACCESS
+  bool IsGarbage(KVItem *kv) {
     int log_id = log_->GetSegmentID(reinterpret_cast<char *>(kv));
     return log_->all_segments_[log_id]->IsGarbage(reinterpret_cast<char *>(kv));
-    // return log_->all_segments_[log_id]->roll_back_map[num].first;
-#else
-    // assert(kv->magic == 0xDEADBEAF);
-    return kv->is_garbage;
-#endif
-#else // not WRITE_TOMBSTONE
-    ValueType val = db_->index_->Get(kv->GetKey());
-    return TaggedPointer(val).GetAddr() != reinterpret_cast<char *>(kv);
-#endif
   }
   void LockUsedList() { list_lock_.lock(); }
   void UnlockUsedList() { list_lock_.unlock(); }
@@ -194,9 +215,11 @@ class LogCleaner {
   void BatchIndexUpdate();
   void CopyValidItemToBuffer(LogSegment *segment);
   void BatchCompactSegment(LogSegment *segment);
-  void CompactSegment(LogSegment *segment);
+  void CompactSegment0(LogSegment *segment);
+  void CompactSegment123(LogSegment *segment);
   void FreezeReservedAndGetNew();
-  void MarkGarbage(ValueType tagged_val);
+  void MarkGarbage0(ValueType tagged_val);
+  void MarkGarbage123(ValueType tagged_val);
   void DoMemoryClean();
 
   void RecoverySegments();

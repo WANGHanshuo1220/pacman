@@ -13,12 +13,10 @@
 
 #define TIMEDIFF(s, e) (e.tv_sec - s.tv_sec) * 1000000 + (e.tv_usec - s.tv_usec) //us
 
-// size_t log_size = 1ul << 30;
-// #define log_size 9 * SEGMENT_SIZE
 #define prefilling_rate 0.75
 uint64_t log_size = 1ul << 30;
-int num_workers = 1;
-int num_cleaners = 1;
+int num_workers = 0;
+int num_cleaners = 0;
 std::string db_path = std::string(PMEM_DIR) + "log_kvs";
 DB *db;
 std::random_device rd;  //Will be used to obtain a seed for the random number engine
@@ -54,8 +52,8 @@ class Random {
   bool OneIn(int n) { return (Next() % n) == 0; }
   uint32_t Skewed(int max_log) { return Uniform(1 << Uniform(max_log + 1)); }
 };
-uint64_t NUM_KVS = 200000000;
-uint64_t dup_rate = 10;
+uint64_t NUM_KVS = 0;
+uint64_t dup_rate = 0;
 
 double c = 0;          // Normalization constant
 double *sum_probs;     // Pre-calculated sum of probabilities
@@ -105,7 +103,7 @@ void job1()
 void job2()
 {
   printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
-  // std::map<uint64_t, std::string> kvs;
+  std::map<uint64_t, std::string> kvs;
   std::string val;
   std::string res;
   uint64_t key;
@@ -134,11 +132,12 @@ void job2()
     key = zipf();
     value = value + std::to_string(i%10);
     value.resize(32);
-    // kvs[key] = value;
-    gettimeofday(&start, NULL);
+    kvs[key] = value;
+    // gettimeofday(&start, NULL);
+    Timer time(insert_time);
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
-    gettimeofday(&checkpoint1, NULL);
-    insert_time += TIMEDIFF(start, checkpoint1);
+    // gettimeofday(&checkpoint1, NULL);
+    // insert_time += TIMEDIFF(start, checkpoint1);
   }
 
   // printf("\nstart checking...\n");
@@ -180,8 +179,9 @@ void job2()
   // printf("run time : \t(%ldus - %ldus) = %ld us \t(%ld s)\n", 
   //   insert_time, zipf_time_cost, insert_time - zipf_time_cost,
   //   (insert_time - zipf_time_cost)/1000000);
-  printf("run time : %ld us \t(%.2f s)\n", 
-    insert_time, (float)insert_time/1000000);
+  printf("%ld keys\n", kvs.size());
+  printf("run time : %ld ns \t(%.2f s)\n", 
+    insert_time, (float)insert_time/1000000000);
 }
 
 std::map<uint64_t, std::string> kvs;
@@ -258,8 +258,10 @@ void job3()
   printf("prefilling done...\n");
 
   // db->start_GCThreads();
-  gettimeofday(&start, NULL);
+  // gettimeofday(&start, NULL);
 
+  {
+  Timer time(runtime);
   for(int i = 0; i < num_workers; i++)
   {
     ret = pthread_create(&tid[i], NULL, &put_KVS, NULL); 
@@ -274,9 +276,9 @@ void job3()
   {
     pthread_join(tid[i], NULL);
   }
-
-  gettimeofday(&checkpoint1, NULL);
-  runtime = TIMEDIFF(start, checkpoint1);
+  }
+  // gettimeofday(&checkpoint1, NULL);
+  // runtime = TIMEDIFF(start, checkpoint1);
 
   // printf("\nstart checking...\n");
   // std::string val_;
@@ -313,7 +315,7 @@ void job3()
   // }
   // worker.reset();
   delete db;
-  printf("runtime = %ldus (%.2f s)\n", runtime, (float)runtime/1000000);
+  printf("runtime = %ldns (%.2f s)\n", runtime, (float)runtime/1000000000);
 }
 
 void (*jobs[])() = {job0, job1, job2, job3};

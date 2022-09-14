@@ -151,7 +151,6 @@ class LogSegment : public BaseSegment {
   void set_RB() { header_->status = StatusRB; }
   uint8_t  get_status() { return header_->status; }
   void set_status(uint8_t s) { header_->status = s; }
-  uint32_t roll_back_c = 0;
   std::mutex seg_lock;
   uint32_t num_kvs = 0;
   // vector for pairs <IsGarbage, kv_size>
@@ -161,7 +160,7 @@ class LogSegment : public BaseSegment {
 
   void init_RB_map()
   {
-    roll_back_map.resize(SEGMENT_SIZE_, std::pair<bool, uint32_t>(false, 0));
+    roll_back_map.resize(SEGMENT_SIZE_/32, std::pair<bool, uint32_t>(false, 0));
     clear_num_kvs();
   }
 

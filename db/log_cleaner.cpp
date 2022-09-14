@@ -21,8 +21,8 @@ void LogCleaner::CleanerEntry() {
 #endif
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning()) {
-      Timer timer(clean_time_ns_);
       GC_times.fetch_add(1, std::memory_order_relaxed);
+      Timer timer(clean_time_ns_);
       DoMemoryClean();
     } else {
       usleep(10);
@@ -179,7 +179,7 @@ void LogCleaner::CopyValidItemToBuffer(LogSegment *segment) {
       FreezeReservedAndGetNew();
       volatile_segment_->Clear();
     }
-    if (!IsGarbage(kv, num_old)) {
+    if (!IsGarbage(kv)) {
       // copy item to buffer
       char *cur = volatile_segment_->AllocOne(sz);
       memcpy(cur, kv, sz);
@@ -226,15 +226,16 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment) {
   ++clean_seg_count_;
 }
 
-
-// CompactSegment is used if not defined BATCH_COMPACTION
-void LogCleaner::CompactSegment(LogSegment *segment) {
-  // printf("in compaction, class_ = %d\n", segment->get_class());
-  // while(segment->is_segment_RB());
+void LogCleaner::CompactSegment0(LogSegment *segment) {
+  Timer time(CompactionSeg_time_ns_);
   char *p = segment->get_data_start();
   char *tail = segment->get_tail();
   std::vector<char *> flush_addr;
   bool is_garbage;
+  {
+#ifdef GC_EVAL  
+  Timer time1(CompactionSeg_time1_ns_);
+#endif
 #ifdef GC_SHORTCUT
   bool has_shortcut = segment->HasShortcut();
   Shortcut *shortcuts = (Shortcut *)tail;
@@ -243,16 +244,17 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
   while (p < tail) {
     KVItem *kv = reinterpret_cast<KVItem *>(p);
     uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
+    Shortcut sc;
+    {
+#ifdef GC_EVAL
+    Timer time1_1(CompactionSeg_time1_1_ns_);
+#endif
     if (sz == sizeof(KVItem)) {
       break;
     }
-    // printf("  %uth kv_sz = %u\n", num_old, sz);
     if (!reserved_segment_->HasSpaceFor(sz)) {
-      // printf("  no space: tail_ = %p, end_ = %p, sz = %u\n",
-        // reserved_segment_->get_tail(), reserved_segment_->get_end(), sz);
       FreezeReservedAndGetNew();
     }
-    Shortcut sc;
 #ifdef GC_SHORTCUT
     if (has_shortcut) {
       sc = *shortcuts;
@@ -260,9 +262,13 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
     }
 #endif
     TIMER_START_LOGGING(check_liveness_time_);
-    if(class_ == 0) is_garbage = IsGarbage(kv, num_old);
-    else is_garbage = segment->roll_back_map[num_old].first;
+    is_garbage = IsGarbage(kv);
     TIMER_STOP_LOGGING(check_liveness_time_);
+    }
+    {
+#ifdef GC_EVAL  
+    Timer time1_2(CompactionSeg_time1_2_ns_);
+#endif
     if (!is_garbage) {
 #ifdef LOG_BATCHING
       // batch persist the log as workers, update index in batch
@@ -295,7 +301,151 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
 //       reserved_segment_->AddShortcut(le_helper.shortcut);
 // #endif
       if (le_helper.old_val == val) {
-        MarkGarbage(val);
+        MarkGarbage0(val);
+        COUNTER_ADD_LOGGING(garbage_move_count_, 1);
+      }
+#if defined(BATCH_FLUSH_INDEX_ENTRY) && defined(IDX_PERSISTENT)
+      else {
+        // if (le_helper.index_entry == nullptr) {
+        //   ERROR_EXIT("index_entry is null, is this a bug in FastFair ?");
+        // }
+        if (le_helper.index_entry != nullptr) {
+          flush_addr.push_back(le_helper.index_entry);
+          if (flush_addr.size() >= 32) {
+            for (int i = 0; i < flush_addr.size(); i++) {
+              pmem_clflushopt(flush_addr[i]);
+            }
+            sfence();
+            flush_addr.clear();
+          }
+        }
+      }
+#endif
+      COUNTER_ADD_LOGGING(move_count_, 1);
+      COUNTER_ADD_LOGGING(fast_path_, le_helper.fast_path);
+#endif  // end of #IF LOG_BATCHING
+    }
+    }
+    p += sz;
+#ifdef INTERLEAVED
+    num_old ++;
+#endif
+  }
+  }
+
+  {
+#ifdef GC_EVAL  
+  Timer time(CompactionSeg_time2_ns_);
+#endif
+#ifdef LOG_BATCHING
+  TIMER_START_LOGGING(copy_time_);
+  reserved_segment_->FlushRemain();
+  TIMER_STOP_LOGGING(copy_time_);
+  BatchIndexUpdate();
+#else
+#if defined(BATCH_FLUSH_INDEX_ENTRY) && defined(IDX_PERSISTENT)
+  for (int i = 0; i < flush_addr.size(); i++) {
+    pmem_clflushopt(flush_addr[i]);
+  }
+  sfence();
+  flush_addr.clear();
+#endif
+#endif
+  // wait for a grace period
+  db_->thread_status_.rcu_barrier();
+
+  ++clean_seg_count_;
+  segment->Clear();
+  if (backup_segment_ == nullptr) {
+    backup_segment_ = segment;
+    backup_segment_->set_reserved();
+  } else {
+    std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_]);
+    log_->free_segments_class[class_].push(segment);
+    ++log_->num_free_list_class[class_];
+  }
+  }
+}
+
+// CompactSegment is used if not defined BATCH_COMPACTION
+void LogCleaner::CompactSegment123(LogSegment *segment) {
+#ifdef GC_EVAL
+  Timer time(CompactionSeg_time_ns_);
+#endif
+  char *p = segment->get_data_start();
+  char *tail = segment->get_tail();
+  std::vector<char *> flush_addr;
+  bool is_garbage;
+  {
+#ifdef GC_EVAL
+  Timer time1(CompactionSeg_time1_ns_);
+#endif
+#ifdef GC_SHORTCUT
+  bool has_shortcut = segment->HasShortcut();
+  Shortcut *shortcuts = (Shortcut *)tail;
+#endif
+  uint32_t num_old = 0;
+  while (p < tail) {
+    KVItem *kv = reinterpret_cast<KVItem *>(p);
+    uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
+    Shortcut sc;
+    {
+#ifdef GC_EVAL
+    Timer time1_1(CompactionSeg_time1_1_ns_);
+#endif
+    if (sz == sizeof(KVItem)) {
+      break;
+    }
+    if (!reserved_segment_->HasSpaceFor(sz)) {
+      FreezeReservedAndGetNew();
+    }
+#ifdef GC_SHORTCUT
+    if (has_shortcut) {
+      sc = *shortcuts;
+      shortcuts++;
+    }
+#endif
+    TIMER_START_LOGGING(check_liveness_time_);
+    is_garbage = segment->roll_back_map[num_old].first;
+    TIMER_STOP_LOGGING(check_liveness_time_);
+    }
+    {
+#ifdef GC_EVAL
+    Timer time1_2(CompactionSeg_time1_2_ns_);
+#endif
+    if (!is_garbage) {
+#ifdef LOG_BATCHING
+      // batch persist the log as workers, update index in batch
+      int persist_cnt = 0;  // ignore, batch update all
+      TIMER_START_LOGGING(copy_time_);
+      ValueType new_val = reserved_segment_->AppendBatchFlush(
+          kv->GetKey(), kv->GetValue(), kv->epoch, &persist_cnt);
+      TIMER_STOP_LOGGING(copy_time_);
+      Slice key_slice = TaggedPointer(new_val).GetKVItem()->GetKey();
+#ifdef INTERLEAVED
+      valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz, num_new++),
+                                new_val, sz, sc);
+#else
+      valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz),
+                                new_val, sz, sc);
+#endif
+#else // not LOG_BATCHING
+      Slice key = kv->GetKey();
+      Slice data = kv->GetValue();
+      TIMER_START_LOGGING(copy_time_);
+      ValueType val = reserved_segment_->Append(key, data, kv->epoch);
+      TIMER_STOP_LOGGING(copy_time_);
+      LogEntryHelper le_helper(val);
+      le_helper.old_val = TaggedPointer(p, sz, num_old, class_);
+      le_helper.shortcut = sc;
+      TIMER_START_LOGGING(update_index_time_);
+      db_->index_->GCMove(key, le_helper);
+      TIMER_STOP_LOGGING(update_index_time_);
+// #ifdef GC_SHORTCUT
+//       reserved_segment_->AddShortcut(le_helper.shortcut);
+// #endif
+      if (le_helper.old_val == val) {
+        MarkGarbage123(val);
         COUNTER_ADD_LOGGING(garbage_move_count_, 1);
       }
 #if defined(BATCH_FLUSH_INDEX_ENTRY) && defined(IDX_PERSISTENT)
@@ -321,14 +471,20 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
     }
     else
     {
-      if(class_ != 0) segment->roll_back_map[num_old].first = false;
+      segment->roll_back_map[num_old].first = false;
+    }
     }
     p += sz;
 #ifdef INTERLEAVED
     num_old ++;
 #endif
   }
+  }
 
+  {
+#ifdef GC_EVAL
+  Timer time(CompactionSeg_time2_ns_);
+#endif
 #ifdef LOG_BATCHING
   TIMER_START_LOGGING(copy_time_);
   reserved_segment_->FlushRemain();
@@ -349,16 +505,14 @@ void LogCleaner::CompactSegment(LogSegment *segment) {
   ++clean_seg_count_;
   segment->Clear();
   if (backup_segment_ == nullptr) {
-    // printf("  backup\n");
     backup_segment_ = segment;
     backup_segment_->set_reserved();
   } else {
-    // printf("  add to free list\n");
     std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_]);
     log_->free_segments_class[class_].push(segment);
     ++log_->num_free_list_class[class_];
   }
-  // printf("compaction done...\n");
+  }
 }
 
 void LogCleaner::FreezeReservedAndGetNew() {
@@ -382,21 +536,36 @@ void LogCleaner::FreezeReservedAndGetNew() {
 }
 
 void LogCleaner::DoMemoryClean() {
-  // printf("in domemoryclean, class_ = %d\n", class_);
+#ifdef GC_EVAL
+  Timer time(DoMemoryClean_time_ns_);
+#endif
+
+  {
+#ifdef GC_EVAL 
+  Timer time1(DoMemoryClean_time1_ns_);
+#endif
   TIMER_START_LOGGING(pick_time_);
   LockUsedList();
   to_compact_segments_.splice(to_compact_segments_.end(),
                               closed_segments_);
   UnlockUsedList();
+  }
 
-  LogSegment *segment = nullptr;
-  double max_score = 0.;
-  double max_garbage_proportion = 0.;
-  std::list<LogSegment *>::iterator gc_it = to_compact_segments_.end();
-  uint64_t cur_time = NowMicros();
+    LogSegment *segment = nullptr;
+    double max_score = 0.;
+    double max_garbage_proportion = 0.;
+    std::list<LogSegment *>::iterator gc_it = to_compact_segments_.end();
+    uint64_t cur_time = NowMicros();
   int i = 0;
+
+  // time1.~Timer();
+  {
+#ifdef GC_EVAL 
+  Timer time2(DoMemoryClean_time2_ns_);
+#endif
+  
   for (auto it = to_compact_segments_.begin();
-       i < 100 && it != to_compact_segments_.end(); it++, i++) {
+       i < 200 && it != to_compact_segments_.end(); it++, i++) {
     assert(*it);
     double cur_garbage_proportion = (*it)->GetGarbageProportion();
     double cur_score = 1000. * cur_garbage_proportion /
@@ -409,11 +578,14 @@ void LogCleaner::DoMemoryClean() {
       gc_it = it;
     }
   }
+  }
+  // time2.~Timer();
 
   if(gc_it != to_compact_segments_.end()) {
     segment = *gc_it;
     to_compact_segments_.erase(gc_it);
   } else {
+    printf("return\n");
     return;
   }
 
@@ -432,37 +604,43 @@ void LogCleaner::DoMemoryClean() {
 #ifdef BATCH_COMPACTION
   BatchCompactSegment(segment);
 #else
-  CompactSegment(segment);
+  {
+#ifdef GC_EVAL 
+  Timer time3(DoMemoryClean_time3_ns_);
+#endif
+  if(class_ == 0) CompactSegment0(segment);
+  else CompactSegment123(segment);
+  }
 #endif
 }
 
-void LogCleaner::MarkGarbage(ValueType tagged_val) {
+void LogCleaner::MarkGarbage0(ValueType tagged_val) {
   TaggedPointer tp(tagged_val);
 
   int class_ = reserved_segment_->get_class();
 
-  if(class_ == 0)
-  {
-    uint32_t sz = tp.size_or_num;
-    if (sz == 0) {
-      ERROR_EXIT("size == 0");
-      KVItem *kv = tp.GetKVItem();
-      sz = sizeof(KVItem) + kv->key_size + kv->val_size;
-    }
-    reserved_segment_->MarkGarbage(tp.GetAddr(), sz);
-    tmp_cleaner_garbage_bytes_[class_] += sz;
+  uint32_t sz = tp.size_or_num;
+  if (sz == 0) {
+    ERROR_EXIT("size == 0");
+    KVItem *kv = tp.GetKVItem();
+    sz = sizeof(KVItem) + kv->key_size + kv->val_size;
   }
-  else
-  {
-    uint16_t num_ = tp.size_or_num;
-    if(num_ == 0xFFFF)
-    {
-      printf("num == 0xFFFF\n");
-      num_ = tp.GetKVItem()->num;
-    }
+  reserved_segment_->MarkGarbage(tp.GetAddr(), sz);
+  tmp_cleaner_garbage_bytes_[class_] += sz;
+}
 
-    reserved_segment_->roll_back_map[num_].first = true;
-    // printf("from LogCleaner::MarkGarbage ");
-    reserved_segment_->add_garbage_bytes(reserved_segment_->roll_back_map[num_].second);
+void LogCleaner::MarkGarbage123(ValueType tagged_val) {
+  TaggedPointer tp(tagged_val);
+
+  int class_ = reserved_segment_->get_class();
+
+  uint16_t num_ = tp.size_or_num;
+  if(num_ == 0xFFFF)
+  {
+    printf("num == 0xFFFF\n");
+    num_ = tp.GetKVItem()->num;
   }
+
+  reserved_segment_->roll_back_map[num_].first = true;
+  reserved_segment_->add_garbage_bytes(reserved_segment_->roll_back_map[num_].second);
 }
