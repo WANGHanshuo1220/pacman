@@ -234,7 +234,7 @@ void job3()
   pthread_t *tid_prefilling = new pthread_t[num_workers];
   pthread_t *tid = new pthread_t[num_workers];
   int ret;
-  long runtime = 0;
+  uint64_t runtime = 0;
 
   db = new DB(db_path, log_size, num_workers, num_cleaners);
   // db->start_GCThreads();

@@ -227,7 +227,9 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment) {
 }
 
 void LogCleaner::CompactSegment0(LogSegment *segment) {
+#ifdef GC_EVAL
   Timer time(CompactionSeg_time_ns_);
+#endif
   char *p = segment->get_data_start();
   char *tail = segment->get_tail();
   std::vector<char *> flush_addr;

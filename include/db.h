@@ -169,6 +169,7 @@ class DB {
   LogStructured *get_log_() { return log_; }
 #endif
   uint32_t get_threshold(int class_) { return change_seg_threshold_class[class_]; }
+  std::atomic<uint32_t> put_c[4] = {0, 0, 0, 0};
 
  private:
   std::queue<LogSegment *> roll_back_list;
