@@ -78,6 +78,8 @@ void job0()
 
 void job1()
 {
+  num_workers = 1;
+  num_cleaners = 1;
   db = new DB(db_path, log_size, num_workers, num_cleaners);
   std::unique_ptr<DB::Worker> worker = db->GetWorker();
   printf("NUM_KVS = %ld, key dup_rate = %ld\n", NUM_KVS, dup_rate);
@@ -102,6 +104,8 @@ void job1()
 
 void job2()
 {
+  num_workers = 1;
+  num_cleaners = 1;
   printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
   std::map<uint64_t, std::string> kvs;
   std::string val;
