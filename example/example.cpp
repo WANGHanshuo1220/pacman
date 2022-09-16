@@ -137,11 +137,11 @@ void job2()
     value = value + std::to_string(i%10);
     value.resize(32);
     kvs[key] = value;
-    // gettimeofday(&start, NULL);
-    Timer time(insert_time);
+    gettimeofday(&start, NULL);
+    // Timer time(insert_time);
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
-    // gettimeofday(&checkpoint1, NULL);
-    // insert_time += TIMEDIFF(start, checkpoint1);
+    gettimeofday(&checkpoint1, NULL);
+    insert_time += TIMEDIFF(start, checkpoint1);
   }
 
   // printf("\nstart checking...\n");
@@ -185,7 +185,7 @@ void job2()
   //   (insert_time - zipf_time_cost)/1000000);
   printf("%ld keys\n", kvs.size());
   printf("run time : %ld ns \t(%.2f s)\n", 
-    insert_time, (float)insert_time/1000000000);
+    insert_time, (float)insert_time/1000000);
 }
 
 std::map<uint64_t, std::string> kvs;
@@ -262,10 +262,8 @@ void job3()
   printf("prefilling done...\n");
 
   // db->start_GCThreads();
-  // gettimeofday(&start, NULL);
+  gettimeofday(&start, NULL);
 
-  {
-  Timer time(runtime);
   for(int i = 0; i < num_workers; i++)
   {
     ret = pthread_create(&tid[i], NULL, &put_KVS, NULL); 
@@ -280,9 +278,9 @@ void job3()
   {
     pthread_join(tid[i], NULL);
   }
-  }
-  // gettimeofday(&checkpoint1, NULL);
-  // runtime = TIMEDIFF(start, checkpoint1);
+
+  gettimeofday(&checkpoint1, NULL);
+  runtime = TIMEDIFF(start, checkpoint1);
 
   // printf("\nstart checking...\n");
   // std::string val_;
@@ -319,7 +317,7 @@ void job3()
   // }
   // worker.reset();
   delete db;
-  printf("runtime = %ldns (%.2f s)\n", runtime, (float)runtime/1000000000);
+  printf("runtime = %ldns (%.2f s)\n", runtime, (float)runtime/1000000);
 }
 
 void (*jobs[])() = {job0, job1, job2, job3};
