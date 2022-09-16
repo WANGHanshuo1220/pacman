@@ -11,7 +11,7 @@
 #include "config.h"
 #include "util/lock.h"
 
-static constexpr size_t HOT_NUM = 512 * 1024;
+static constexpr size_t HOT_NUM = 256 * 1024;
 static constexpr int RECORD_BATCH_CNT = 4096;
 static constexpr size_t RECORD_BUFFER_SIZE = 16 * 1024;
 
@@ -45,17 +45,13 @@ class HotKeySet {
   void Record(const Slice &key, int worker_id, int class_);
   void BeginUpdateHotKeySet();
   int Exist(const Slice &key);
-  uint64_t get_set_sz() 
-  { 
-    uint32_t re = 0;
-    if(current_set_class1)
-      re +=  (*current_set_class1).size(); 
-    if(current_set_class2)
-      re +=  (*current_set_class2).size(); 
-    if(current_set_class3)
-      re +=  (*current_set_class3).size(); 
-    return re;
-  }
+  // uint64_t get_set_sz() 
+  // { 
+  //   if(current_set_)
+  //     return (*current_set_).size(); 
+  //   else
+  //     return 0;
+  // }
   uint64_t Record_c = 0;
 
  private:

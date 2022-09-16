@@ -165,8 +165,8 @@ void HotKeySet::UpdateHotSet() {
   std::unordered_set<uint64_t> *new_set_class3 = nullptr;
   int sz = topK.size();
   int a1, a2, a3;
-  a3 = topK.size()/20;
-  a2 = topK.size()*0.4;
+  a3 = topK.size()/15;
+  a2 = topK.size()/3;
   a1 = topK.size() - a3 - a2;
   if (!topK.empty()) {
     if (max_cnt > 3 * topK.top().cnt) {
