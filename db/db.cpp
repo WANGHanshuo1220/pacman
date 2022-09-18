@@ -74,9 +74,9 @@ DB::~DB() {
   // stop_flag_RB.store(true, std::memory_order_release);
   // StopRBThread();
   // printf("roll_back_queue full times = %ld\n", roll_back_queue.get_full_times());
-  // printf("roll_back_times = %ld, bytes = %ld byte (%ldKB, %ldMB)\n", 
-    // roll_back_count, roll_back_bytes, 
-    // roll_back_bytes/1024, roll_back_bytes/(1024*1024));
+  printf("roll_back_times = %ld, bytes = %ld byte (%ldKB, %ldMB)\n", 
+    roll_back_count, roll_back_bytes, 
+    roll_back_bytes/1024, roll_back_bytes/(1024*1024));
 #endif
   delete log_;
   delete index_;
@@ -602,7 +602,7 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
         uint32_t RB_count = 1;
         segment->roll_back_map[n-1].first = false;
         // uint8_t status;
-        // db_->roll_back_count++;
+        db_->roll_back_count++;
         for(int i = n - 2; i >= 0; i--)
         {
           if(segment->roll_back_map[i].first == true)
@@ -615,7 +615,7 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
             break;
           }
         }
-        // db_->roll_back_bytes += roll_back_sz;
+        db_->roll_back_bytes += roll_back_sz;
         segment->RB_num_kvs(RB_count);
         segment->roll_back_tail(roll_back_sz);
         segment->reduce_garbage_bytes(roll_back_sz);
