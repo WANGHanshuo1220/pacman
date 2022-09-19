@@ -65,10 +65,10 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
 };
 
 DB::~DB() {
-  // for(int i = 0; i < num_class; i++)
-  // {
-  //   printf("%dth class put_c = %u\n", i, put_c[i].load());
-  // }
+  for(int i = 0; i < num_class; i++)
+  {
+    printf("%dth class put_c = %u\n", i, put_c[i].load());
+  }
 #ifdef INTERLEAVED
   // printf("hot set size = %ld\n", hot_key_set_->get_set_sz());
   // stop_flag_RB.store(true, std::memory_order_release);
@@ -278,7 +278,7 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
   gettimeofday(&check_hotcold_start, NULL);
 #endif
   int class_ = db_->hot_key_set_->Exist(key);
-  // db_->put_c[class_].fetch_add(1);
+  db_->put_c[class_].fetch_add(1);
   // int class_ = 0;
 #ifdef GC_EVAL
   struct timeval check_hotcold_end;
