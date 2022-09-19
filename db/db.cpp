@@ -586,36 +586,30 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
 
     uint32_t sz = segment->roll_back_map[num_].kv_sz * kv_align;
     uint32_t n = segment->num_kvs;
-    if( n-1 == num_ )
+    if( n-1 == num_ && segment->is_segment_touse())
     {
-      if( 
-          // segment->is_segment_touse() || segment->is_segment_closed()
-          segment->is_segment_touse()
-        )
+      uint32_t roll_back_sz = sz;
+      uint32_t RB_count = 1;
+      // segment->roll_back_map[n-1].is_garbage = 0;
+      // uint8_t status;
+      db_->roll_back_count.fetch_add(1);
+      for(int i = n - 2; i >= 0; i--)
       {
-        uint32_t roll_back_sz = sz;
-        uint32_t RB_count = 1;
-        // segment->roll_back_map[n-1].is_garbage = 0;
-        // uint8_t status;
-        db_->roll_back_count.fetch_add(1);
-        for(int i = n - 2; i >= 0; i--)
+        if(segment->roll_back_map[i].is_garbage == 1)
         {
-          if(segment->roll_back_map[i].is_garbage == 1)
-          {
-            segment->roll_back_map[i].is_garbage = 0;
-            roll_back_sz += (segment->roll_back_map[i].kv_sz * kv_align);
-            RB_count ++;
-          }
-          else{
-            break;
-          }
+          segment->roll_back_map[i].is_garbage = 0;
+          roll_back_sz += (segment->roll_back_map[i].kv_sz * kv_align);
+          RB_count ++;
         }
-        db_->roll_back_bytes.fetch_add(roll_back_sz);
-        segment->RB_num_kvs(RB_count);
-        segment->roll_back_tail(roll_back_sz);
-        segment->reduce_garbage_bytes(roll_back_sz-sz);
-        tmp_cleaner_garbage_bytes_[class_] -= (roll_back_sz-sz);
+        else{
+          break;
+        }
       }
+      db_->roll_back_bytes.fetch_add(roll_back_sz);
+      segment->RB_num_kvs(RB_count);
+      segment->roll_back_tail(roll_back_sz);
+      segment->reduce_garbage_bytes(roll_back_sz-sz);
+      tmp_cleaner_garbage_bytes_[class_] -= (roll_back_sz-sz);
     }
     else
     {
