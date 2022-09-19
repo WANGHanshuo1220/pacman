@@ -377,7 +377,7 @@ void LogCleaner::CompactSegment123(LogSegment *segment) {
   char *p = segment->get_data_start();
   char *tail = segment->get_tail();
   std::vector<char *> flush_addr;
-  bool is_garbage;
+  uint16_t is_garbage;
   {
 #ifdef GC_EVAL
   Timer time1(CompactionSeg_time1_ns_);
@@ -408,7 +408,7 @@ void LogCleaner::CompactSegment123(LogSegment *segment) {
     }
 #endif
     TIMER_START_LOGGING(check_liveness_time_);
-    is_garbage = segment->roll_back_map[num_old].first;
+    is_garbage = segment->roll_back_map[num_old].is_garbage;
     TIMER_STOP_LOGGING(check_liveness_time_);
     }
     {
@@ -473,7 +473,7 @@ void LogCleaner::CompactSegment123(LogSegment *segment) {
     }
     else
     {
-      segment->roll_back_map[num_old].first = false;
+      segment->roll_back_map[num_old].is_garbage = 0;
     }
     }
     p += sz;
@@ -634,8 +634,6 @@ void LogCleaner::MarkGarbage0(ValueType tagged_val) {
 void LogCleaner::MarkGarbage123(ValueType tagged_val) {
   TaggedPointer tp(tagged_val);
 
-  int class_ = reserved_segment_->get_class();
-
   uint16_t num_ = tp.size_or_num;
   if(num_ == 0xFFFF)
   {
@@ -643,6 +641,6 @@ void LogCleaner::MarkGarbage123(ValueType tagged_val) {
     num_ = tp.GetKVItem()->num;
   }
 
-  reserved_segment_->roll_back_map[num_].first = true;
-  reserved_segment_->add_garbage_bytes(reserved_segment_->roll_back_map[num_].second);
+  reserved_segment_->roll_back_map[num_].is_garbage = 1;
+  reserved_segment_->add_garbage_bytes(reserved_segment_->roll_back_map[num_].kv_sz);
 }

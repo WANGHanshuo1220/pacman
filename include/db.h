@@ -188,8 +188,8 @@ class DB {
   uint64_t change_seg_threshold_class[num_class];
   SpinLock class_segment_list_lock[num_class];
   uint64_t db_num_class_segs[num_class] = {0};
-  long roll_back_count = 0;
-  uint64_t roll_back_bytes = 0;
+  std::atomic<uint64_t> roll_back_count = 0;
+  std::atomic<uint64_t> roll_back_bytes = 0;
 
   static constexpr int EPOCH_MAP_SIZE = 1024;
   std::array<std::atomic_uint_fast32_t, EPOCH_MAP_SIZE> epoch_map_{};

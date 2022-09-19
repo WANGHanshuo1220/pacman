@@ -154,13 +154,13 @@ class LogSegment : public BaseSegment {
   std::mutex seg_lock;
   uint32_t num_kvs = 0;
   // vector for pairs <IsGarbage, kv_size>
-  std::vector<std::pair<bool, uint32_t>> roll_back_map;
+  std::vector<record_info> roll_back_map;
   //  = std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE/32);
   // std::vector<std::pair<bool, uint16_t>> roll_back_map{SEGMENT_SIZE/32, std::pair<bool, uint16_t>(false, 0)};
 
   void init_RB_map()
   {
-    roll_back_map.resize(SEGMENT_SIZE_/32, std::pair<bool, uint32_t>(false, 0));
+    roll_back_map.resize(SEGMENT_SIZE_/48);
     clear_num_kvs();
   }
 
@@ -343,7 +343,7 @@ class LogSegment : public BaseSegment {
     KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
     if(class_ != 0)
     {
-      roll_back_map[cur_num].second = sz;
+      roll_back_map[cur_num].kv_sz = (uint16_t)(sz/kv_align);
       num_kvs ++;
     }
     kv->Flush();

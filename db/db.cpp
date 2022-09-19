@@ -65,18 +65,18 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
 };
 
 DB::~DB() {
-  for(int i = 0; i < num_class; i++)
-  {
-    printf("%dth class put_c = %u\n", i, put_c[i].load());
-  }
+  // for(int i = 0; i < num_class; i++)
+  // {
+  //   printf("%dth class put_c = %u\n", i, put_c[i].load());
+  // }
 #ifdef INTERLEAVED
   // printf("hot set size = %ld\n", hot_key_set_->get_set_sz());
   // stop_flag_RB.store(true, std::memory_order_release);
   // StopRBThread();
   // printf("roll_back_queue full times = %ld\n", roll_back_queue.get_full_times());
-  printf("roll_back_times = %ld, bytes = %ld byte (%ldKB, %ldMB)\n", 
-    roll_back_count, roll_back_bytes, 
-    roll_back_bytes/1024, roll_back_bytes/(1024*1024));
+  // printf("roll_back_times = %ld, bytes = %ld byte (%ldKB, %ldMB)\n", 
+    // roll_back_count.load(), roll_back_bytes.load(), 
+    // roll_back_bytes.load()/1024, roll_back_bytes.load()/(1024*1024));
 #endif
   delete log_;
   delete index_;
@@ -134,54 +134,54 @@ void DB::NewIndexForRecoveryTest() {
 #endif
 }
 
-#ifdef INTERLEAVED
-void DB::roll_back_()
-{
-  LogSegment *segment = nullptr;
-  uint32_t roll_back_sz;
-  uint32_t roll_back_count;
-  uint32_t n;
-  int i;
-  uint8_t status;
-  while (!stop_flag_RB.load(std::memory_order_relaxed))
-  {
-    segment = deque_roll_back_queue();
-    if(segment != nullptr)
-    {
-      {
-        std::lock_guard<std::mutex> lock(segment->seg_lock);
-        if(!segment->is_segment_cleaning() && !segment->is_segment_reserved())
-        {
-          status = segment->get_status();
-          segment->set_RB();
-          roll_back_sz = 0;
-          roll_back_count = 0;
-          n = segment->get_num_kvs();
-          // segment->roll_back_c ++;
-          roll_back_count ++;
-          for(i = n - 1; i >= 0; i--)
-          {
-            if(segment->roll_back_map[i].first == true)
-            {
-              roll_back_sz += segment->roll_back_map[i].second;
-              roll_back_count ++;
-            }
-            else{
-              break;
-            }
-          }
+// #ifdef INTERLEAVED
+// void DB::roll_back_()
+// {
+//   LogSegment *segment = nullptr;
+//   uint32_t roll_back_sz;
+//   uint32_t roll_back_count;
+//   uint32_t n;
+//   int i;
+//   uint8_t status;
+//   while (!stop_flag_RB.load(std::memory_order_relaxed))
+//   {
+//     segment = deque_roll_back_queue();
+//     if(segment != nullptr)
+//     {
+//       {
+//         std::lock_guard<std::mutex> lock(segment->seg_lock);
+//         if(!segment->is_segment_cleaning() && !segment->is_segment_reserved())
+//         {
+//           status = segment->get_status();
+//           segment->set_RB();
+//           roll_back_sz = 0;
+//           roll_back_count = 0;
+//           n = segment->get_num_kvs();
+//           // segment->roll_back_c ++;
+//           roll_back_count ++;
+//           for(i = n - 1; i >= 0; i--)
+//           {
+//             if(segment->roll_back_map[i].first == true)
+//             {
+//               roll_back_sz += segment->roll_back_map[i].second;
+//               roll_back_count ++;
+//             }
+//             else{
+//               break;
+//             }
+//           }
 
-          roll_back_bytes += roll_back_sz;
-          segment->RB_num_kvs(roll_back_count);
-          segment->roll_back_tail(roll_back_sz);
-          segment->update_Bitmap();
-          segment->set_status(status);
-        }
-      }
-    }
-  }
-}
-#endif
+//           roll_back_bytes += roll_back_sz;
+//           segment->RB_num_kvs(roll_back_count);
+//           segment->roll_back_tail(roll_back_sz);
+//           segment->update_Bitmap();
+//           segment->set_status(status);
+//         }
+//       }
+//     }
+//   }
+// }
+// #endif
 
 // class DB::Worker
 
@@ -278,7 +278,7 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
   gettimeofday(&check_hotcold_start, NULL);
 #endif
   int class_ = db_->hot_key_set_->Exist(key);
-  db_->put_c[class_].fetch_add(1);
+  // db_->put_c[class_].fetch_add(1);
   // int class_ = 0;
 #ifdef GC_EVAL
   struct timeval check_hotcold_end;
@@ -584,43 +584,45 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
       num_ = tp.GetKVItem()->num;
     }
 
-    assert(segment->roll_back_map[num_].first == false);
-    segment->roll_back_map[num_].first = true;
-    uint32_t sz = segment->roll_back_map[num_].second;
-    segment->add_garbage_bytes(sz);
-    tmp_cleaner_garbage_bytes_[class_] += sz;
 
     uint32_t n = segment->num_kvs;
-    if( n-1 == num_ && segment->get_class() != 0)
+    if( n-1 == num_ )
     {
       if( 
           // segment->is_segment_touse() || segment->is_segment_closed()
           segment->is_segment_touse()
         )
       {
-        uint32_t roll_back_sz = sz;
+        uint32_t roll_back_sz = 0;
         uint32_t RB_count = 1;
-        segment->roll_back_map[n-1].first = false;
+        segment->roll_back_map[n-1].is_garbage = 0;
         // uint8_t status;
-        db_->roll_back_count++;
+        // db_->roll_back_count.fetch_add(1);
         for(int i = n - 2; i >= 0; i--)
         {
-          if(segment->roll_back_map[i].first == true)
+          if(segment->roll_back_map[i].is_garbage == 1)
           {
-            segment->roll_back_map[i].first = false;
-            roll_back_sz += segment->roll_back_map[i].second;
+            segment->roll_back_map[i].is_garbage = 0;
+            roll_back_sz += (segment->roll_back_map[i].kv_sz * kv_align);
             RB_count ++;
           }
           else{
             break;
           }
         }
-        db_->roll_back_bytes += roll_back_sz;
+        // db_->roll_back_bytes.fetch_add(roll_back_sz);
         segment->RB_num_kvs(RB_count);
         segment->roll_back_tail(roll_back_sz);
         segment->reduce_garbage_bytes(roll_back_sz);
         tmp_cleaner_garbage_bytes_[class_] -= roll_back_sz;
       }
+    }
+    else
+    {
+      segment->roll_back_map[num_].is_garbage = 1;
+      uint32_t sz = segment->roll_back_map[num_].kv_sz * kv_align;
+      segment->add_garbage_bytes(sz);
+      tmp_cleaner_garbage_bytes_[class_] += sz;
     }
   }
 }

@@ -16,6 +16,7 @@ using ValueType = uint64_t;
 static constexpr ValueType INVALID_VALUE = 0;
 
 static constexpr uint64_t num_class     = 4;
+static constexpr uint64_t kv_align      = 4;
 static constexpr uint64_t SEGMENT_SIZE[num_class] = 
     {4ul << 20, 1ul << 20, 1ul << 18, 1ul << 16};
 
@@ -53,7 +54,7 @@ static_assert(sizeof(Shortcut) == 6);
 
 
 // KVItem: log entry
-struct KVItem {
+struct alignas(kv_align) KVItem {
   uint16_t key_size;
   uint16_t val_size;
   // uint32_t checksum = 0;
@@ -183,3 +184,18 @@ struct ValidItem {
   //   return shortcut < other.shortcut;
   // }
 };
+
+
+struct record_info
+{
+  union
+  {
+    uint16_t data = 0;
+    struct
+    {
+      uint16_t kv_sz      : 15;
+      uint16_t is_garbage : 1;
+    };
+  };
+};
+

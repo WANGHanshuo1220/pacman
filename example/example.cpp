@@ -398,7 +398,7 @@ uint64_t zipf()
   {
     z = distrib(gen);
   }
-  while ((z == 0) || (z == 1));
+  while ((z < 0.00000001) || (z > 0.99999999));
 
   // Map z to the value
   low = 1, high = dup_rate, mid;
