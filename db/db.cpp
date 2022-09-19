@@ -74,9 +74,9 @@ DB::~DB() {
   // stop_flag_RB.store(true, std::memory_order_release);
   // StopRBThread();
   // printf("roll_back_queue full times = %ld\n", roll_back_queue.get_full_times());
-  // printf("roll_back_times = %ld, bytes = %ld byte (%ldKB, %ldMB)\n", 
-    // roll_back_count.load(), roll_back_bytes.load(), 
-    // roll_back_bytes.load()/1024, roll_back_bytes.load()/(1024*1024));
+  printf("roll_back_times = %ld, bytes = %ld byte (%ldKB, %ldMB)\n", 
+    roll_back_count.load(), roll_back_bytes.load(), 
+    roll_back_bytes.load()/1024, roll_back_bytes.load()/(1024*1024));
 #endif
   delete log_;
   delete index_;
@@ -584,7 +584,7 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
       num_ = tp.GetKVItem()->num;
     }
 
-
+    uint32_t sz = segment->roll_back_map[num_].kv_sz * kv_align;
     uint32_t n = segment->num_kvs;
     if( n-1 == num_ )
     {
@@ -593,11 +593,11 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
           segment->is_segment_touse()
         )
       {
-        uint32_t roll_back_sz = 0;
+        uint32_t roll_back_sz = sz;
         uint32_t RB_count = 1;
-        segment->roll_back_map[n-1].is_garbage = 0;
+        // segment->roll_back_map[n-1].is_garbage = 0;
         // uint8_t status;
-        // db_->roll_back_count.fetch_add(1);
+        db_->roll_back_count.fetch_add(1);
         for(int i = n - 2; i >= 0; i--)
         {
           if(segment->roll_back_map[i].is_garbage == 1)
@@ -610,17 +610,16 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
             break;
           }
         }
-        // db_->roll_back_bytes.fetch_add(roll_back_sz);
+        db_->roll_back_bytes.fetch_add(roll_back_sz);
         segment->RB_num_kvs(RB_count);
         segment->roll_back_tail(roll_back_sz);
-        segment->reduce_garbage_bytes(roll_back_sz);
-        tmp_cleaner_garbage_bytes_[class_] -= roll_back_sz;
+        segment->reduce_garbage_bytes(roll_back_sz-sz);
+        tmp_cleaner_garbage_bytes_[class_] -= (roll_back_sz-sz);
       }
     }
     else
     {
       segment->roll_back_map[num_].is_garbage = 1;
-      uint32_t sz = segment->roll_back_map[num_].kv_sz * kv_align;
       segment->add_garbage_bytes(sz);
       tmp_cleaner_garbage_bytes_[class_] += sz;
     }
