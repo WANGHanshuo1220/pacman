@@ -36,9 +36,9 @@ bool LogCleaner::NeedCleaning() {
   double threshold = (double)log_->clean_threshold_ / 100;
 
   Free = (uint64_t)log_->num_free_list_class[class_] * SEGMENT_SIZE[class_];
-  Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
   if(class_ == 0) 
   {
+    Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
     Total = (log_->num_class_segments_[class_] - 1) * SEGMENT_SIZE[class_];
     threshold = std::min(threshold, (double)Available / Total / 2);
   }

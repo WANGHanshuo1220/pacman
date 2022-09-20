@@ -65,18 +65,18 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
 };
 
 DB::~DB() {
-  for(int i = 0; i < num_class; i++)
-  {
-    printf("%dth class put_c = %u\n", i, put_c[i].load());
-  }
+  // for(int i = 0; i < num_class; i++)
+  // {
+    // printf("%dth class put_c = %u\n", i, put_c[i].load());
+  // }
 #ifdef INTERLEAVED
   // printf("hot set size = %ld\n", hot_key_set_->get_set_sz());
   // stop_flag_RB.store(true, std::memory_order_release);
   // StopRBThread();
   // printf("roll_back_queue full times = %ld\n", roll_back_queue.get_full_times());
-  printf("roll_back_times = %ld, bytes = %ld byte (%ldKB, %ldMB)\n", 
-    roll_back_count.load(), roll_back_bytes.load(), 
-    roll_back_bytes.load()/1024, roll_back_bytes.load()/(1024*1024));
+  // printf("roll_back_times = %ld, bytes = %ld byte (%ldKB, %ldMB)\n", 
+    // roll_back_count.load(), roll_back_bytes.load(), 
+    // roll_back_bytes.load()/1024, roll_back_bytes.load()/(1024*1024));
 #endif
   delete log_;
   delete index_;
@@ -278,7 +278,7 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
   gettimeofday(&check_hotcold_start, NULL);
 #endif
   int class_ = db_->hot_key_set_->Exist(key);
-  db_->put_c[class_].fetch_add(1);
+  // db_->put_c[class_].fetch_add(1);
   // int class_ = 0;
 #ifdef GC_EVAL
   struct timeval check_hotcold_end;
@@ -592,7 +592,7 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
       uint32_t RB_count = 1;
       // segment->roll_back_map[n-1].is_garbage = 0;
       // uint8_t status;
-      db_->roll_back_count.fetch_add(1);
+      // db_->roll_back_count.fetch_add(1);
       for(int i = n - 2; i >= 0; i--)
       {
         if(segment->roll_back_map[i].is_garbage == 1)
@@ -605,22 +605,22 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
           break;
         }
       }
-      db_->roll_back_bytes.fetch_add(roll_back_sz);
+      // db_->roll_back_bytes.fetch_add(roll_back_sz);
       segment->RB_num_kvs(RB_count);
       segment->roll_back_tail(roll_back_sz);
       segment->reduce_garbage_bytes(roll_back_sz-sz);
-      tmp_cleaner_garbage_bytes_[class_] -= (roll_back_sz-sz);
+      // tmp_cleaner_garbage_bytes_[class_] -= (roll_back_sz-sz);
     }
     else
     {
       segment->roll_back_map[num_].is_garbage = 1;
       segment->add_garbage_bytes(sz);
-      tmp_cleaner_garbage_bytes_[class_] += sz;
+      // tmp_cleaner_garbage_bytes_[class_] += sz;
     }
   }
 }
 
 void DB::Worker::FreezeSegment(LogSegment *segment, int class_) {
   db_->log_->FreezeSegment(segment, class_);
-  db_->log_->SyncCleanerGarbageBytes(tmp_cleaner_garbage_bytes_);
+  if(class_ == 0) db_->log_->SyncCleanerGarbageBytes(tmp_cleaner_garbage_bytes_);
 }
