@@ -42,14 +42,6 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
 #ifdef HOT_COLD_SEPARATE
   hot_key_set_ = new HotKeySet(this);
 #endif
-  // init log-structured
-  log_ =
-      new LogStructured(db_path, log_size, this, num_workers_, num_cleaners_);
-  for(int i = 1; i < num_class; i ++) 
-  {
-    db_num_class_segs[i] = log_->get_num_class_segments_(i);
-    change_seg_threshold_class[i] = SEGMENT_SIZE[i] / 2;
-  }
   next_class_segment_.resize(num_class);
   for(int i = 0; i < num_class; i++)
   {
@@ -59,6 +51,9 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
       next_class_segment_[i][j] = j;
     }
   }
+  // init log-structured
+  log_ =
+      new LogStructured(db_path, log_size, this, num_workers_, num_cleaners_);
   // roll_back_queue = new CircleQueue(2 * num_workers);
   // // roll_back_queue.init(2 * num_workers);
   // StartRBThread();
@@ -279,7 +274,7 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
 #endif
   int class_ = db_->hot_key_set_->Exist(key);
   // db_->put_c[class_].fetch_add(1);
-  // int class_ = 0;
+  // int class_ = 3;
 #ifdef GC_EVAL
   struct timeval check_hotcold_end;
   gettimeofday(&check_hotcold_end, NULL);

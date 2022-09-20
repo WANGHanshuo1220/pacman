@@ -160,6 +160,7 @@ class DB {
     if(next_class_segment_[class_][worker_id] >= db_num_class_segs[class_])
     {
       next_class_segment_[class_][worker_id] = worker_id;
+      if(class_ == 3) mark[worker_id] = true;
     }
     return ret;
   }
@@ -170,6 +171,14 @@ class DB {
 #endif
   uint32_t get_threshold(int class_) { return change_seg_threshold_class[class_]; }
   std::atomic<uint32_t> put_c[4] = {0, 0, 0, 0};
+  std::vector<int>* get_next_class3_segment()
+  {
+    return &next_class_segment_[num_class-1];
+  }
+
+  uint64_t change_seg_threshold_class[num_class];
+  uint64_t db_num_class_segs[num_class] = {0};
+  std::vector<bool> mark;
 
  private:
   std::queue<LogSegment *> roll_back_list;
@@ -185,9 +194,7 @@ class DB {
   ThreadStatus thread_status_;
   // std::atomic<int> next_class_segment_[num_class] = {0, 0, 0, 0};
   std::vector<std::vector<int>> next_class_segment_;
-  uint64_t change_seg_threshold_class[num_class];
   SpinLock class_segment_list_lock[num_class];
-  uint64_t db_num_class_segs[num_class] = {0};
   std::atomic<uint64_t> roll_back_count = 0;
   std::atomic<uint64_t> roll_back_bytes = 0;
 

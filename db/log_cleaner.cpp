@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <unistd.h>
 #include <libpmem.h>
+#include <set>
 #include "config.h"
 #include "log_cleaner.h"
 #if INDEX_TYPE == 3
@@ -13,6 +14,15 @@
   #define TEST_CPU_TIME 1 // 1 for cpu time, 0 for real time
 #endif
 
+typedef struct
+{
+  bool operator ()(const LogSegment *a, const LogSegment *b)
+  {
+    return a->get_offset() <= b->get_offset();
+  }
+}Compare_seg_offset;
+
+
 void LogCleaner::CleanerEntry() {
   // bind_core_on_numa(log_->num_workers_ + cleaner_id_);
 #if INDEX_TYPE == 3
@@ -21,12 +31,87 @@ void LogCleaner::CleanerEntry() {
 #endif
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning()) {
+Do_Cleaning:
       GC_times.fetch_add(1, std::memory_order_relaxed);
       Timer timer(clean_time_ns_);
       DoMemoryClean();
-    } else {
-      usleep(10);
     }
+    else 
+    {
+      std::vector<int> &next_class3_segment = 
+        *(db_->get_next_class3_segment());
+      int num_worker = next_class3_segment.size();
+      int range = num_worker / num_class;
+      int gap = 15, sort_range = 30;
+      bool has_help = false;
+
+      for(int worker_i = cleaner_id_ * range;
+          worker_i < (cleaner_id_+1) * range && worker_i < num_worker;
+          worker_i ++)
+      {
+        if(db_->mark[worker_i])
+        {
+          has_help = true;
+          help ++;
+          int seg_working_on = next_class3_segment[worker_i];
+          int sort_begin = seg_working_on + num_worker * gap;
+          if(sort_begin >= db_->db_num_class_segs[num_class-1])
+          {
+            sort_begin = 
+              (gap -
+              (db_->db_num_class_segs[num_class-1] - seg_working_on) / num_worker)* 
+              num_worker + worker_i;
+          }
+          assert(sort_begin < db_->db_num_class_segs[num_class-1]);
+          assert(sort_begin%num_worker == worker_i);
+          Sort_for_worker(worker_i, sort_range, sort_begin, num_worker);
+          if(NeedCleaning()) goto Do_Cleaning;
+        }
+      }
+      if(!has_help) usleep(10);
+    }
+  }
+}
+
+void LogCleaner::Sort_for_worker(int worker_i, int sort_range, 
+                                 int sort_begin, int num_worker)
+{
+  std::vector<LogSegment *> &class3_segemnts = 
+    *(log_->get_class3_segments());
+  std::multiset<LogSegment *, Compare_seg_offset> s;
+  int idx = sort_begin;
+
+  for(int i = 0; i < sort_range; i ++)
+  {
+    assert(idx%num_worker == worker_i);
+    assert(class3_segemnts[idx]->is_segment_touse());
+    s.insert(class3_segemnts[idx]);
+    assert(std::find(s.begin(), s.end(), class3_segemnts[idx]) != s.end());
+    idx += num_worker;
+    if(idx >= db_->db_num_class_segs[num_class-1]) idx = worker_i;
+  }
+
+  // printf("check sort re\n");
+  // for(auto it = s.begin(); it != s.end(); it++)
+  // {
+  //   printf("  %ld\n", (*it)->get_offset());
+  // }
+
+  // printf("org\n");
+  // for(int i = 0, j = sort_begin; i < sort_range; i++)
+  // {
+  //   printf("  %ld\n", class3_segemnts[j]->get_offset());
+  //   j += num_worker;
+  //   if(j >= db_->db_num_class_segs[num_class-1]) j = worker_i;
+  // }
+
+  idx = sort_begin;
+  for (auto it = s.begin(); it != s.end(); it++)
+  {
+    class3_segemnts[idx] = *it;
+    assert(class3_segemnts[idx]->is_segment_touse());
+    idx += num_worker;
+    if(idx >= db_->db_num_class_segs[num_class-1]) idx = worker_i;
   }
 }
 
@@ -553,11 +638,11 @@ void LogCleaner::DoMemoryClean() {
   UnlockUsedList();
   }
 
-    LogSegment *segment = nullptr;
-    double max_score = 0.;
-    double max_garbage_proportion = 0.;
-    std::list<LogSegment *>::iterator gc_it = to_compact_segments_.end();
-    uint64_t cur_time = NowMicros();
+  LogSegment *segment = nullptr;
+  double max_score = 0.;
+  double max_garbage_proportion = 0.;
+  std::list<LogSegment *>::iterator gc_it = to_compact_segments_.end();
+  uint64_t cur_time = NowMicros();
   int i = 0;
 
   // time1.~Timer();
@@ -587,7 +672,8 @@ void LogCleaner::DoMemoryClean() {
     segment = *gc_it;
     to_compact_segments_.erase(gc_it);
   } else {
-    printf("return\n");
+    printf("%d cleaner, to_compact_segments.sz = %ld, return\n",
+      cleaner_id_, to_compact_segments_.size());
     return;
   }
 

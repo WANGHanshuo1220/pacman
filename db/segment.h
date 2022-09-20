@@ -99,7 +99,11 @@ class BaseSegment {
     }
   }
 
-  uint64_t get_offset() { return tail_ - data_start_; }
+  uint64_t get_offset() const
+  {
+    assert(tail_ >= data_start_); 
+    return tail_ - data_start_; 
+  }
 
   char *get_segment_start() { return segment_start_; }
 
@@ -484,7 +488,7 @@ class LogSegment : public BaseSegment {
     assert(garbage_bytes_ >= 0);
   }
   int get_class() { return class_; }
-
+  
  private:
   uint64_t close_time_;
   uint64_t seg_id = 0;

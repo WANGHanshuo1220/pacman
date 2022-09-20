@@ -15,6 +15,7 @@ class LogCleaner {
 // #ifdef GC_EVAL
   std::atomic<int> GC_times = 0;
   std::atomic<long> GC_timecost = 0; // us
+  std::atomic<int> help = 0;
   int get_cleaner_id() { return cleaner_id_; }
   int show_GC_times() 
   { 
@@ -85,8 +86,8 @@ class LogCleaner {
 
   ~LogCleaner() {
 #ifndef GC_EVAL
-    printf("%dth cleaner: GC_times = %d, clean_time_ns_ = %ldns (%.3f s)\n",
-      get_cleaner_id(), show_GC_times(), clean_time_ns_, (float)clean_time_ns_/1000000000);
+    printf("%dth cleaner(%d): GC_times = %d, clean_time_ns_ = %ldns (%.3f s)\n",
+      get_cleaner_id(), help.load(), show_GC_times(), clean_time_ns_, (float)clean_time_ns_/1000000000);
 #else
     printf("%dth cleaner: GC_times = %d\n", get_cleaner_id(), show_GC_times());
     printf("  clean_time_ns_               = %ldns (%.3f s)\n", 
@@ -221,6 +222,8 @@ class LogCleaner {
   void MarkGarbage0(ValueType tagged_val);
   void MarkGarbage123(ValueType tagged_val);
   void DoMemoryClean();
+  void Sort_for_worker(int worker_i, int sort_range,
+                       int sort_begin, int num_worker);
 
   void RecoverySegments();
   void RecoveryInfo();
