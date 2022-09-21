@@ -31,7 +31,7 @@ void LogCleaner::CleanerEntry() {
 #endif
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning()) {
-Do_Cleaning:
+// Do_Cleaning:
       GC_times.fetch_add(1, std::memory_order_relaxed);
       Timer timer(clean_time_ns_);
       DoMemoryClean();
@@ -39,37 +39,42 @@ Do_Cleaning:
     else 
     {
       usleep(10);
-    //   std::vector<int> &next_class3_segment = 
-    //     *(db_->get_next_class3_segment());
-    //   int num_worker = next_class3_segment.size();
-    //   int range = num_worker / num_class;
-    //   int gap = 10, sort_range = 30;
-    //   bool has_help = false;
+      // if(cleaner_id_ != 3)
+      // {
+      // std::vector<int> &next_class3_segment = 
+      //   *(db_->get_next_class3_segment());
+      // int num_worker = next_class3_segment.size();
+      // assert(num_worker == db_->get_num_workers());
+      // int range = num_worker / num_class;
+      // int gap = 10, sort_range = 30;
+      // bool has_help = false;
 
-    //   for(int worker_i = cleaner_id_ * range;
-    //       worker_i < (cleaner_id_+1) * range && worker_i < num_worker;
-    //       worker_i ++)
-    //   {
-    //     if(db_->mark[worker_i])
-    //     {
-    //       has_help = true;
-    //       help ++;
-    //       int seg_working_on = next_class3_segment[worker_i];
-    //       int sort_begin = seg_working_on + num_worker * gap;
-    //       if(sort_begin >= db_->db_num_class_segs[num_class-1])
-    //       {
-    //         sort_begin = 
-    //           (gap -
-    //           (db_->db_num_class_segs[num_class-1] - seg_working_on) / num_worker)* 
-    //           num_worker + worker_i;
-    //       }
-    //       assert(sort_begin < db_->db_num_class_segs[num_class-1]);
-    //       assert(sort_begin%num_worker == worker_i);
-    //       Sort_for_worker(worker_i, sort_range, sort_begin, num_worker);
-    //       if(NeedCleaning()) goto Do_Cleaning;
-    //     }
-    //   }
-    //   if(!has_help) usleep(10);
+      // for(int worker_i = cleaner_id_ * range;
+      //     worker_i < (cleaner_id_+1) * range && worker_i < num_worker;
+      //     worker_i ++)
+      // {
+      //   assert(worker_i >= 0 && worker_i < db_->get_num_workers());
+      //   if(db_->mark[worker_i])
+      //   {
+      //     has_help = true;
+      //     help ++;
+      //     int seg_working_on = next_class3_segment[worker_i];
+      //     int sort_begin = seg_working_on + num_worker * gap;
+      //     if(sort_begin >= db_->db_num_class_segs[num_class-1])
+      //     {
+      //       sort_begin = 
+      //         (gap -
+      //         (db_->db_num_class_segs[num_class-1] - seg_working_on) / num_worker)* 
+      //         num_worker + worker_i;
+      //     }
+      //     assert(sort_begin < db_->db_num_class_segs[num_class-1]);
+      //     assert(sort_begin%num_worker == worker_i);
+      //     Sort_for_worker(worker_i, sort_range, sort_begin, num_worker);
+      //     if(NeedCleaning()) goto Do_Cleaning;
+      //   }
+      // }
+      // if(!has_help) usleep(10);
+      // }
     }
   }
 }
@@ -77,6 +82,7 @@ Do_Cleaning:
 void LogCleaner::Sort_for_worker(int worker_i, int sort_range, 
                                  int sort_begin, int num_worker)
 {
+  assert(num_worker == db_->get_num_workers());
   std::vector<LogSegment *> &class3_segemnts = 
     *(log_->get_class3_segments());
   std::multiset<LogSegment *, Compare_seg_offset> s;
@@ -108,6 +114,7 @@ void LogCleaner::Sort_for_worker(int worker_i, int sort_range,
   // }
   // printf("\n");
 
+  assert(s.size() == sort_range);
   idx = sort_begin;
   for (auto it = s.begin(); it != s.end(); it++)
   {

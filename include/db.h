@@ -179,6 +179,7 @@ class DB {
   uint64_t change_seg_threshold_class[num_class];
   uint64_t db_num_class_segs[num_class] = {0};
   std::vector<bool> mark;
+  int get_num_workers() { return num_workers_; }
 
  private:
   std::queue<LogSegment *> roll_back_list;
