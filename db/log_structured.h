@@ -39,14 +39,14 @@ class LogStructured {
   void RecoveryInfo(DB *db);
   void RecoveryAll(DB *db);
 
-  uint64_t get_num_class_segments_(int class_) { return class_segments_[class_].size(); }
+  size_t get_num_class_segments_(int class_) { return class_segments_[class_].size(); }
   LogSegment **get_class_segment_(int class_, int i) 
   {
     assert(class_ > 0 && class_ <=3);
     assert(class_segments_[class_][i]->is_segment_touse());
     return &class_segments_[class_][i];
   }
-  void set_class_segment_(int class_, uint32_t i, LogSegment *s) 
+  void set_class_segment_(uint32_t class_, uint32_t i, LogSegment *s) 
   { 
     assert(s->is_segment_using());
     class_segments_[class_][i] = s; 
@@ -73,18 +73,16 @@ class LogStructured {
   char *class_pool_start_[num_class];
   const size_t total_log_size_;
   int num_segments_ = 0;
-  // SpinLock reserved_list_lock_;
   std::atomic<bool> stop_flag_{false};
   // const int max_reserved_segments_;
   SpinLock class_list_lock_[num_class];
 
   int num_class_segments_[num_class];
 
-  std::atomic<int> num_free_list_class[num_class] = {0, 0, 0, 0};
-
   std::vector<LogSegment *> all_segments_;
   std::vector<LogCleaner *> log_cleaners_;
 
+  std::atomic<int> num_free_list_class[num_class] = {0, 0, 0, 0};
   std::vector<std::queue<LogSegment *>> free_segments_class{num_class};
 
   std::vector<std::vector<LogSegment *>> class_segments_{num_class};
@@ -94,13 +92,11 @@ class LogStructured {
   const float class2_prop = 0.15;
   const float class3_prop = 1. - class0_prop - class1_prop - class2_prop;
   const float class_prop[num_class] = {class0_prop, class1_prop, class2_prop, class3_prop};
-  uint64_t new_count = 0;
-  // std::queue<LogSegment *> reserved_segments_;
 
   std::atomic<int> num_free_segments_{0};
   std::atomic<int> alloc_counter_{0};
   const int num_limit_free_segments_;
-  volatile int clean_threshold_ = 10;
+  volatile int clean_threshold_[num_class] = {10, 10, 10, 10};
 
   volatile FreeStatus free_status_ = FS_Sufficient;
   std::atomic_flag FS_flag_{ATOMIC_FLAG_INIT};
@@ -108,10 +104,6 @@ class LogStructured {
   std::atomic<int> recovery_counter_{0};
   std::mutex rec_mu_;
   std::condition_variable rec_cv_;
-
-  // interleaved_GC
-  int cur_segment;
-  int get_cur_segment() { return cur_segment; }
 
   // statistics
 #ifdef LOGGING
@@ -122,9 +114,7 @@ class LogStructured {
   uint64_t start_clean_statistics_time_ = 0;
 
   void AddClosedSegment(LogSegment *segment, int class_);
-  // void LockFreeList() { free_list_lock_.lock(); }
-  // void UnlockFreeList() { free_list_lock_.unlock(); }
-  void UpdateCleanThreshold();
+  void UpdateCleanThreshold(int class_);
 
 
   // LogSegment *NewReservedSegment() {

@@ -10,6 +10,7 @@
 #include "slice.h"
 #include "config.h"
 #include "util/lock.h"
+#include "db_common.h"
 
 static constexpr size_t HOT_NUM = 256 * 1024;
 static constexpr int RECORD_BATCH_CNT = 4096;
@@ -45,20 +46,18 @@ class HotKeySet {
   void Record(const Slice &key, int worker_id, int class_);
   void BeginUpdateHotKeySet();
   int Exist(const Slice &key);
-  // uint64_t get_set_sz() 
-  // { 
-  //   if(current_set_)
-  //     return (*current_set_).size(); 
-  //   else
-  //     return 0;
-  // }
+  uint64_t get_set_sz(int class_) 
+  { 
+    if(current_set_class[class_])
+      return (*current_set_class[class_]).size(); 
+    else
+      return 0;
+  }
   uint64_t Record_c = 0;
 
  private:
   DB *db_;
-  std::unordered_set<uint64_t> *current_set_class1 = nullptr;
-  std::unordered_set<uint64_t> *current_set_class2 = nullptr;
-  std::unordered_set<uint64_t> *current_set_class3 = nullptr;
+  std::unordered_set<uint64_t> *current_set_class[num_class-1] = {nullptr};
   std::unique_ptr<UpdateKeyRecord[]> update_record_;
   std::thread update_hot_set_thread_;
   std::atomic_flag update_schedule_flag_{ATOMIC_FLAG_INIT};

@@ -14,7 +14,6 @@
 #include "util/thread_status.h"
 #include "util/index_arena.h"
 #include "../db/log_structured.h"
-#include "../db/CircleQueue.h"
 
 // index operations
 class Index {
@@ -61,8 +60,6 @@ class DB {
     long get_kv_num = 0;
     long get_kv_sz = 0;
 #endif
-    // int num_hot_segments_;
-    // int num_cold_segments_;
 #ifdef LOG_BATCHING
     uint32_t change_seg_threshold = LOG_BATCHING_SIZE;
     bool hot_batch_persistent = false;
@@ -70,10 +67,6 @@ class DB {
 #endif
     uint32_t class_seg_working_on[num_class];
     uint32_t accumulative_sz_class[num_class] = {0};
-    // int roll_back_count = 0;
-
-  // only for test
-  // int test_count = 0;
   
    private:
     int worker_id_;
@@ -86,6 +79,8 @@ class DB {
     ValueType MakeKVItem(const Slice &key, const Slice &value, int class_);
     void UpdateIndex(const Slice &key, ValueType val, int class_);
     void MarkGarbage(ValueType tagged_val);
+    void Roll_Back1(uint32_t sz, LogSegment *segment);
+    void Roll_Back2(LogSegment *segment);
     void FreezeSegment(LogSegment *segment, int class_);
 
 #ifdef LOG_BATCHING
@@ -118,37 +113,6 @@ class DB {
   void RecoveryAll();
   void NewIndexForRecoveryTest();
 
-  // void StartRBThread() {
-  //   StopRBThread();
-  //   printf("start RB Thread1\n");
-  //   roll_back_thread_[0] = std::thread(&DB::roll_back_, this);
-  //   printf("start RB Thread2\n");
-  //   roll_back_thread_[1] = std::thread(&DB::roll_back_, this);
-  // }
-
-  bool is_roll_back_list_empty() { return roll_back_list.empty(); }
-  void enque_roll_back_queue(LogSegment * s) { roll_back_queue.CQ_enque(s); }
-  LogSegment *deque_roll_back_queue() { return roll_back_queue.CQ_deque(); }
-
-  // std::pair<uint32_t, LogSegment **> get_class_segment(int class_)
-  // {
-  //   std::lock_guard<SpinLock> guard(class_segment_list_lock[class_]);
-  //   std::pair<uint32_t, LogSegment **> ret;
-  //   ret.second = log_->get_class_segment_(class_, next_class_segment_[class_]);
-  //   ret.first = next_class_segment_[class_];
-  //   if(!(*ret.second)->is_segment_touse()) printf("%d\n", (*ret.second)->get_status());
-  //   assert((*ret.second)->is_segment_touse());
-  //   (*ret.second)->set_using();
-  //   assert((*ret.second)->is_segment_using());
-  //   next_class_segment_[class_] ++;
-  //   assert(next_class_segment_[class_] <= db_num_class_segs[class_]);
-  //   if(next_class_segment_[class_] == db_num_class_segs[class_])
-  //   {
-  //     next_class_segment_[class_] = 0;
-  //   }
-  //   return ret;
-  // }
-
   std::pair<uint32_t, LogSegment **> get_class_segment(int class_, int worker_id)
   {
     std::pair<uint32_t, LogSegment **> ret;
@@ -176,8 +140,8 @@ class DB {
     return &next_class_segment_[num_class-1];
   }
 
-  uint64_t change_seg_threshold_class[num_class];
-  uint64_t db_num_class_segs[num_class] = {0};
+  uint32_t change_seg_threshold_class[num_class];
+  uint32_t db_num_class_segs[num_class] = {0};
   std::vector<bool> mark;
   int get_num_workers() { return num_workers_; }
 
@@ -185,7 +149,6 @@ class DB {
   std::queue<LogSegment *> roll_back_list;
   std::thread roll_back_thread_[2];
   std::atomic<bool> stop_flag_RB{false};
-  CircleQueue roll_back_queue; 
   Index *index_;
   LogStructured *log_;
   const int num_workers_;
@@ -193,7 +156,6 @@ class DB {
   std::atomic<int> cur_num_workers_{0};
   HotKeySet *hot_key_set_ = nullptr;
   ThreadStatus thread_status_;
-  // std::atomic<int> next_class_segment_[num_class] = {0, 0, 0, 0};
   std::vector<std::vector<int>> next_class_segment_;
   SpinLock class_segment_list_lock[num_class];
   std::atomic<uint64_t> roll_back_count = 0;

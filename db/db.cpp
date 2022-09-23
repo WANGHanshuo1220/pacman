@@ -54,21 +54,21 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
   // init log-structured
   log_ =
       new LogStructured(db_path, log_size, this, num_workers_, num_cleaners_);
-  // roll_back_queue = new CircleQueue(2 * num_workers);
-  // // roll_back_queue.init(2 * num_workers);
-  // StartRBThread();
 };
 
 DB::~DB() {
-  // for(int i = 0; i < num_class; i++)
-  // {
-    // printf("%dth class put_c = %u\n", i, put_c[i].load());
-  // }
+  uint64_t t = 0;
+  for(int i = 0; i < num_class; i++)
+  {
+    printf("%dth class put_c = %u\n", i, put_c[i].load());
+    t += put_c[i].load();
+  }
+  printf("total puts = %ld\n", t);
 #ifdef INTERLEAVED
-  // printf("hot set size = %ld\n", hot_key_set_->get_set_sz());
-  // stop_flag_RB.store(true, std::memory_order_release);
-  // StopRBThread();
-  // printf("roll_back_queue full times = %ld\n", roll_back_queue.get_full_times());
+  for(int i = 0; i < num_class-1; i++)
+  {
+    printf("hot_set%d size = %ld\n", i+1, hot_key_set_->get_set_sz(i));
+  }
   printf("roll_back_times = %ld, bytes = %ld byte (%ldKB, %ldMB)\n", 
     roll_back_count.load(), roll_back_bytes.load(), 
     roll_back_bytes.load()/1024, roll_back_bytes.load()/(1024*1024));
@@ -273,8 +273,8 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
   gettimeofday(&check_hotcold_start, NULL);
 #endif
   int class_ = db_->hot_key_set_->Exist(key);
-  // db_->put_c[class_].fetch_add(1);
-  // int class_ = 3;
+  // int class_ = 0;
+  db_->put_c[class_].fetch_add(1);
 #ifdef GC_EVAL
   struct timeval check_hotcold_end;
   gettimeofday(&check_hotcold_end, NULL);
@@ -474,9 +474,18 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
       log_head_class[class_] = *p.second;
       class_seg_working_on[class_] = p.first;
       accumulative_sz_class[class_] = sz;
+      assert(log_head_class[class_]->is_segment_using());
+      uint32_t n = log_head_class[class_]->num_kvs;
+      if(n)
+      {
+        if(log_head_class[class_]->roll_back_map[n-1].is_garbage) 
+        {
+          Roll_Back2(log_head_class[class_]);
+        }
+      }
     }
   }
-  LogSegment *segment = log_head_class[class_];
+  LogSegment *&segment = log_head_class[class_];
 
 #ifdef GC_EVAL
   gettimeofday(&change_seg_end, NULL);
@@ -498,7 +507,7 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     accumulative_sz_class[class_] = sz;
     db_->log_->set_class_segment_(class_, class_seg_working_on[class_], segment);
   }
-  log_head_class[class_] = segment;
+  // log_head_class[class_] = segment;
 #ifdef GC_EVAL
     gettimeofday(&e1, NULL);
     set_seg_time += TIMEDIFF(s1, e1);
@@ -580,38 +589,86 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
     }
 
     uint32_t sz = segment->roll_back_map[num_].kv_sz * kv_align;
-    uint32_t n = segment->num_kvs;
-    if( n-1 == num_ && segment->is_segment_touse())
+    segment->add_garbage_bytes(sz);
+    assert(sz > 0);
+    uint32_t n = segment->num_kvs.load();
+
+    if( segment->is_segment_touse() )
     {
-      uint32_t roll_back_sz = sz;
-      uint32_t RB_count = 1;
-      // segment->roll_back_map[n-1].is_garbage = 0;
-      // uint8_t status;
-      db_->roll_back_count.fetch_add(1);
-      for(int i = n - 2; i >= 0; i--)
+      if( n-1 == num_)
       {
-        if(segment->roll_back_map[i].is_garbage == 1)
+        assert(segment->roll_back_map[n-1].is_garbage == 0);
+        Roll_Back1(sz, segment);
+      }
+      else
+      {
+        segment->roll_back_map[num_].is_garbage = 1;
+        if(segment->roll_back_map[n-1].is_garbage == 1)
         {
-          segment->roll_back_map[i].is_garbage = 0;
-          roll_back_sz += (segment->roll_back_map[i].kv_sz * kv_align);
-          RB_count ++;
-        }
-        else{
-          break;
+          if(!segment->RB_flag.test_and_set())
+          {
+            Roll_Back2(segment);
+            segment->RB_flag.clear();
+          }
         }
       }
-      db_->roll_back_bytes.fetch_add(roll_back_sz);
-      segment->RB_num_kvs(RB_count);
-      segment->roll_back_tail(roll_back_sz);
-      segment->reduce_garbage_bytes(roll_back_sz-sz);
-      // tmp_cleaner_garbage_bytes_[class_] -= (roll_back_sz-sz);
     }
     else
     {
       segment->roll_back_map[num_].is_garbage = 1;
-      segment->add_garbage_bytes(sz);
-      // tmp_cleaner_garbage_bytes_[class_] += sz;
     }
+  }
+}
+
+void DB::Worker::Roll_Back1(uint32_t sz, LogSegment *segment)
+{
+  uint32_t n = segment->num_kvs;
+  assert(segment->roll_back_map[n-1].is_garbage == 0);
+  int roll_back_sz = sz;
+  uint32_t RB_count = 1;
+  db_->roll_back_count.fetch_add(1);
+  for(int i = n - 2; i >= 0; i--)
+  {
+    if(segment->roll_back_map[i].is_garbage == 1)
+    {
+      segment->roll_back_map[i].is_garbage = 0;
+      roll_back_sz += (segment->roll_back_map[i].kv_sz * kv_align);
+      RB_count ++;
+    }
+    else{
+      break;
+    }
+  }
+  db_->roll_back_bytes.fetch_add(roll_back_sz);
+  segment->roll_back_tail(roll_back_sz);
+  segment->reduce_garbage_bytes(roll_back_sz, worker_id_, segment, 1);
+  segment->RB_num_kvs(RB_count);
+}
+
+void DB::Worker::Roll_Back2(LogSegment *segment)
+{
+  uint32_t n = segment->num_kvs.load();
+  if(segment->roll_back_map[n-1].is_garbage == 1)
+  {
+    int roll_back_sz = 0;
+    uint32_t RB_count = 0;
+    db_->roll_back_count.fetch_add(1);
+    for(int i = n - 1; i >= 0; i--)
+    {
+      if(segment->roll_back_map[i].is_garbage == 1)
+      {
+        segment->roll_back_map[i].is_garbage = 0;
+        roll_back_sz += (segment->roll_back_map[i].kv_sz * kv_align);
+        RB_count ++;
+      }
+      else{
+        break;
+      }
+    }
+    db_->roll_back_bytes.fetch_add(roll_back_sz);
+    segment->roll_back_tail(roll_back_sz);
+    segment->reduce_garbage_bytes(roll_back_sz, worker_id_, segment, 2);
+    segment->RB_num_kvs(RB_count);
   }
 }
 

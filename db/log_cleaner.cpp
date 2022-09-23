@@ -31,50 +31,55 @@ void LogCleaner::CleanerEntry() {
 #endif
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning()) {
-// Do_Cleaning:
+Do_Cleaning:
       GC_times.fetch_add(1, std::memory_order_relaxed);
       Timer timer(clean_time_ns_);
       DoMemoryClean();
     }
     else 
     {
-      usleep(10);
-      // if(cleaner_id_ != 3)
-      // {
-      // std::vector<int> &next_class3_segment = 
-      //   *(db_->get_next_class3_segment());
-      // int num_worker = next_class3_segment.size();
-      // assert(num_worker == db_->get_num_workers());
-      // int range = num_worker / num_class;
-      // int gap = 10, sort_range = 30;
-      // bool has_help = false;
+      // usleep(10);
+      if(cleaner_id_ != 3)
+      {
+        std::vector<int> &next_class3_segment = 
+          *(db_->get_next_class3_segment());
+        int num_worker = next_class3_segment.size();
+        assert(num_worker == db_->get_num_workers());
+        int range = num_worker / num_class;
+        int gap = 10, sort_range = 20;
+        bool has_help = false;
 
-      // for(int worker_i = cleaner_id_ * range;
-      //     worker_i < (cleaner_id_+1) * range && worker_i < num_worker;
-      //     worker_i ++)
-      // {
-      //   assert(worker_i >= 0 && worker_i < db_->get_num_workers());
-      //   if(db_->mark[worker_i])
-      //   {
-      //     has_help = true;
-      //     help ++;
-      //     int seg_working_on = next_class3_segment[worker_i];
-      //     int sort_begin = seg_working_on + num_worker * gap;
-      //     if(sort_begin >= db_->db_num_class_segs[num_class-1])
-      //     {
-      //       sort_begin = 
-      //         (gap -
-      //         (db_->db_num_class_segs[num_class-1] - seg_working_on) / num_worker)* 
-      //         num_worker + worker_i;
-      //     }
-      //     assert(sort_begin < db_->db_num_class_segs[num_class-1]);
-      //     assert(sort_begin%num_worker == worker_i);
-      //     Sort_for_worker(worker_i, sort_range, sort_begin, num_worker);
-      //     if(NeedCleaning()) goto Do_Cleaning;
-      //   }
-      // }
-      // if(!has_help) usleep(10);
-      // }
+        for(int worker_i = cleaner_id_ * range;
+            worker_i < (cleaner_id_+1) * range && worker_i < num_worker;
+            worker_i ++)
+        {
+          assert(worker_i >= 0 && worker_i < db_->get_num_workers());
+          if(db_->mark[worker_i])
+          {
+            has_help = true;
+            help ++;
+            int seg_working_on = next_class3_segment[worker_i];
+            int sort_begin = seg_working_on + num_worker * gap;
+            if(sort_begin >= db_->db_num_class_segs[num_class-1])
+            {
+              sort_begin = 
+                (gap -
+                (db_->db_num_class_segs[num_class-1] - seg_working_on) / num_worker)* 
+                num_worker + worker_i;
+            }
+            assert(sort_begin < db_->db_num_class_segs[num_class-1]);
+            assert(sort_begin%num_worker == worker_i);
+            Sort_for_worker(worker_i, sort_range, sort_begin, num_worker);
+            if(NeedCleaning()) goto Do_Cleaning;
+          }
+        }
+        if(!has_help) usleep(10);
+        else usleep(5);
+      } 
+      else
+      {
+        usleep(10);
+      }
     }
   }
 }
@@ -128,7 +133,7 @@ void LogCleaner::Sort_for_worker(int worker_i, int sort_range,
 bool LogCleaner::NeedCleaning() {
 
   uint64_t Free, Available, Total;
-  double threshold = (double)log_->clean_threshold_ / 100;
+  double threshold = (double)log_->clean_threshold_[class_] / 100;
 
   Free = (uint64_t)log_->num_free_list_class[class_] * SEGMENT_SIZE[class_];
   if(class_ == 0) 

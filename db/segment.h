@@ -155,12 +155,12 @@ class LogSegment : public BaseSegment {
   void set_RB() { header_->status = StatusRB; }
   uint8_t  get_status() { return header_->status; }
   void set_status(uint8_t s) { header_->status = s; }
-  std::mutex seg_lock;
-  uint32_t num_kvs = 0;
-  // vector for pairs <IsGarbage, kv_size>
+  std::atomic<uint32_t> num_kvs = 0;
+  // uint32_t num_kvs = 0;
+  std::atomic_flag RB_flag{ATOMIC_FLAG_INIT};
+  std::atomic<int> flag = 0;
+  SpinLock RB_lock;
   std::vector<record_info> roll_back_map;
-  //  = std::vector<std::pair<bool, uint16_t>>(SEGMENT_SIZE/32);
-  // std::vector<std::pair<bool, uint16_t>> roll_back_map{SEGMENT_SIZE/32, std::pair<bool, uint16_t>(false, 0)};
 
   void init_RB_map()
   {
@@ -170,7 +170,7 @@ class LogSegment : public BaseSegment {
 
   void RB_num_kvs(uint32_t a)
   {
-    num_kvs -= a;
+    num_kvs.fetch_sub(a);
   }
 
   uint16_t get_num_kvs() { return num_kvs; }
@@ -184,6 +184,7 @@ class LogSegment : public BaseSegment {
     if(class_ == 0) InitBitmap();
     else init_RB_map();
     garbage_bytes_ = 0;
+    clear_num_kvs();
     // header_->offset = 0;
     // header_->objects_tail_offset = 0;
     // header_->Flush();
@@ -236,13 +237,8 @@ class LogSegment : public BaseSegment {
   }
 
   void roll_back_tail(uint32_t sz) { 
-    std::lock_guard<SpinLock> guard(tail_lock);
     tail_ -= sz; 
   }
-
-  void set_is_free_seg(bool a) { is_free_seg = a; }
-  // void set_has_been_RB(bool a) { has_been_RB = a; }
-
 
   void InitShortcutBuffer() {
 #ifdef GC_SHORTCUT
@@ -477,13 +473,22 @@ class LogSegment : public BaseSegment {
     garbage_bytes_ += sz;
   }
 
-  void add_garbage_bytes(uint32_t b) 
+  void add_garbage_bytes(int b) 
   { 
+    assert(b >= 0);
     garbage_bytes_.fetch_add(b); 
     assert(garbage_bytes_ <= SEGMENT_SIZE_);
   }
-  void reduce_garbage_bytes(uint32_t b) 
+  void reduce_garbage_bytes(int b, int worker_id, LogSegment *seg, int i) 
   { 
+    if(b < 0) printf("%d %p b = %d\n", worker_id, seg, b);
+    assert(b >= 0);
+    int gb = garbage_bytes_.load();
+    if(gb < b)
+    {
+      printf("%d %p gb_byte = %d  from %d\n",  worker_id, seg, gb, i);
+      printf("%d %p b       = %u  from %d\n",  worker_id, seg, b, i);
+    }
     garbage_bytes_.fetch_sub(b); 
     assert(garbage_bytes_ >= 0);
   }
@@ -495,10 +500,6 @@ class LogSegment : public BaseSegment {
 #ifdef REDUCE_PM_ACCESS
   uint8_t *volatile_tombstone_ = nullptr;
 #endif
-
-  SpinLock tail_lock;
-  bool is_free_seg = false;
-  // bool has_been_RB = false;
 
   std::atomic<int> garbage_bytes_;
   const int class_ = 0;

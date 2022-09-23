@@ -149,7 +149,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
   for(int i = 1; i < num_class; i ++) 
   {
     db->db_num_class_segs[i] = get_num_class_segments_(i);
-    db->change_seg_threshold_class[i] = SEGMENT_SIZE[i] / 2;
+    db->change_seg_threshold_class[i] = SEGMENT_SIZE[i] / 3;
   }
   db->mark.resize(num_workers, false);
 
@@ -246,23 +246,18 @@ std::pair<int, long> *LogStructured::get_cleaners_info()
 #endif
 
 LogSegment *LogStructured::NewSegment(int class_) {
-  // printf("in NewSegment, %d\n", class_);
   LogSegment *ret = nullptr;
   // uint64_t waiting_time = 0;
   // TIMER_START(waiting_time);
   while (true) {
     if (num_free_list_class[class_] > 0) {
-      // printf("  new segment\n");
       std::lock_guard<SpinLock> guard(class_list_lock_[class_]);
       if (!free_segments_class[class_].empty()) {
         ret = free_segments_class[class_].front();
         free_segments_class[class_].pop();
-        // printf("  (new seg)%d\n", num_free_segments_.load());
         --num_free_list_class[class_];
-        // printf("  (new seg)%d\n", num_free_segments_.load());
       }
     } else {
-      // printf("no new segment\n");
       if (num_cleaners_ == 0) {
         ERROR_EXIT("No free segments and no cleaners");
       }
@@ -278,13 +273,7 @@ LogSegment *LogStructured::NewSegment(int class_) {
   // not store shortcuts for hot segment
   ret->StartUsing(true);
 
-  // if (hot) {
-  //   COUNTER_ADD_LOGGING(num_new_hot_, 1);
-  // } else {
-  //   COUNTER_ADD_LOGGING(num_new_cold_, 1);
-  // }
-
-  // UpdateCleanThreshold();
+  // UpdateCleanThreshold(class_);
   return ret;
 }
 
@@ -388,13 +377,14 @@ double LogStructured::GetCompactionThroughput() {
   return total_tp;
 }
 
-void LogStructured::UpdateCleanThreshold() {
+void LogStructured::UpdateCleanThreshold(int class_) {
   int cnt = alloc_counter_.fetch_add(1);
 
   if (!FS_flag_.test_and_set()) {
-    int num_free = num_free_segments_.load(std::memory_order_relaxed);
-    double step = num_segments_ / 200.;  // 0.5%
-    double thresh_free = num_segments_ * clean_threshold_ / 100.;
+    int num_free = num_free_list_class[class_].load(std::memory_order_relaxed);
+    uint64_t num_seg = num_class_segments_[class_] - class_segments_[class_].size();
+    double step = num_seg / 200.;  // 0.5%
+    double thresh_free = num_seg * clean_threshold_[class_] / 100.;
 
     switch (free_status_) {
       case FS_Sufficient:
@@ -407,17 +397,17 @@ void LogStructured::UpdateCleanThreshold() {
         if (num_free < thresh_free - num_workers_ ||
             num_free < num_limit_free_segments_) {
           alloc_counter_ = 0;
-          if (num_free > thresh_free - step && clean_threshold_ < 10) {
+          if (num_free > thresh_free - step && clean_threshold_[class_] < 10) {
             // if num_free is much less than thresh, doesn't need to change
             // thresh
-            ++clean_threshold_;
+            ++clean_threshold_[class_];
           }
           free_status_ = FS_Insufficient;
         } else if (num_free > thresh_free &&
                    thresh_free - step > num_limit_free_segments_ &&
-                   clean_threshold_ > 1 && cnt > num_workers_ * 4) {
+                   clean_threshold_[class_] > 1 && cnt > num_workers_ * 4) {
           alloc_counter_ = 0;
-          --clean_threshold_;
+          --clean_threshold_[class_];
           free_status_ = FS_Sufficient;
         }
         break;

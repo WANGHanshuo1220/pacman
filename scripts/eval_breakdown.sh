@@ -56,7 +56,7 @@ TMP_OUTPUT=../results/breakdown_$1_tmp
 cat /dev/null > ${OUTPUT_FILE}
 
 # disable cpu scaling
-sudo cpupower frequency-set --governor performance > /dev/null
+# sudo cpupower frequency-set --governor performance > /dev/null
 
 # it may take long to get third-party dependencies, so don't delete _deps
 ls | grep -v _deps | xargs rm -rf
@@ -73,7 +73,7 @@ for opt in "${OPT[@]}"; do
 
   make pacman_bench -j
   # clean cache
-  sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
+  # sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
 
   numactl --membind=${NUMA_AFFINITY} --cpunodebind=${NUMA_AFFINITY} \
     ./benchmarks/pacman_bench --benchmark_repetitions=1 ${FILTER} \
@@ -84,4 +84,4 @@ for opt in "${OPT[@]}"; do
 done
 rm ${TMP_OUTPUT}
 
-sudo cpupower frequency-set --governor powersave > /dev/null
+# sudo cpupower frequency-set --governor powersave > /dev/null

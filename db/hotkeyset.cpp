@@ -6,9 +6,10 @@
 
 HotKeySet::HotKeySet(DB *db) : db_(db) {
   Record_c = 0;
-  current_set_class1 = nullptr;
-  current_set_class2 = nullptr;
-  current_set_class3 = nullptr;
+  for(int i = 0; i < num_class-1; i++)
+  {
+    current_set_class[i] = nullptr;
+  }
   update_record_ = std::make_unique<UpdateKeyRecord[]>(db_->num_workers_);
 }
 
@@ -18,14 +19,12 @@ HotKeySet::~HotKeySet() {
   if (update_hot_set_thread_.joinable()) {
     update_hot_set_thread_.join();
   }
-  if (current_set_class1) {
-    delete current_set_class1;
-  }
-  if (current_set_class2) {
-    delete current_set_class2;
-  }
-  if (current_set_class3) {
-    delete current_set_class3;
+
+  for(int i = 0; i < num_class-1; i++)
+  {
+    if (current_set_class[i]) {
+      delete current_set_class[i];
+    }
   }
 }
 
@@ -80,29 +79,20 @@ void HotKeySet::BeginUpdateHotKeySet() {
 
 int HotKeySet::Exist(const Slice &key) {
   uint64_t i_key = *(uint64_t *)key.data();
-  if(!current_set_class1)
+  if(!current_set_class[0])
   {
     return 0;
-  }
-  else if(current_set_class3 && 
-     current_set_class3->find(i_key) != current_set_class3->end())
-  {
-    return 3;
-  }
-  else if(current_set_class2 && 
-          current_set_class2->find(i_key) != current_set_class2->end())
-  {
-    return 2;
-  }
-  else if(current_set_class1 && 
-          current_set_class1->find(i_key) != current_set_class1->end())
-  {
-    return 1;
   }
   else
   {
-    return 0;
+    for(int i = num_class-2 ; i >= 0; i--)
+    {
+      if(current_set_class[i]->find(i_key) != current_set_class[i]->end())
+        return (i+1);
+    }
   }
+  
+  return 0;
 }
 
 void HotKeySet::UpdateHotSet() {
@@ -157,9 +147,9 @@ void HotKeySet::UpdateHotSet() {
   // }
   // printf("\n############################\n");
 
-  std::unordered_set<uint64_t> *old_set_class1 = current_set_class1;
-  std::unordered_set<uint64_t> *old_set_class2 = current_set_class2;
-  std::unordered_set<uint64_t> *old_set_class3 = current_set_class3;
+  std::unordered_set<uint64_t> *old_set_class1 = current_set_class[0];
+  std::unordered_set<uint64_t> *old_set_class2 = current_set_class[1];
+  std::unordered_set<uint64_t> *old_set_class3 = current_set_class[2];
   std::unordered_set<uint64_t> *new_set_class1 = nullptr;
   std::unordered_set<uint64_t> *new_set_class2 = nullptr;
   std::unordered_set<uint64_t> *new_set_class3 = nullptr;
@@ -185,9 +175,9 @@ void HotKeySet::UpdateHotSet() {
     }
   }
 
-  current_set_class1 = new_set_class1;
-  current_set_class2 = new_set_class2;
-  current_set_class3 = new_set_class3;
+  current_set_class[0] = new_set_class1;
+  current_set_class[1] = new_set_class2;
+  current_set_class[2] = new_set_class3;
   db_->thread_status_.rcu_barrier();
   for (int i = 0; i < db_->num_workers_; i++) {
     // need_record_ is false, other threads cannot operate on records

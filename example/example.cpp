@@ -233,7 +233,7 @@ void *prefilling(void *)
 
 void job3()
 {
-  num_cleaners = 2;
+  num_cleaners = 1;
   num_workers = 24;
   pthread_t *tid_prefilling = new pthread_t[num_workers];
   pthread_t *tid = new pthread_t[num_workers];
@@ -362,7 +362,7 @@ int main(int argc, char **argv) {
     }
   }
   init_zipf();
-  for (int i = 0; i < 10; i++)
+  for (int i = 0; i < 20; i++)
   {  
     printf("----------------%d-----------------\n", i);
     (*jobs[atoi(arg)])();

@@ -86,8 +86,9 @@ class LogCleaner {
 
   ~LogCleaner() {
 #ifndef GC_EVAL
-    printf("%dth cleaner(%d): GC_times = %d, clean_time_ns_ = %ldns (%.3f s)\n",
-      get_cleaner_id(), help.load(), show_GC_times(), clean_time_ns_, (float)clean_time_ns_/1000000000);
+    printf("%dth cleaner(%d): GC_times = %d, clean_time_ns_ = %ldns (%.3f s), num_closed_seg = %u\n",
+      get_cleaner_id(), help.load(), show_GC_times(), clean_time_ns_, 
+      (float)clean_time_ns_/1000000000, closed);
 #else
     printf("%dth cleaner: GC_times = %d\n", get_cleaner_id(), show_GC_times());
     printf("  clean_time_ns_               = %ldns (%.3f s)\n", 
@@ -180,9 +181,12 @@ class LogCleaner {
 
   void AddClosedSegment(LogSegment *segment) {
     LockUsedList();
+    closed ++;
     closed_segments_.push_back(segment);
     UnlockUsedList();
   }
+
+  uint32_t closed = 0;
 
  private:
   DB *db_;
@@ -200,8 +204,8 @@ class LogCleaner {
   SpinLock list_lock_;
   const uint32_t class_;
 
-  uint64_t free_count = 0;
-  uint64_t num_new = 0;
+  uint32_t free_count = 0;
+  uint32_t num_new = 0;
 
   bool IsGarbage(KVItem *kv) {
     int log_id = log_->GetSegmentID(reinterpret_cast<char *>(kv));

@@ -89,6 +89,7 @@ endif()
 
 option(LOGGING "LOGGING" OFF)
 
+set(CMAKE_CXX_FLAGS_RELEASE "-O2")
 if (CMAKE_BUILD_TYPE MATCHES Release)
   message(STATUS "Setting build type to 'Release'")
 else()
@@ -102,12 +103,8 @@ if (LOGGING)
 endif()
 
 #################################################################
-#include_directories(/home/wanghanshuo/pmdk_install/lib)
-#link_directories(/home/wanghanshuo/pmdk_install/lib)
-
 find_library(PMEM pmem)
 find_library(PMEMOBJ pmemobj)
-# find_library(JEMALLOC ~/jemalloc_build/lib)
 
 include_directories(
   "${PROJECT_SOURCE_DIR}/include"
@@ -116,7 +113,7 @@ include_directories(
 )
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread -march=native")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread -g -ggdb -pthread -march=native")
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread -g -ggdb -pthread -march=native")
 
 aux_source_directory(${PROJECT_SOURCE_DIR}/db DB_FILES)
 aux_source_directory(${PROJECT_SOURCE_DIR}/util UTIL_FILES)
