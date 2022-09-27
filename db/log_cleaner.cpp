@@ -34,7 +34,9 @@ void LogCleaner::CleanerEntry() {
 Do_Cleaning:
       GC_times.fetch_add(1, std::memory_order_relaxed);
       Timer timer(clean_time_ns_);
-      DoMemoryClean();
+      if(class_ == 0) DoMemoryClean0();
+      else DoMemoryClean();
+      // DoMemoryClean0();
     }
     else 
     {
@@ -636,6 +638,52 @@ void LogCleaner::FreezeReservedAndGetNew() {
 #endif
 }
 
+void LogCleaner::DoMemoryClean0() {
+  TIMER_START_LOGGING(pick_time_);
+  
+  LockUsedList();
+  for(int i = 0; i < closed_segments_.size(); i++)
+  {
+    to_compact_segments_0.splice(to_compact_segments_0.end(),
+                                    closed_segments_[i]);
+  }
+  UnlockUsedList();
+
+  LogSegment *segment = nullptr;
+  double max_score = 0.;
+  double max_garbage_proportion = 0.;
+  std::list<LogSegment *>::iterator gc_it = to_compact_segments_0.end();
+  uint64_t cur_time = NowMicros();
+  int i = 0;
+
+  for (auto it = to_compact_segments_0.begin();
+       it != to_compact_segments_0.end() && i < 200; it++, i++) {
+    assert(*it);
+    double cur_garbage_proportion = (*it)->GetGarbageProportion();
+    double cur_score = 1000. * cur_garbage_proportion /
+                       (1 - cur_garbage_proportion) *
+                       (cur_time - (*it)->get_close_time());
+    if (cur_score > max_score) {
+      max_score = cur_score;
+      max_garbage_proportion = cur_garbage_proportion;
+      gc_it = it;
+    }
+  }
+
+  if(gc_it != to_compact_segments_0.end())
+  {
+    segment = *gc_it;
+    to_compact_segments_0.erase(gc_it);
+  }
+  else
+  {
+    return;
+  }
+
+  if(class_ == 0) CompactSegment0(segment);
+  else CompactSegment123(segment);
+}
+
 void LogCleaner::DoMemoryClean() {
   TIMER_START_LOGGING(pick_time_);
   LockUsedList();
@@ -661,8 +709,16 @@ void LogCleaner::DoMemoryClean() {
     {
       if(i == 100/hash_sz-1)
       {
-        gc_it = to_compact_segments_[i].begin();
         hash_i = i;
+        auto it = to_compact_segments_[i].begin();
+        for(int j = 0; j < 50 && it != to_compact_segments_[i].end(); j++, it++)
+        {
+          double cur_garbage_proportion = (*it)->GetGarbageProportion();
+          if (cur_garbage_proportion > max_garbage_proportion) {
+            max_garbage_proportion = cur_garbage_proportion;
+            gc_it = it;
+          }
+        }
       }
       else
       {
@@ -728,8 +784,7 @@ void LogCleaner::DoMemoryClean() {
 #ifdef BATCH_COMPACTION
   BatchCompactSegment(segment);
 #else
-  if(class_ == 0) CompactSegment0(segment);
-  else CompactSegment123(segment);
+  CompactSegment123(segment);
 #endif
 }
 
