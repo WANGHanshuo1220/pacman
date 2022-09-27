@@ -34,9 +34,7 @@ void LogCleaner::CleanerEntry() {
 Do_Cleaning:
       GC_times.fetch_add(1, std::memory_order_relaxed);
       Timer timer(clean_time_ns_);
-      if(class_ == 0) DoMemoryClean0();
-      else DoMemoryClean();
-      // DoMemoryClean0();
+      DoMemoryClean();
     }
     else 
     {
@@ -638,26 +636,23 @@ void LogCleaner::FreezeReservedAndGetNew() {
 #endif
 }
 
-void LogCleaner::DoMemoryClean0() {
+void LogCleaner::DoMemoryClean() {
   TIMER_START_LOGGING(pick_time_);
   
   LockUsedList();
-  for(int i = 0; i < closed_segments_.size(); i++)
-  {
-    to_compact_segments_0.splice(to_compact_segments_0.end(),
-                                    closed_segments_[i]);
-  }
+  to_compact_segments_.splice(to_compact_segments_.end(),
+                              closed_segments_);
   UnlockUsedList();
 
   LogSegment *segment = nullptr;
   double max_score = 0.;
   double max_garbage_proportion = 0.;
-  std::list<LogSegment *>::iterator gc_it = to_compact_segments_0.end();
+  std::list<LogSegment *>::iterator gc_it = to_compact_segments_.end();
   uint64_t cur_time = NowMicros();
   int i = 0;
 
-  for (auto it = to_compact_segments_0.begin();
-       it != to_compact_segments_0.end() && i < 200; it++, i++) {
+  for (auto it = to_compact_segments_.begin();
+       it != to_compact_segments_.end() && i < 200; it++, i++) {
     assert(*it);
     double cur_garbage_proportion = (*it)->GetGarbageProportion();
     double cur_score = 1000. * cur_garbage_proportion /
@@ -670,10 +665,10 @@ void LogCleaner::DoMemoryClean0() {
     }
   }
 
-  if(gc_it != to_compact_segments_0.end())
+  if(gc_it != to_compact_segments_.end())
   {
     segment = *gc_it;
-    to_compact_segments_0.erase(gc_it);
+    to_compact_segments_.erase(gc_it);
   }
   else
   {
@@ -682,110 +677,6 @@ void LogCleaner::DoMemoryClean0() {
 
   if(class_ == 0) CompactSegment0(segment);
   else CompactSegment123(segment);
-}
-
-void LogCleaner::DoMemoryClean() {
-  TIMER_START_LOGGING(pick_time_);
-  LockUsedList();
-  for(int i = 0; i < closed_segments_.size(); i++)
-  {
-    to_compact_segments_[i].splice(to_compact_segments_[i].end(),
-                                    closed_segments_[i]);
-  }
-  UnlockUsedList();
-
-  LogSegment *segment = nullptr;
-  std::list<LogSegment*>::iterator gc_it = 
-    to_compact_segments_[0].end();
-  int hash_i = -1;
-  double max_garbage_proportion = 0.;
-  double max_score = 0.;
-  uint64_t cur_time = NowMicros();
-  int i;
-
-  for(i = to_compact_segments_.size()-1; i >= 0; i--)
-  {
-    if(!to_compact_segments_[i].empty())
-    {
-      if(i == 100/hash_sz-1)
-      {
-        hash_i = i;
-        auto it = to_compact_segments_[i].begin();
-        for(int j = 0; j < 50 && it != to_compact_segments_[i].end(); j++, it++)
-        {
-          double cur_garbage_proportion = (*it)->GetGarbageProportion();
-          if (cur_garbage_proportion > max_garbage_proportion) {
-            max_garbage_proportion = cur_garbage_proportion;
-            gc_it = it;
-          }
-        }
-      }
-      else
-      {
-        auto it = to_compact_segments_[i].begin();
-        int j = 0;
-        while(it != to_compact_segments_[i].end() && j <= range[i])
-        {
-          double cur_garbage_proportion = (*it)->GetGarbageProportion();
-          double cur_score = 1000. * cur_garbage_proportion /
-                      (1 - cur_garbage_proportion) *
-                      (cur_time - (*it)->get_close_time());
-          if (cur_score > max_score) {
-            max_score = cur_score;
-            max_garbage_proportion = cur_garbage_proportion;
-            gc_it = it;
-            hash_i = i;
-          }
-
-          int hash_new = floor(100 * cur_garbage_proportion / hash_sz);
-          if(hash_new == 100/hash_sz) hash_new -= 1;
-          if(hash_new != (*it)->cleaner_hash)
-          {
-            assert(hash_new > (*it)->cleaner_hash);
-            LogSegment *seg = *it;
-            to_compact_segments_[hash_new].push_front(seg);
-            gc_it = to_compact_segments_[hash_new].begin();
-            hash_i = hash_new;
-            to_compact_segments_[i].erase(it++);
-          }
-          else
-          {
-            it++;
-          }
-          j++;
-        }
-      }
-      if(hash_i != -1) break;
-    }
-  }
-  
-  if(hash_i != -1)
-  {
-    segment = *gc_it;
-    to_compact_segments_[hash_i].erase(gc_it);
-  }
-  else
-  {
-    return;
-  }
-
-  // update statistics
-  // TIMER_STOP_LOGGING(pick_time_);
-
-  // COUNTER_ADD_LOGGING(clean_garbage_bytes_,
-  //                     segment->garbage_bytes_.load(std::memory_order_relaxed));
-  // COUNTER_ADD_LOGGING(clean_total_bytes_, segment->get_offset());
-
-  // COUNTER_ADD_LOGGING(clean_hot_count_, 1);
-  // COUNTER_ADD_LOGGING(hot_clean_garbage_bytes_,
-  //                     segment->garbage_bytes_.load(std::memory_order_relaxed));
-  // COUNTER_ADD_LOGGING(hot_clean_total_bytes_, segment->get_offset());
-
-#ifdef BATCH_COMPACTION
-  BatchCompactSegment(segment);
-#else
-  CompactSegment123(segment);
-#endif
 }
 
 void LogCleaner::MarkGarbage0(ValueType tagged_val) {

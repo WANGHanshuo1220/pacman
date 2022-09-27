@@ -163,7 +163,6 @@ class LogSegment : public BaseSegment {
   std::atomic<int> flag = 0;
   SpinLock RB_lock;
   std::vector<record_info> roll_back_map;
-  int cleaner_hash = 0;
 
   void init_RB_map()
   {
@@ -284,8 +283,6 @@ class LogSegment : public BaseSegment {
   void Close() {
     header_->status = StatusClosed;
     close_time_ = NowMicros();
-    double pro = 100.0 * GetGarbageProportion();
-    cleaner_hash = floor(pro/hash_sz);
     // if (HasSpaceFor(sizeof(KVItem))) {
     //   KVItem *end = new (tail_) KVItem();
     //   end->Flush();
@@ -313,7 +310,6 @@ class LogSegment : public BaseSegment {
     garbage_bytes_ = 0;
     header_->status = StatusAvailable;
     clear_num_kvs();
-    cleaner_hash = 0;
     // header_->objects_tail_offset = 0;
     // header_->has_shortcut = false;
     // header_->Flush();

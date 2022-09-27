@@ -74,8 +74,6 @@ class LogCleaner {
         class_(class__),
         list_lock_(std::string("gc_list_lock_") + std::to_string(cleaner_id)) 
   {
-    closed_segments_.resize(100/hash_sz);
-    to_compact_segments_.resize(100/hash_sz);
     tmp_cleaner_garbage_bytes_.resize(db->num_cleaners_, 0);
     if (reserved_segment_) {
       reserved_segment_->StartUsing(false);
@@ -93,10 +91,7 @@ class LogCleaner {
     printf("%dth cleaner(%d): GC_times = %d, clean_time_ns_ = %ldns (%.3f s)\n",
       get_cleaner_id(), help.load(), show_GC_times(), clean_time_ns_, 
       (float)clean_time_ns_/1000000000);
-    for(int i = 0; i < closed_segments_.size(); i++)
-    {
-      printf("  %dth => %ld\n", i, to_compact_segments_[i].size() + closed_segments_[i].size());
-    }
+    printf("  %ld\n", to_compact_segments_.size() + closed_segments_.size());
 #else
     printf("%dth cleaner: GC_times = %d\n", get_cleaner_id(), show_GC_times());
     printf("  clean_time_ns_               = %ldns (%.3f s)\n", 
@@ -188,12 +183,8 @@ class LogCleaner {
   }
 
   void AddClosedSegment(LogSegment *segment) {
-    double pro = 100.0 * segment->GetGarbageProportion();
-    int hash_i = floor(pro/hash_sz);
-    if(hash_i == 100/hash_sz) hash_i -= 1;
-    assert(hash_i >= 0 && hash_i < 100/hash_sz);
     LockUsedList();
-    closed_segments_[hash_i].push_back(segment);
+    closed_segments_.push_back(segment);
     UnlockUsedList();
   }
 
@@ -211,9 +202,8 @@ class LogCleaner {
   std::vector<ValidItem> valid_items_;
   std::vector<size_t> tmp_cleaner_garbage_bytes_;
   double last_update_time_ = 0.;
-  std::vector<std::list<LogSegment *>> closed_segments_;
-  std::vector<std::list<LogSegment *>> to_compact_segments_;
-  std::list<LogSegment *> to_compact_segments_0;
+  std::list<LogSegment *> closed_segments_;
+  std::list<LogSegment *> to_compact_segments_;
   SpinLock list_lock_;
   const uint32_t class_;
 
@@ -239,7 +229,6 @@ class LogCleaner {
   void MarkGarbage0(ValueType tagged_val);
   void MarkGarbage123(ValueType tagged_val);
   void DoMemoryClean();
-  void DoMemoryClean0();
   void Sort_for_worker(int worker_i, int sort_range,
                        int sort_begin, int num_worker);
 
