@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <atomic>
 #include <libpmem.h>
+#include <cmath>
 
 #include "config.h"
 #include "db_common.h"
@@ -158,9 +159,11 @@ class LogSegment : public BaseSegment {
   std::atomic<uint32_t> num_kvs = 0;
   // uint32_t num_kvs = 0;
   std::atomic_flag RB_flag{ATOMIC_FLAG_INIT};
+  std::atomic_flag Change_hash_flag{ATOMIC_FLAG_INIT};
   std::atomic<int> flag = 0;
   SpinLock RB_lock;
   std::vector<record_info> roll_back_map;
+  int cleaner_hash = 0;
 
   void init_RB_map()
   {
@@ -281,6 +284,8 @@ class LogSegment : public BaseSegment {
   void Close() {
     header_->status = StatusClosed;
     close_time_ = NowMicros();
+    double pro = 100.0 * GetGarbageProportion();
+    cleaner_hash = floor(pro/hash_sz);
     // if (HasSpaceFor(sizeof(KVItem))) {
     //   KVItem *end = new (tail_) KVItem();
     //   end->Flush();
@@ -308,6 +313,7 @@ class LogSegment : public BaseSegment {
     garbage_bytes_ = 0;
     header_->status = StatusAvailable;
     clear_num_kvs();
+    cleaner_hash = 0;
     // header_->objects_tail_offset = 0;
     // header_->has_shortcut = false;
     // header_->Flush();
@@ -426,8 +432,13 @@ class LogSegment : public BaseSegment {
 #endif
 
   double GetGarbageProportion() {
-    return (double)(garbage_bytes_.load(std::memory_order_relaxed)) /
+    double re = 0.0;
+    if(get_offset())
+    {
+      re = (double)(garbage_bytes_.load(std::memory_order_relaxed)) /
            get_offset();
+    }
+    return re;
   }
 
   uint64_t get_close_time() { return close_time_; }
@@ -475,20 +486,11 @@ class LogSegment : public BaseSegment {
 
   void add_garbage_bytes(int b) 
   { 
-    assert(b >= 0);
     garbage_bytes_.fetch_add(b); 
     assert(garbage_bytes_ <= SEGMENT_SIZE_);
   }
   void reduce_garbage_bytes(int b, int worker_id, LogSegment *seg, int i) 
   { 
-    if(b < 0) printf("%d %p b = %d\n", worker_id, seg, b);
-    assert(b >= 0);
-    int gb = garbage_bytes_.load();
-    if(gb < b)
-    {
-      printf("%d %p gb_byte = %d  from %d\n",  worker_id, seg, gb, i);
-      printf("%d %p b       = %u  from %d\n",  worker_id, seg, b, i);
-    }
     garbage_bytes_.fetch_sub(b); 
     assert(garbage_bytes_ >= 0);
   }

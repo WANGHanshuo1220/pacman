@@ -64,6 +64,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
   all_segments_.resize(num_segments_, nullptr);
   log_cleaners_.resize(num_cleaners_, nullptr);
   class_segments_.resize(num_class);
+  cleaner_seg_sort_record.resize(num_workers_, -1);
   // class1_segments_.reserve((int)(num_class1_segments_ * 0.8));
   // class2_segments_.reserve((int)(num_class2_segments_ * 0.8));
   // class3_segments_.reserve((int)(num_class3_segments_ * 0.8));
@@ -152,6 +153,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
     db->change_seg_threshold_class[i] = SEGMENT_SIZE[i] / 3;
   }
   db->mark.resize(num_workers, false);
+  db->first.resize(num_workers_, true);
 
   for (int j = 0; j < num_cleaners_; j++) {
     // log_cleaners_[j]->show_closed_list_sz();

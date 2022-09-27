@@ -39,47 +39,46 @@ Do_Cleaning:
     else 
     {
       // usleep(10);
-      if(cleaner_id_ != 3)
-      {
-        std::vector<int> &next_class3_segment = 
-          *(db_->get_next_class3_segment());
-        int num_worker = next_class3_segment.size();
-        assert(num_worker == db_->get_num_workers());
-        int range = num_worker / num_class;
-        int gap = 10, sort_range = 20;
-        bool has_help = false;
+      std::vector<int> &next_class3_segment = 
+        *(db_->get_next_class3_segment());
+      int num_worker = next_class3_segment.size();
+      assert(num_worker == db_->get_num_workers());
+      int range = num_worker / num_class;
+      int gap = 10, sort_range = 20;
+      bool has_help = false;
 
-        for(int worker_i = cleaner_id_ * range;
-            worker_i < (cleaner_id_+1) * range && worker_i < num_worker;
-            worker_i ++)
-        {
-          assert(worker_i >= 0 && worker_i < db_->get_num_workers());
-          if(db_->mark[worker_i])
-          {
-            has_help = true;
-            help ++;
-            int seg_working_on = next_class3_segment[worker_i];
-            int sort_begin = seg_working_on + num_worker * gap;
-            if(sort_begin >= db_->db_num_class_segs[num_class-1])
-            {
-              sort_begin = 
-                (gap -
-                (db_->db_num_class_segs[num_class-1] - seg_working_on) / num_worker)* 
-                num_worker + worker_i;
-            }
-            assert(sort_begin < db_->db_num_class_segs[num_class-1]);
-            assert(sort_begin%num_worker == worker_i);
-            Sort_for_worker(worker_i, sort_range, sort_begin, num_worker);
-            if(NeedCleaning()) goto Do_Cleaning;
-          }
-        }
-        if(!has_help) usleep(10);
-        else usleep(5);
-      } 
-      else
+      for(int worker_i = cleaner_id_ * range;
+          worker_i < (cleaner_id_+1) * range && worker_i < num_worker;
+          worker_i ++)
       {
-        usleep(10);
+        int seg_working_on = next_class3_segment[worker_i];
+        int &record = log_->cleaner_seg_sort_record[worker_i];
+        bool pass = (seg_working_on >= record) || db_->mark[worker_i];
+        if( !(db_->first[worker_i]) && pass)
+        {
+          has_help = true;
+          help ++;
+          if(db_->mark[worker_i]) db_->mark[worker_i] = false;
+          int num_class_segs = db_->db_num_class_segs[num_class-1];
+          int sort_begin = seg_working_on + num_worker * gap;
+          if(sort_begin >= num_class_segs)
+          {
+            sort_begin = 
+              (gap -
+              (num_class_segs - seg_working_on) / num_worker) * 
+              num_worker + worker_i;
+          }
+          record = sort_begin;
+
+          assert(sort_begin < db_->db_num_class_segs[num_class-1]);
+          assert(sort_begin%num_worker == worker_i);
+          assert(record%num_worker == worker_i);
+          Sort_for_worker(worker_i, sort_range, sort_begin, num_worker);
+          if(NeedCleaning()) goto Do_Cleaning;
+        }
       }
+      if(!has_help) usleep(10);
+      else usleep(5);
     }
   }
 }
@@ -638,57 +637,79 @@ void LogCleaner::FreezeReservedAndGetNew() {
 }
 
 void LogCleaner::DoMemoryClean() {
-#ifdef GC_EVAL
-  Timer time(DoMemoryClean_time_ns_);
-#endif
-
-  {
-#ifdef GC_EVAL 
-  Timer time1(DoMemoryClean_time1_ns_);
-#endif
   TIMER_START_LOGGING(pick_time_);
   LockUsedList();
-  to_compact_segments_.splice(to_compact_segments_.end(),
-                              closed_segments_);
-  UnlockUsedList();
+  for(int i = 0; i < closed_segments_.size(); i++)
+  {
+    to_compact_segments_[i].splice(to_compact_segments_[i].end(),
+                                    closed_segments_[i]);
   }
+  UnlockUsedList();
 
   LogSegment *segment = nullptr;
-  double max_score = 0.;
+  std::list<LogSegment*>::iterator gc_it = 
+    to_compact_segments_[0].end();
+  int hash_i = -1;
   double max_garbage_proportion = 0.;
-  std::list<LogSegment *>::iterator gc_it = to_compact_segments_.end();
+  double max_score = 0.;
   uint64_t cur_time = NowMicros();
-  int i = 0;
+  int i;
 
-  // time1.~Timer();
+  for(i = to_compact_segments_.size()-1; i >= 0; i--)
   {
-#ifdef GC_EVAL 
-  Timer time2(DoMemoryClean_time2_ns_);
-#endif
-  
-  for (auto it = to_compact_segments_.begin();
-       i < 200 && it != to_compact_segments_.end(); it++, i++) {
-    assert(*it);
-    double cur_garbage_proportion = (*it)->GetGarbageProportion();
-    double cur_score = 1000. * cur_garbage_proportion /
-                       (1 - cur_garbage_proportion) *
-                       (cur_time - (*it)->get_close_time());
-    if (cur_score > max_score) {
-      // to record the segment with the most garbage proportion
-      max_score = cur_score;
-      max_garbage_proportion = cur_garbage_proportion;
-      gc_it = it;
+    if(!to_compact_segments_[i].empty())
+    {
+      if(i == 100/hash_sz-1)
+      {
+        gc_it = to_compact_segments_[i].begin();
+        hash_i = i;
+      }
+      else
+      {
+        auto it = to_compact_segments_[i].begin();
+        int j = 0;
+        while(it != to_compact_segments_[i].end() && j <= range[i])
+        {
+          double cur_garbage_proportion = (*it)->GetGarbageProportion();
+          double cur_score = 1000. * cur_garbage_proportion /
+                      (1 - cur_garbage_proportion) *
+                      (cur_time - (*it)->get_close_time());
+          if (cur_score > max_score) {
+            max_score = cur_score;
+            max_garbage_proportion = cur_garbage_proportion;
+            gc_it = it;
+            hash_i = i;
+          }
+
+          int hash_new = floor(100 * cur_garbage_proportion / hash_sz);
+          if(hash_new == 100/hash_sz) hash_new -= 1;
+          if(hash_new != (*it)->cleaner_hash)
+          {
+            assert(hash_new > (*it)->cleaner_hash);
+            LogSegment *seg = *it;
+            to_compact_segments_[hash_new].push_front(seg);
+            gc_it = to_compact_segments_[hash_new].begin();
+            hash_i = hash_new;
+            to_compact_segments_[i].erase(it++);
+          }
+          else
+          {
+            it++;
+          }
+          j++;
+        }
+      }
+      if(hash_i != -1) break;
     }
   }
-  }
-  // time2.~Timer();
-
-  if(gc_it != to_compact_segments_.end()) {
+  
+  if(hash_i != -1)
+  {
     segment = *gc_it;
-    to_compact_segments_.erase(gc_it);
-  } else {
-    printf("%d cleaner, to_compact_segments.sz = %ld, return\n",
-      cleaner_id_, to_compact_segments_.size());
+    to_compact_segments_[hash_i].erase(gc_it);
+  }
+  else
+  {
     return;
   }
 
@@ -707,13 +728,8 @@ void LogCleaner::DoMemoryClean() {
 #ifdef BATCH_COMPACTION
   BatchCompactSegment(segment);
 #else
-  {
-#ifdef GC_EVAL 
-  Timer time3(DoMemoryClean_time3_ns_);
-#endif
   if(class_ == 0) CompactSegment0(segment);
   else CompactSegment123(segment);
-  }
 #endif
 }
 

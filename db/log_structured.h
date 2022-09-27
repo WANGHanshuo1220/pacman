@@ -66,6 +66,8 @@ class LogStructured {
     return &class_segments_[num_class-1];
   }
 
+  std::vector<int> cleaner_seg_sort_record;
+
   // char *get_pool_start() { return pool_start_; }
  private:
   const int num_workers_;

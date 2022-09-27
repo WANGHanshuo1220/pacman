@@ -124,7 +124,11 @@ class DB {
     if(next_class_segment_[class_][worker_id] >= db_num_class_segs[class_])
     {
       next_class_segment_[class_][worker_id] = worker_id;
-      if(class_ == 3) mark[worker_id] = true;
+      mark[worker_id] = true;
+      if(first[worker_id] && class_ == 3) 
+      {
+        first[worker_id] = false;
+      }
     }
     return ret;
   }
@@ -143,6 +147,7 @@ class DB {
   uint32_t change_seg_threshold_class[num_class];
   uint32_t db_num_class_segs[num_class] = {0};
   std::vector<bool> mark;
+  std::vector<bool> first;
   int get_num_workers() { return num_workers_; }
 
  private:
