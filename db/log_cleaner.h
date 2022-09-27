@@ -91,7 +91,6 @@ class LogCleaner {
     printf("%dth cleaner(%d): GC_times = %d, clean_time_ns_ = %ldns (%.3f s)\n",
       get_cleaner_id(), help.load(), show_GC_times(), clean_time_ns_, 
       (float)clean_time_ns_/1000000000);
-    printf("  %ld\n", to_compact_segments_.size() + closed_segments_.size());
 #else
     printf("%dth cleaner: GC_times = %d\n", get_cleaner_id(), show_GC_times());
     printf("  clean_time_ns_               = %ldns (%.3f s)\n", 

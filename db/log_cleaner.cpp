@@ -29,6 +29,13 @@ void LogCleaner::CleanerEntry() {
   reinterpret_cast<MasstreeIndex *>(db_->index_)
       ->MasstreeThreadInit(log_->num_workers_ + cleaner_id_);
 #endif
+  std::vector<int> &next_class3_segment = 
+    *(db_->get_next_class3_segment());
+  int num_worker = next_class3_segment.size();
+  assert(num_worker == db_->get_num_workers());
+  int range = num_worker / num_class;
+  int gap = 10, sort_range = 20;
+
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning()) {
 Do_Cleaning:
@@ -39,12 +46,6 @@ Do_Cleaning:
     else 
     {
       // usleep(10);
-      std::vector<int> &next_class3_segment = 
-        *(db_->get_next_class3_segment());
-      int num_worker = next_class3_segment.size();
-      assert(num_worker == db_->get_num_workers());
-      int range = num_worker / num_class;
-      int gap = 10, sort_range = 20;
       bool has_help = false;
 
       for(int worker_i = cleaner_id_ * range;
