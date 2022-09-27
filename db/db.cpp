@@ -69,6 +69,7 @@ DB::~DB() {
   {
     printf("hot_set%d size = %ld\n", i+1, hot_key_set_->get_set_sz(i));
   }
+  printf("total key  = %ld\n", index_->get_num_key());
   printf("roll_back_times = %ld, bytes = %ld byte (%ldKB, %ldMB)\n", 
     roll_back_count.load(), roll_back_bytes.load(), 
     roll_back_bytes.load()/1024, roll_back_bytes.load()/(1024*1024));
@@ -128,57 +129,6 @@ void DB::NewIndexForRecoveryTest() {
   index_ = new MasstreeIndex();
 #endif
 }
-
-// #ifdef INTERLEAVED
-// void DB::roll_back_()
-// {
-//   LogSegment *segment = nullptr;
-//   uint32_t roll_back_sz;
-//   uint32_t roll_back_count;
-//   uint32_t n;
-//   int i;
-//   uint8_t status;
-//   while (!stop_flag_RB.load(std::memory_order_relaxed))
-//   {
-//     segment = deque_roll_back_queue();
-//     if(segment != nullptr)
-//     {
-//       {
-//         std::lock_guard<std::mutex> lock(segment->seg_lock);
-//         if(!segment->is_segment_cleaning() && !segment->is_segment_reserved())
-//         {
-//           status = segment->get_status();
-//           segment->set_RB();
-//           roll_back_sz = 0;
-//           roll_back_count = 0;
-//           n = segment->get_num_kvs();
-//           // segment->roll_back_c ++;
-//           roll_back_count ++;
-//           for(i = n - 1; i >= 0; i--)
-//           {
-//             if(segment->roll_back_map[i].first == true)
-//             {
-//               roll_back_sz += segment->roll_back_map[i].second;
-//               roll_back_count ++;
-//             }
-//             else{
-//               break;
-//             }
-//           }
-
-//           roll_back_bytes += roll_back_sz;
-//           segment->RB_num_kvs(roll_back_count);
-//           segment->roll_back_tail(roll_back_sz);
-//           segment->update_Bitmap();
-//           segment->set_status(status);
-//         }
-//       }
-//     }
-//   }
-// }
-// #endif
-
-// class DB::Worker
 
 DB::Worker::Worker(DB *db) : db_(db) {
   worker_id_ = db_->cur_num_workers_.fetch_add(1);

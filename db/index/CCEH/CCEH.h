@@ -181,9 +181,11 @@ class CCEH {
   double Utilization(void);
   size_t Capacity(void);
   bool Recovery(void);
+  uint64_t get_num_key() { return num_key.load(); }
 
 //  private:
   Directory *dir;
+  std::atomic<uint64_t> num_key = 0;
 };
 
 } // namespace CCEH_NAMESPACE

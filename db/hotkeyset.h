@@ -12,7 +12,7 @@
 #include "util/lock.h"
 #include "db_common.h"
 
-static constexpr size_t HOT_NUM = 256 * 1024;
+static size_t HOT_NUM = 256 * 1024;
 static constexpr int RECORD_BATCH_CNT = 4096;
 static constexpr size_t RECORD_BUFFER_SIZE = 16 * 1024;
 

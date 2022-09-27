@@ -27,6 +27,7 @@ class Index {
   }
   virtual void GCMove(const Slice &key, LogEntryHelper &le_helper) = 0;
   virtual void PrefetchEntry(const Shortcut &sc) {}
+  virtual uint64_t get_num_key() {}
 };
 
 class LogSegment;

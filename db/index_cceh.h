@@ -37,6 +37,8 @@ class CCEHIndex : public Index {
     __builtin_prefetch(&s->sema);
   }
 
+  virtual uint64_t get_num_key() { return table_->get_num_key(); }
+
  private:
   CCEH_NAMESPACE::CCEH *table_;
 
