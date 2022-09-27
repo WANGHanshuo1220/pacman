@@ -79,7 +79,7 @@ class DB {
     ValueType MakeKVItem(const Slice &key, const Slice &value, int class_);
     void UpdateIndex(const Slice &key, ValueType val, int class_);
     void MarkGarbage(ValueType tagged_val);
-    void Roll_Back1(uint32_t sz, LogSegment *segment);
+    void Roll_Back1(uint32_t n_, uint32_t sz, LogSegment *segment);
     void Roll_Back2(LogSegment *segment);
     void FreezeSegment(LogSegment *segment, int class_);
 
@@ -124,11 +124,6 @@ class DB {
     if(next_class_segment_[class_][worker_id] >= db_num_class_segs[class_])
     {
       next_class_segment_[class_][worker_id] = worker_id;
-      mark[worker_id] = true;
-      if(first[worker_id] && class_ == 3) 
-      {
-        first[worker_id] = false;
-      }
     }
     return ret;
   }

@@ -598,7 +598,7 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
       if( n-1 == num_)
       {
         assert(segment->roll_back_map[n-1].is_garbage == 0);
-        Roll_Back1(sz, segment);
+        Roll_Back1(n, sz, segment);
       }
       else
       {
@@ -620,9 +620,14 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
   }
 }
 
-void DB::Worker::Roll_Back1(uint32_t sz, LogSegment *segment)
+void DB::Worker::Roll_Back1(uint32_t n_, uint32_t sz, LogSegment *segment)
 {
   uint32_t n = segment->num_kvs;
+  if(segment->roll_back_map[n-1].is_garbage != 0)
+  {
+    printf("status = %d\n", segment->get_status());
+    printf("n = %d, n_ = %d\n", n, n_);
+  }
   assert(segment->roll_back_map[n-1].is_garbage == 0);
   int roll_back_sz = sz;
   uint32_t RB_count = 1;

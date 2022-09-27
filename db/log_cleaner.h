@@ -53,6 +53,8 @@ class LogCleaner {
   uint64_t clean_time_ns_ = 0;
   int clean_seg_count_before_ = 0;
   uint64_t clean_time_ns_before_ = 0;
+  uint64_t clean_sort_ns_time_ = 0;
+  uint64_t clean_sort_us_before_ = 1000;
 #ifdef GC_EVAL
   uint64_t DoMemoryClean_time_ns_ = 0;
   uint64_t DoMemoryClean_time1_ns_ = 0;
@@ -88,9 +90,12 @@ class LogCleaner {
 
   ~LogCleaner() {
 #ifndef GC_EVAL
-    printf("%dth cleaner(%d): GC_times = %d, clean_time_ns_ = %ldns (%.3f s)\n",
-      get_cleaner_id(), help.load(), show_GC_times(), clean_time_ns_, 
-      (float)clean_time_ns_/1000000000);
+    printf("%dth cleaner(%d): GC_times = %d, "
+           "clean_time_ns_ = %ldns (%.3f s), "
+           "clean_sort_ns_ = %ldns (%.3f s)\n", 
+      get_cleaner_id(), help.load(), show_GC_times(), 
+      clean_time_ns_, (float)clean_time_ns_/1000000000,
+      clean_sort_ns_time_, (float)clean_sort_ns_time_/1000000000);
 #else
     printf("%dth cleaner: GC_times = %d\n", get_cleaner_id(), show_GC_times());
     printf("  clean_time_ns_               = %ldns (%.3f s)\n", 

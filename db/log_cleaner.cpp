@@ -34,6 +34,7 @@ void LogCleaner::CleanerEntry() {
   int num_worker = next_class3_segment.size();
   assert(num_worker == db_->get_num_workers());
   int range = num_worker / num_class;
+  int num_class_segs = db_->db_num_class_segs[num_class-1];
   int gap = 10, sort_range = 20;
 
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
@@ -46,21 +47,18 @@ Do_Cleaning:
     else 
     {
       // usleep(10);
-      bool has_help = false;
-
-      for(int worker_i = cleaner_id_ * range;
-          worker_i < (cleaner_id_+1) * range && worker_i < num_worker;
-          worker_i ++)
+      uint64_t now = NowMicros();
+      if(now - clean_sort_us_before_ > 1000)
       {
-        int seg_working_on = next_class3_segment[worker_i];
-        int &record = log_->cleaner_seg_sort_record[worker_i];
-        bool pass = (seg_working_on >= record) || db_->mark[worker_i];
-        if( !(db_->first[worker_i]) && pass)
+        clean_sort_us_before_ = now;
+
+        for(int worker_i = cleaner_id_ * range;
+            worker_i < (cleaner_id_+1) * range && worker_i < num_worker;
+            worker_i ++)
         {
-          has_help = true;
+          Timer time(clean_sort_ns_time_);
           help ++;
-          if(db_->mark[worker_i]) db_->mark[worker_i] = false;
-          int num_class_segs = db_->db_num_class_segs[num_class-1];
+          int seg_working_on = next_class3_segment[worker_i];
           int sort_begin = seg_working_on + num_worker * gap;
           if(sort_begin >= num_class_segs)
           {
@@ -69,17 +67,17 @@ Do_Cleaning:
               (num_class_segs - seg_working_on) / num_worker) * 
               num_worker + worker_i;
           }
-          record = sort_begin;
 
           assert(sort_begin < db_->db_num_class_segs[num_class-1]);
           assert(sort_begin%num_worker == worker_i);
-          assert(record%num_worker == worker_i);
           Sort_for_worker(worker_i, sort_range, sort_begin, num_worker);
           if(NeedCleaning()) goto Do_Cleaning;
         }
       }
-      if(!has_help) usleep(10);
-      else usleep(5);
+      else
+      {
+        usleep(10);
+      }
     }
   }
 }
