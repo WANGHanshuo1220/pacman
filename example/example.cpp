@@ -239,7 +239,7 @@ void *prefilling(void *)
 void job3()
 {
   num_cleaners = 1;
-  num_workers = 2;
+  num_workers = 24;
   pthread_t *tid_prefilling = new pthread_t;
   pthread_t *tid = new pthread_t[num_workers];
   int ret;

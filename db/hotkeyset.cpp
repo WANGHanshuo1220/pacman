@@ -59,6 +59,8 @@ void HotKeySet::Record(const Slice &key, int worker_id, int class_) {
               */
         // LOG("hit ratio = %.1lf%%", 100. * record.hit_cnt / record.total_cnt);
         if (!update_schedule_flag_.test_and_set()) {
+          uint64_t total_num_key = db_->index_->get_num_key();
+          HOT_NUM = total_num_key * 0.25;
           BeginUpdateHotKeySet();
         }
       }
@@ -155,8 +157,8 @@ void HotKeySet::UpdateHotSet() {
   std::unordered_set<uint64_t> *new_set_class3 = nullptr;
   int sz = topK.size();
   int a1, a2, a3;
-  a3 = topK.size()/15;
-  a2 = topK.size()/3;
+  a3 = topK.size() * 0.04;
+  a2 = topK.size() * 0.4;
   a1 = topK.size() - a3 - a2;
   if (!topK.empty()) {
     if (max_cnt > 3 * topK.top().cnt) {

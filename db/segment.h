@@ -482,12 +482,12 @@ class LogSegment : public BaseSegment {
 
   void add_garbage_bytes(int b) 
   { 
-    if(garbage_bytes_ + b >= SEGMENT_SIZE_)
-    {
-      printf("GB_byte = %d\n", garbage_bytes_.load());
-      printf("b       = %d\n", b);
-      printf("SEG_SZ  = %ld\n", SEGMENT_SIZE_);
-    }
+    // if(garbage_bytes_ + b >= SEGMENT_SIZE_)
+    // {
+    //   printf("GB_byte = %d\n", garbage_bytes_.load());
+    //   printf("b       = %d\n", b);
+    //   printf("SEG_SZ  = %ld\n", SEGMENT_SIZE_);
+    // }
     garbage_bytes_.fetch_add(b); 
     assert(garbage_bytes_ <= SEGMENT_SIZE_);
   }
