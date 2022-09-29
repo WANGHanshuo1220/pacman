@@ -199,9 +199,9 @@ RETRY:
         target->_[loc].value = value;
         sfence();
         target->_[loc].key = key;
-        num_key++;
         idx_clwb_fence((char *)&target->_[loc], sizeof(Pair));
         /* release segment exclusive lock */
+        num_key.fetch_add(1);
         target->unlock();
         return;
       }

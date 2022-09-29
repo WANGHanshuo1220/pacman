@@ -6,6 +6,8 @@
 #include <experimental/filesystem>
 #include <sys/time.h>
 #include <map>
+#include <set>
+#include <unordered_set>
 
 #include "config.h"
 #include "db.h"
@@ -22,6 +24,8 @@ DB *db;
 std::random_device rd;  //Will be used to obtain a seed for the random number engine
 std::mt19937 gen(rd()); //Standard mersenne_twister_engine seeded with rd()
 std::uniform_real_distribution<> distrib(0, 1);
+std::unordered_map<uint64_t, uint64_t> re;
+SpinLock re_lock;
 
 struct timeval start, checkpoint1, checkpoint2;
 struct timeval zipf_s, zipf_e;
@@ -116,11 +120,10 @@ void job2()
   value.resize(32);
 
   db = new DB(db_path, log_size, num_workers, num_cleaners);
-  // db->start_GCThreads();
   std::unique_ptr<DB::Worker> worker = db->GetWorker();
 
   // printf("prefilling\n");
-  // for(uint64_t i = 0; i <  prefilling_rate * log_size / 48; i++)
+  // for(uint64_t i = 0; i <  prefilling_rate * log_size / 52; i++)
   // {
   //   key = zipf();
   //   value.resize(32);
@@ -129,7 +132,6 @@ void job2()
   // }
 
   // printf("prefilling done...\n");
-  // db->start_GCThreads();
 
   for(uint64_t i = 0; i < NUM_KVS; i++)
   {
@@ -180,10 +182,6 @@ void job2()
   worker.reset();
   delete db;
 
-  // printf("run time : \t(%ldus - %ldus) = %ld us \t(%ld s)\n", 
-  //   insert_time, zipf_time_cost, insert_time - zipf_time_cost,
-  //   (insert_time - zipf_time_cost)/1000000);
-  printf("%ld keys\n", kvs.size());
   printf("run time : %ld ns \t(%.2f s)\n", 
     insert_time, (float)insert_time/1000000);
 }
@@ -222,7 +220,14 @@ void *prefilling(void *)
   std::unique_ptr<DB::Worker> worker = db->GetWorker();
   std::string value = "hello world 22-09-08";
 
-  for(uint64_t i = 0; i <  prefilling_rate * log_size / (52 * num_workers); i++)
+  for(uint64_t i = 1; i <= dup_rate; i++)
+  {
+    key = i;
+    value.resize(32);
+    worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
+  }
+
+  for(uint64_t i = 0; i <  prefilling_rate * log_size / 52 - dup_rate; i++)
   {
     key = zipf();
     value.resize(32);
@@ -234,8 +239,8 @@ void *prefilling(void *)
 void job3()
 {
   num_cleaners = 1;
-  num_workers = 24;
-  pthread_t *tid_prefilling = new pthread_t[num_workers];
+  num_workers = 2;
+  pthread_t *tid_prefilling = new pthread_t;
   pthread_t *tid = new pthread_t[num_workers];
   int ret;
   uint64_t runtime = 0;
@@ -246,19 +251,13 @@ void job3()
   printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
 
   printf("prefilling\n");
-  for(int i = 0; i < num_workers; i++)
+  ret = pthread_create(tid_prefilling, NULL, &prefilling, NULL); 
+  if(ret != 0)
   {
-    ret = pthread_create(&tid_prefilling[i], NULL, &prefilling, NULL); 
-    if(ret != 0)
-    {
-      printf("%dth thread create error\n", i);
-      exit(0);
-    }
+    printf("prefilling thread create error\n");
+    exit(0);
   }
-  for(int i = 0; i < num_workers; i++)
-  {
-    pthread_join(tid_prefilling[i], NULL);
-  }
+  pthread_join(*tid_prefilling, NULL);
   printf("prefilling done...\n");
 
   // db->start_GCThreads();
@@ -282,41 +281,8 @@ void job3()
   gettimeofday(&checkpoint1, NULL);
   runtime = TIMEDIFF(start, checkpoint1);
 
-  // printf("\nstart checking...\n");
-  // std::string val_;
-  // uint64_t key_;
-  // int find_kvs = 0;
-  // int false_kv = 0;
-  // bool c = true;
-  // std::unique_ptr<DB::Worker> worker = db->GetWorker();
-  // for(uint64_t i = 1; i <= dup_rate; i++)
-  // {
-  //   key_ = i;
-  //   worker->Get(Slice((const char *)&key_, sizeof(uint64_t)), &val_);
-  //   if( kvs.find(key_) != kvs.end())
-  //   {
-  //     find_kvs ++;
-  //     if(kvs[key_].compare(val_) != 0)
-  //     {
-  //       // printf("kvs not equal, key_ = %d\n", key_);
-  //       // std::cout << "  kvs not equal. key_ = " << key_ << std::endl;
-  //       // std::cout << "    right_val = " << kvs[key_] << std::endl;
-  //       // std::cout << "    db_val = " << val_ << std::endl;
-  //       false_kv ++;
-  //       c = false;
-  //     }
-  //   }
-  // }
-
-  // if(c)
-  // {
-  //   std::cout << "all kvs correct: " << find_kvs << std::endl;
-  // }else
-  // {
-  //   std::cout << "some kvs incorrect: " << false_kv << std::endl;
-  // }
-  // worker.reset();
   delete db;
+
   printf("runtime = %ldns (%.2f s)\n", runtime, (float)runtime/1000000);
 }
 
@@ -422,9 +388,9 @@ uint64_t zipf()
   return(zipf_value);
 }
 
-Random re((unsigned)time(NULL));
+Random ra((unsigned)time(NULL));
 int get_random()
 {
-  return re.Next()%100;
+  return ra.Next()%100;
 }
 

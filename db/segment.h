@@ -9,9 +9,9 @@
 #include "db_common.h"
 #include "util/util.h"
 
-#define CAS(_p, _u, _v)                                            \
-  __atomic_compare_exchange_n(_p, _u, _v, false, __ATOMIC_ACQ_REL, \
-                              __ATOMIC_ACQUIRE)
+// #define CAS(_p, _u, _v)                                            \
+//   __atomic_compare_exchange_n(_p, _u, _v, false, __ATOMIC_ACQ_REL, \
+//                               __ATOMIC_ACQUIRE)
 #define TIMEDIFF(s, e) (e.tv_sec - s.tv_sec) * 1000000 + (e.tv_usec - s.tv_usec) //us
 
 // static constexpr int NUM_HEADERS = 1;
@@ -482,6 +482,12 @@ class LogSegment : public BaseSegment {
 
   void add_garbage_bytes(int b) 
   { 
+    if(garbage_bytes_ + b >= SEGMENT_SIZE_)
+    {
+      printf("GB_byte = %d\n", garbage_bytes_.load());
+      printf("b       = %d\n", b);
+      printf("SEG_SZ  = %ld\n", SEGMENT_SIZE_);
+    }
     garbage_bytes_.fetch_add(b); 
     assert(garbage_bytes_ <= SEGMENT_SIZE_);
   }

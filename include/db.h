@@ -68,6 +68,7 @@ class DB {
 #endif
     uint32_t class_seg_working_on[num_class];
     uint32_t accumulative_sz_class[num_class] = {0};
+    std::vector<std::pair<uint32_t, uint32_t>> s;
   
    private:
     int worker_id_;
