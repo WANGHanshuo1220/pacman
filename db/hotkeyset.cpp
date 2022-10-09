@@ -49,7 +49,7 @@ void HotKeySet::Record(const Slice &key, int worker_id, int class_) {
       uint32_t total_hit = 0;
       for(int i = 1; i < num_class; i++) total_hit += record.hit_cnt[i];
       // printf("hit ratio = %.1lf%%\n", 100. * record.hit_cnt / record.total_cnt);
-      if (     total_hit    < RECORD_BATCH_CNT  * 0.5
+      if (     total_hit    < RECORD_BATCH_CNT  * 0.7
           // record.hit_cnt[3] < record.hit_cnt[2] * 1.0 ||
           // record.hit_cnt[2] < record.hit_cnt[1] * 1.0 
          ) { /* means many keys that has been accessed 
@@ -60,7 +60,7 @@ void HotKeySet::Record(const Slice &key, int worker_id, int class_) {
         // LOG("hit ratio = %.1lf%%", 100. * record.hit_cnt / record.total_cnt);
         if (!update_schedule_flag_.test_and_set()) {
           uint64_t total_num_key = db_->index_->get_num_key();
-          HOT_NUM = total_num_key * 0.25;
+          HOT_NUM = total_num_key * 0.30;
           BeginUpdateHotKeySet();
         }
       }
@@ -136,18 +136,6 @@ void HotKeySet::UpdateHotSet() {
       }
     }
   }
-  // printf("############################\n");
-
-  // std::priority_queue<RecordEntry, std::vector<RecordEntry>,
-  //                     std::greater<RecordEntry>>
-  //     topK_ = topK;
-  // for(int i = 0; i < topK_.size(); i ++)
-  // {
-  //   printf("%ld ", topK_.top().cnt);
-  //   topK_.pop();
-  //   if(i%50 == 0 && i != 0) printf("\n");
-  // }
-  // printf("\n############################\n");
 
   std::unordered_set<uint64_t> *old_set_class1 = current_set_class[0];
   std::unordered_set<uint64_t> *old_set_class2 = current_set_class[1];
@@ -157,15 +145,17 @@ void HotKeySet::UpdateHotSet() {
   std::unordered_set<uint64_t> *new_set_class3 = nullptr;
   int sz = topK.size();
   int a1, a2, a3;
-  a3 = topK.size() * 0.04;
-  a2 = topK.size() * 0.4;
+  a3 = topK.size() / 30;
+  a2 = topK.size() / 6;
   a1 = topK.size() - a3 - a2;
+  // printf("min = %ld\n", topK.top().cnt);
   if (!topK.empty()) {
     if (max_cnt > 3 * topK.top().cnt) {
       new_set_class1 = new std::unordered_set<uint64_t>(a1);
       new_set_class2 = new std::unordered_set<uint64_t>(a2);
       new_set_class3 = new std::unordered_set<uint64_t>(a3);
       for(int i = 0; !topK.empty(); i ++) {
+        // if(topK.size() == 1) printf("max = %ld\n", topK.top().cnt);
         if(i < a1) new_set_class1->insert(topK.top().key);
         else if(i < a1 + a2) new_set_class2->insert(topK.top().key);
         else new_set_class3->insert(topK.top().key);

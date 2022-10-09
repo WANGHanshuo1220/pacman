@@ -149,6 +149,10 @@ DB::Worker::Worker(DB *db) : db_(db) {
     assert(log_head_class[i]->is_segment_using());
   }
 
+#ifdef LOG_BATCHING
+  buffer_queue_.resize(num_class);
+#endif
+
 #if INDEX_TYPE == 3
   reinterpret_cast<MasstreeIndex *>(db_->index_)
       ->MasstreeThreadInit(worker_id_);
@@ -185,10 +189,11 @@ DB::Worker::~Worker() {
   // printf("      Markgarbage_p2 = \t%ld us   \t(%ld s)\n", markgarbage_p2, markgarbage_p2/1000000);
 #endif
 #ifdef LOG_BATCHING
-  BatchIndexInsert(buffer_queue_.size(), true);
-#ifdef HOT_COLD_SEPARATE
-  BatchIndexInsert(cold_buffer_queue_.size(), false);
-#endif
+  for(int i = 0; i < num_class; i++)
+  {
+    // printf("class %d, queue size = %ld\n", i, buffer_queue_[i].size());
+    BatchIndexInsert(buffer_queue_[i].size(), i);
+  }
 #endif
   db_->log_->SyncCleanerGarbageBytes(tmp_cleaner_garbage_bytes_);
   for(int i = 0; i < num_class; i++)
@@ -274,68 +279,71 @@ size_t DB::Worker::Scan(const Slice &key, int cnt) {
 bool DB::Worker::Delete(const Slice &key) { ERROR_EXIT("not implemented yet"); }
 
 #ifdef LOG_BATCHING
-void DB::Worker::BatchIndexInsert(int cnt, bool hot) {
-#ifdef HOT_COLD_SEPARATE
+void DB::Worker::BatchIndexInsert(int cnt, int class_) {
   std::queue<std::pair<KeyType, ValueType>> &queue =
-      hot ? buffer_queue_ : cold_buffer_queue_;
-#else
-  std::queue<std::pair<KeyType, ValueType>> &queue = buffer_queue_;
-#endif
+    buffer_queue_[class_];
+  if(cnt == 0) assert(queue.size() == 0);
+  else if((queue.size() != cnt) && (queue.size() != cnt + 1))
+  {
+    printf("q.size = %ld, cnt = %d, class_ = %d\n",
+      queue.size(), cnt, class_);
+    assert((queue.size() == cnt) || (queue.size() == cnt + 1));
+  }
   while (cnt--) {
+    if(queue.size() == 0)
+      printf("q.size = %ld, cnt = %d, class_ = %d\n",
+        queue.size(), cnt, class_);
+    assert(queue.size());
     std::pair<KeyType, ValueType> kv_pair = queue.front();
     UpdateIndex(Slice((const char *)&kv_pair.first, sizeof(KeyType)),
-                kv_pair.second, hot);
+                kv_pair.second, class_);
     queue.pop();
   }
 }
 
 ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
-                                 bool hot) {
+                                 int class_) {
 #ifdef GC_EVAL
   struct timeval change_seg_start, change_seg_end, append_start, append_end;
   gettimeofday(&change_seg_start, NULL);
   uint32_t sz_ = sizeof(KVItem) + key.size() + value.size();
-  if (sz_ > max_kv_sz) max_kv_sz = sz_;
 #endif
 
   ValueType ret = INVALID_VALUE;
   uint64_t i_key = *(uint64_t *)key.data();
   uint32_t epoch = db_->GetKeyEpoch(i_key);
-
-#ifdef INTERLEAVED
   uint32_t sz = sizeof(KVItem) + key.size() + value.size();
-  if(hot) {
-    if(hot_batch_persistent)
-    {
-      // int persist_cnt = log_head_->FlushRemain();
-      // BatchIndexInsert(persist_cnt, hot);
-      std::pair<int, LogSegment **> hot = db_->get_hot_segment();
-      log_head_ = *hot.second;
-      hot_seg_working_on = hot.first;
-      hot_batch_persistent = false;
-    }
-  }
-  else {
-    if(cold_batch_persistent)
-    {
-      // int persist_cnt = cold_log_head_->FlushRemain();
-      // BatchIndexInsert(persist_cnt, hot);
-      std::pair<int, LogSegment **> cold = db_->get_cold_segment();
-      cold_log_head_ = *cold.second;
-      cold_seg_working_on = cold.first;
-      cold_batch_persistent = false;
-    }
-  }
-#endif
+  int persist_cnt = 0;
 
-#ifdef HOT_COLD_SEPARATE
-  LogSegment *&segment = hot ? log_head_ : cold_log_head_;
   std::queue<std::pair<KeyType, ValueType>> &queue =
-      hot ? buffer_queue_ : cold_buffer_queue_;
-#else
-  LogSegment *&segment = log_head_;
-  std::queue<std::pair<KeyType, ValueType>> &queue = buffer_queue_;
-#endif
+    buffer_queue_[class_];
+
+  if(class_ != 0)
+  {
+    accumulative_sz_class[class_] += sz;
+    if(accumulative_sz_class[class_] > db_->get_threshold(class_))
+    {
+      persist_cnt = log_head_class[class_]->FlushRemain();
+      BatchIndexInsert(persist_cnt, class_);
+      assert(queue.size() == 0);
+
+      log_head_class[class_]->set_touse();
+      std::pair<uint32_t, LogSegment **> p = db_->get_class_segment(class_, worker_id_);
+      log_head_class[class_] = *p.second;
+      class_seg_working_on[class_] = p.first;
+      accumulative_sz_class[class_] = sz;
+      assert(log_head_class[class_]->is_segment_using());
+      uint32_t n = log_head_class[class_]->num_kvs;
+      if(n)
+      {
+        if(log_head_class[class_]->roll_back_map[n-1].is_garbage) 
+        {
+          Roll_Back2(log_head_class[class_]);
+        }
+      }
+    }
+  }
+  LogSegment *&segment = log_head_class[class_];
 
 #ifdef GC_EVAL
   gettimeofday(&change_seg_end, NULL);
@@ -346,26 +354,22 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
   gettimeofday(&append_start, NULL);
 #endif
 
-  int persist_cnt = 0;
+  persist_cnt = 0;
   while (segment == nullptr ||
          (ret = segment->AppendBatchFlush(key, value, epoch, &persist_cnt)) ==
              INVALID_VALUE) {
     if (segment) {
       persist_cnt = segment->FlushRemain();
-      BatchIndexInsert(persist_cnt, hot);
-      FreezeSegment(segment);
+      BatchIndexInsert(persist_cnt, class_);
+      assert(queue.size() == 0);
+      FreezeSegment(segment, class_);
     }
-    segment = db_->log_->NewSegment(hot);
-#ifdef INTERLEAVED
-    if(hot)
+    segment = db_->log_->NewSegment(class_);
+    if(class_ != 0)
     {
-      db_->log_->set_hot_segment_(hot_seg_working_on, segment);
+      accumulative_sz_class[class_] = sz;
+      db_->log_->set_class_segment_(class_, class_seg_working_on[class_], segment);
     }
-    else
-    {
-      db_->log_->set_cold_segment_(cold_seg_working_on, segment);
-    }
-#endif
   }
   
 #ifdef GC_EVAL
@@ -379,21 +383,11 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
   struct timeval update_index_begin;
   gettimeofday(&update_index_begin, NULL);
 #endif
-  BatchIndexInsert(persist_cnt, hot);
+  BatchIndexInsert(persist_cnt, class_);
 #ifdef GC_EVAL
   struct timeval update_index_end;
   gettimeofday(&update_index_end, NULL);
   update_index_time += TIMEDIFF(update_index_begin, update_index_end);
-#endif
-#ifdef INTERLEAVED
-    if(hot)
-    {
-      hot_batch_persistent = true;
-    }
-    else
-    {
-      cold_batch_persistent = true;
-    }
 #endif
   }
 
@@ -452,11 +446,11 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     struct timeval s1, e1;
     gettimeofday(&s1, NULL);
 #endif
-  if(class_ != 0)
-  {
-    accumulative_sz_class[class_] = sz;
-    db_->log_->set_class_segment_(class_, class_seg_working_on[class_], segment);
-  }
+    if(class_ != 0)
+    {
+      accumulative_sz_class[class_] = sz;
+      db_->log_->set_class_segment_(class_, class_seg_working_on[class_], segment);
+    }
   // log_head_class[class_] = segment;
 #ifdef GC_EVAL
     gettimeofday(&e1, NULL);
@@ -540,7 +534,6 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
 
     uint32_t sz = segment->roll_back_map[num_].kv_sz * kv_align;
     segment->add_garbage_bytes(sz);
-    assert(sz > 0);
     uint32_t n = segment->num_kvs.load();
 
     if( segment->is_segment_touse() )
@@ -596,7 +589,7 @@ void DB::Worker::Roll_Back1(uint32_t n_, uint32_t sz, LogSegment *segment)
   }
   db_->roll_back_bytes.fetch_add(roll_back_sz);
   segment->roll_back_tail(roll_back_sz);
-  segment->reduce_garbage_bytes(roll_back_sz, worker_id_, segment, 1);
+  segment->reduce_garbage_bytes(roll_back_sz);
   segment->RB_num_kvs(RB_count);
 }
 
@@ -622,7 +615,7 @@ void DB::Worker::Roll_Back2(LogSegment *segment)
     }
     db_->roll_back_bytes.fetch_add(roll_back_sz);
     segment->roll_back_tail(roll_back_sz);
-    segment->reduce_garbage_bytes(roll_back_sz, worker_id_, segment, 2);
+    segment->reduce_garbage_bytes(roll_back_sz);
     segment->RB_num_kvs(RB_count);
   }
 }

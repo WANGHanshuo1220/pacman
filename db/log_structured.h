@@ -61,9 +61,9 @@ class LogStructured {
   LogSegment *get_segments_(int i) { return all_segments_[i]; }
 #endif
   void get_seg_usage_info();
-  std::vector<LogSegment *>* get_class3_segments()
+  std::vector<LogSegment *>* get_class_segments(int i)
   {
-    return &class_segments_[num_class-1];
+    return &class_segments_[num_class-1-i];
   }
 
   std::vector<int> cleaner_seg_sort_record;

@@ -133,9 +133,11 @@ class BaseSegment {
 
 class LogSegment : public BaseSegment {
  public:
-  LogSegment(char *start_addr, uint64_t size, int class__)
+  LogSegment(char *start_addr, uint64_t size, int class__, int id)
       : BaseSegment(start_addr, size), garbage_bytes_(0), class_(class__) {
     // assert(((uint64_t)header_ & (HEADER_ALIGN_SIZE - 1)) == 0);
+    assert(((uint64_t)segment_start_ & (HEADER_ALIGN_SIZE - 1)) == 0);
+    seg_id = id;
     Init();
   }
 
@@ -240,6 +242,9 @@ class LogSegment : public BaseSegment {
 
   void roll_back_tail(uint32_t sz) { 
     tail_ -= sz; 
+#ifdef LOG_BATCHING
+    flush_tail_ == tail_;
+#endif
   }
 
   void InitShortcutBuffer() {
@@ -350,7 +355,7 @@ class LogSegment : public BaseSegment {
     }
     kv->Flush();
     tail_ += sz;
-    // ++cur_cnt_;
+    ++cur_cnt_;
 
 #ifdef GC_EVAL
     gettimeofday(&make_new_kv_end, NULL);
@@ -378,26 +383,18 @@ class LogSegment : public BaseSegment {
     if (!HasSpaceFor(sz)) {
       return INVALID_VALUE;
     }
-#ifdef INTERLEAVED
     uint16_t cur_num = num_kvs;
     KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
-    roll_back_map[cur_num].first = false;
-    roll_back_map[cur_num].second = sz;
-    num_kvs ++;
-#else
-    KVItem *kv = new (tail_) KVItem(key, value, epoch);
-#endif
+    if(class_ != 0)
+    {
+      roll_back_map[cur_num].kv_sz = (uint16_t)(sz/kv_align);
+      num_kvs ++;
+    }
     ++not_flushed_cnt_;
     tail_ += sz;
     ++cur_cnt_;
     char *align_addr = (char *)((uint64_t)tail_ & ~(LOG_BATCHING_SIZE - 1));
     if (align_addr - flush_tail_ >= LOG_BATCHING_SIZE) {
-#ifdef INTERLEAVED
-      clwb_fence(flush_tail_, tail_ - flush_tail_);
-      flush_tail_ = tail_;
-      *persist_cnt = not_flushed_cnt_;
-      not_flushed_cnt_ = 0;
-#else
       clwb_fence(flush_tail_, align_addr - flush_tail_);
       flush_tail_ = align_addr;
       if (tail_ == align_addr) {
@@ -407,15 +404,16 @@ class LogSegment : public BaseSegment {
         *persist_cnt = not_flushed_cnt_ - 1;
         not_flushed_cnt_ = 1;
       }
-#endif
     } else {
       *persist_cnt = 0;
     }
-#ifdef INTERLEAVED
-    return TaggedPointer((char *)kv, sz, cur_num);
-#else
-    return TaggedPointer((char *)kv, sz);
-#endif
+    if(*persist_cnt != 0 && *persist_cnt != 10 && *persist_cnt != 9)
+    {
+      printf("*presist_cnt = %d, not_flush_cnt = %d\n",
+        *persist_cnt, not_flushed_cnt_);
+    }
+    assert(*persist_cnt == 0 || *persist_cnt == 10 || *persist_cnt == 9);
+    return TaggedPointer((char *)kv, sz, cur_num, class_);
   }
 #endif
 
@@ -482,16 +480,25 @@ class LogSegment : public BaseSegment {
 
   void add_garbage_bytes(int b) 
   { 
-    // if(garbage_bytes_ + b >= SEGMENT_SIZE_)
-    // {
-    //   printf("GB_byte = %d\n", garbage_bytes_.load());
-    //   printf("b       = %d\n", b);
-    //   printf("SEG_SZ  = %ld\n", SEGMENT_SIZE_);
-    // }
+    if(garbage_bytes_ + b >= SEGMENT_SIZE_)
+    {
+      printf("GB_byte = %d\n", garbage_bytes_.load());
+      printf("b       = %d\n", b);
+      printf("SEG_SZ  = %ld\n", SEGMENT_SIZE_);
+      printf("status  = %d\n", get_status());
+      for(int i = 0; i < roll_back_map.size(); i++)
+      {
+        if(roll_back_map[i].is_garbage == 0)
+        {
+          printf("%d ", i);
+        }
+      }
+      printf("\n");
+    }
     garbage_bytes_.fetch_add(b); 
     assert(garbage_bytes_ <= SEGMENT_SIZE_);
   }
-  void reduce_garbage_bytes(int b, int worker_id, LogSegment *seg, int i) 
+  void reduce_garbage_bytes(int b) 
   { 
     garbage_bytes_.fetch_sub(b); 
     assert(garbage_bytes_ >= 0);

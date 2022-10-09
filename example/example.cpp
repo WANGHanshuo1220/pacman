@@ -25,14 +25,19 @@ std::random_device rd;  //Will be used to obtain a seed for the random number en
 std::mt19937 gen(rd()); //Standard mersenne_twister_engine seeded with rd()
 std::uniform_real_distribution<> distrib(0, 1);
 std::unordered_map<uint64_t, uint64_t> re;
-SpinLock re_lock;
+std::vector<uint64_t> time_eval;
+std::vector<std::vector<uint64_t>> key_base;
+std::vector<std::vector<uint64_t>> op_base;
 
 struct timeval start, checkpoint1, checkpoint2;
 struct timeval zipf_s, zipf_e;
 long zipf_time_cost = 0;
 uint64_t zipf();
+uint64_t uniform();
 void init_zipf();
 int get_random();
+void prepare_key_base();
+
 class Random {
  private:
   uint32_t seed_;
@@ -182,33 +187,38 @@ void job2()
   worker.reset();
   delete db;
 
-  printf("run time : %ld ns \t(%.2f s)\n", 
+  printf("run time : %ld us \t(%.2f s)\n", 
     insert_time, (float)insert_time/1000000);
 }
 
 std::map<uint64_t, std::string> kvs;
 
-void *put_KVS(void *)
+void *put_KVS(void *id)
 {
+  uint32_t t_id = *(int*)id;
   uint64_t key;
   int op;
   std::string value = "hello world 22-08-24";
   std::unique_ptr<DB::Worker> worker = db->GetWorker();
   value.resize(32);
+  struct timeval s, e;
+  std::string value1;
 
   for(uint64_t i = 0; i < NUM_KVS; i++)
   {
-    key = zipf();
-    op = get_random();
-    if(op < 50)
+    key = key_base[t_id][i];
+    // key = uniform();
+    // gettimeofday(&s, NULL);
+    if(op_base[t_id][i])
     {
       worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
     }
     else
     {
-      std::string value;
-      bool found = worker->Get(Slice((const char *)&key, sizeof(KeyType)), &value);
+      bool found = worker->Get(Slice((const char *)&key, sizeof(KeyType)), &value1);
     }
+    // gettimeofday(&e, NULL);
+    // time_eval[t_id] +=TIMEDIFF(s, e);
   }
 
   worker.reset();
@@ -230,6 +240,7 @@ void *prefilling(void *)
   for(uint64_t i = 0; i <  prefilling_rate * log_size / 52 - dup_rate; i++)
   {
     key = zipf();
+    // key = uniform();
     value.resize(32);
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
   }
@@ -239,14 +250,17 @@ void *prefilling(void *)
 void job3()
 {
   num_cleaners = 1;
-  num_workers = 24;
+  num_workers = 4;
+  time_eval.resize(num_workers);
   pthread_t *tid_prefilling = new pthread_t;
   pthread_t *tid = new pthread_t[num_workers];
   int ret;
   uint64_t runtime = 0;
 
   db = new DB(db_path, log_size, num_workers, num_cleaners);
-  // db->start_GCThreads();
+  printf("Preparing key base\n");
+  prepare_key_base();
+  printf("Preparing key base done...\n");
   
   printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
 
@@ -263,9 +277,11 @@ void job3()
   // db->start_GCThreads();
   gettimeofday(&start, NULL);
 
+  int a[num_workers];
   for(int i = 0; i < num_workers; i++)
   {
-    ret = pthread_create(&tid[i], NULL, &put_KVS, NULL); 
+    a[i] = i;
+    ret = pthread_create(&tid[i], NULL, &put_KVS, &a[i]);
     if(ret != 0)
     {
       printf("%dth thread create error\n", i);
@@ -282,6 +298,12 @@ void job3()
   runtime = TIMEDIFF(start, checkpoint1);
 
   delete db;
+
+  // for(int i = 0; i < num_workers; i++)
+  // {
+  //   printf("worker %d: %ld us (%ld s)\n",
+  //     i, time_eval[i], time_eval[i]/1000000);
+  // }
 
   printf("runtime = %ldns (%.2f s)\n", runtime, (float)runtime/1000000);
 }
@@ -352,6 +374,13 @@ void init_zipf()
   printf("finished...\n");
 }
 
+uint64_t uniform()
+{
+  uint64_t re = floor( dup_rate * (distrib(gen)));
+  assert(re >= 0 && re <= dup_rate);
+  return re;
+}
+
 uint64_t zipf()
 {
   double z;                     // Uniform random number (0 < z < 1)
@@ -394,3 +423,20 @@ int get_random()
   return ra.Next()%100;
 }
 
+
+void prepare_key_base()
+{
+  key_base.resize(num_workers);
+  op_base.resize(num_workers);
+  for(int i = 0; i < num_workers; i++)
+  {
+    for(uint64_t j = 0; j < NUM_KVS; j++)
+    {
+      uint64_t key = zipf();
+      key_base[i].push_back(key);
+      uint32_t op = get_random();
+      if(op < 50) op_base[i].push_back(0);
+      else op_base[i].push_back(1);
+    }
+  }
+}

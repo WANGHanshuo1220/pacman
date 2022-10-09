@@ -83,42 +83,42 @@ class LogCleaner {
       assert(reserved_segment_->is_segment_reserved());
     }
 #ifdef BATCH_COMPACTION
-    volatile_segment_ = new VirtualSegment(SEGMENT_SIZE);
+    volatile_segment_ = new VirtualSegment(SEGMENT_SIZE[class_]);
     volatile_segment_->set_has_shortcut(false);
 #endif
   }
 
   ~LogCleaner() {
-#ifndef GC_EVAL
+// #ifndef GC_EVAL
     printf("%dth cleaner(%d): GC_times = %d, "
            "clean_time_ns_ = %ldns (%.3f s), "
            "clean_sort_ns_ = %ldns (%.3f s)\n", 
       get_cleaner_id(), help.load(), show_GC_times(), 
       clean_time_ns_, (float)clean_time_ns_/1000000000,
       clean_sort_ns_time_, (float)clean_sort_ns_time_/1000000000);
-#else
-    printf("%dth cleaner: GC_times = %d\n", get_cleaner_id(), show_GC_times());
-    printf("  clean_time_ns_               = %ldns (%.3f s)\n", 
-      clean_time_ns_, (float)clean_time_ns_/1000000000);
-    printf("    DomemoryClean_times_ns_    = %ldns (%.3f s)\n", 
-      DoMemoryClean_time_ns_, (float)DoMemoryClean_time_ns_/1000000000);
-    printf("      DomemoryClean_times1_ns_ = %ldns (%.3f s)\n", 
-      DoMemoryClean_time1_ns_, (float)DoMemoryClean_time1_ns_/1000000000);
-    printf("      DomemoryClean_times2_ns_ = %ldns (%.3f s)\n", 
-      DoMemoryClean_time2_ns_, (float)DoMemoryClean_time2_ns_/1000000000);
-    printf("      DomemoryClean_times3_ns_ = %ldns (%.3f s)\n", 
-      DoMemoryClean_time3_ns_, (float)DoMemoryClean_time3_ns_/1000000000);
-    printf("      Compaction_times_ns_     = %ldns (%.3f s)\n", 
-      CompactionSeg_time_ns_, (float)CompactionSeg_time_ns_/1000000000);
-    printf("        Compaction_times1_ns_  = %ldns (%.3f s)\n", 
-      CompactionSeg_time1_ns_, (float)CompactionSeg_time1_ns_/1000000000);
-    printf("          Compaction_times1_1_ns_  = %ldns (%.3f s)\n", 
-      CompactionSeg_time1_1_ns_, (float)CompactionSeg_time1_1_ns_/1000000000);
-    printf("          Compaction_times1_2_ns_  = %ldns (%.3f s)\n", 
-      CompactionSeg_time1_2_ns_, (float)CompactionSeg_time1_2_ns_/1000000000);
-    printf("        Compaction_times2_ns_  = %ldns (%.3f s)\n", 
-      CompactionSeg_time2_ns_, (float)CompactionSeg_time2_ns_/1000000000);
-#endif
+// #else
+    // printf("%dth cleaner: GC_times = %d\n", get_cleaner_id(), show_GC_times());
+    // printf("  clean_time_ns_               = %ldns (%.3f s)\n", 
+    //   clean_time_ns_, (float)clean_time_ns_/1000000000);
+    // printf("    DomemoryClean_times_ns_    = %ldns (%.3f s)\n", 
+    //   DoMemoryClean_time_ns_, (float)DoMemoryClean_time_ns_/1000000000);
+    // printf("      DomemoryClean_times1_ns_ = %ldns (%.3f s)\n", 
+    //   DoMemoryClean_time1_ns_, (float)DoMemoryClean_time1_ns_/1000000000);
+    // printf("      DomemoryClean_times2_ns_ = %ldns (%.3f s)\n", 
+    //   DoMemoryClean_time2_ns_, (float)DoMemoryClean_time2_ns_/1000000000);
+    // printf("      DomemoryClean_times3_ns_ = %ldns (%.3f s)\n", 
+    //   DoMemoryClean_time3_ns_, (float)DoMemoryClean_time3_ns_/1000000000);
+    // printf("      Compaction_times_ns_     = %ldns (%.3f s)\n", 
+    //   CompactionSeg_time_ns_, (float)CompactionSeg_time_ns_/1000000000);
+    // printf("        Compaction_times1_ns_  = %ldns (%.3f s)\n", 
+    //   CompactionSeg_time1_ns_, (float)CompactionSeg_time1_ns_/1000000000);
+    // printf("          Compaction_times1_1_ns_  = %ldns (%.3f s)\n", 
+    //   CompactionSeg_time1_1_ns_, (float)CompactionSeg_time1_1_ns_/1000000000);
+    // printf("          Compaction_times1_2_ns_  = %ldns (%.3f s)\n", 
+    //   CompactionSeg_time1_2_ns_, (float)CompactionSeg_time1_2_ns_/1000000000);
+    // printf("        Compaction_times2_ns_  = %ldns (%.3f s)\n", 
+    //   CompactionSeg_time2_ns_, (float)CompactionSeg_time2_ns_/1000000000);
+// #endif
 #ifdef BATCH_COMPACTION
     delete volatile_segment_;
 #endif
@@ -194,6 +194,11 @@ class LogCleaner {
 
   uint32_t closed = 0;
   std::vector<int> range = {100, 75, 50, 25, 0};
+  int gap[2] = {10, 5};
+  int sort_range[2];
+  int num_worker;
+  int worker_range;
+  std::vector<uint32_t> num_class_segs;
 
  private:
   DB *db_;
@@ -225,7 +230,8 @@ class LogCleaner {
   bool NeedCleaning();
   void BatchFlush();
   void BatchIndexUpdate();
-  void CopyValidItemToBuffer(LogSegment *segment);
+  void CopyValidItemToBuffer0(LogSegment *segment);
+  void CopyValidItemToBuffer123(LogSegment *segment);
   void BatchCompactSegment(LogSegment *segment);
   void CompactSegment0(LogSegment *segment);
   void CompactSegment123(LogSegment *segment);
@@ -233,8 +239,9 @@ class LogCleaner {
   void MarkGarbage0(ValueType tagged_val);
   void MarkGarbage123(ValueType tagged_val);
   void DoMemoryClean();
-  void Sort_for_worker(int worker_i, int sort_range,
-                       int sort_begin, int num_worker);
+  void Sort_for_worker(int worker_i,
+                       int sort_begin, int i);
+  void Help_sort(int i);
 
   void RecoverySegments();
   void RecoveryInfo();

@@ -74,6 +74,7 @@ class DB {
     int worker_id_;
     DB *db_;
     LogSegment *log_head_class[num_class] = {nullptr};
+    bool need_change[num_class] = {false};
 
     // lazily update garbage bytes for cleaner, avoid too many FAAs
     std::vector<size_t> tmp_cleaner_garbage_bytes_;
@@ -86,12 +87,9 @@ class DB {
     void FreezeSegment(LogSegment *segment, int class_);
 
 #ifdef LOG_BATCHING
-    void BatchIndexInsert(int cnt, bool hot);
+    void BatchIndexInsert(int cnt, int class_);
 
-    std::queue<std::pair<KeyType, ValueType>> buffer_queue_;
-#ifdef HOT_COLD_SEPARATE
-    std::queue<std::pair<KeyType, ValueType>> cold_buffer_queue_;
-#endif
+    std::vector<std::queue<std::pair<KeyType, ValueType>>> buffer_queue_;
 #endif
 
     DISALLOW_COPY_AND_ASSIGN(Worker);
@@ -136,9 +134,9 @@ class DB {
 #endif
   uint32_t get_threshold(int class_) { return change_seg_threshold_class[class_]; }
   std::atomic<uint32_t> put_c[4] = {0, 0, 0, 0};
-  std::vector<int>* get_next_class3_segment()
+  std::vector<int>* get_next_class_segment(int i)
   {
-    return &next_class_segment_[num_class-1];
+    return &next_class_segment_[num_class-1-i];
   }
 
   uint32_t change_seg_threshold_class[num_class];

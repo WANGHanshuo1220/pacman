@@ -29,13 +29,17 @@ void LogCleaner::CleanerEntry() {
   reinterpret_cast<MasstreeIndex *>(db_->index_)
       ->MasstreeThreadInit(log_->num_workers_ + cleaner_id_);
 #endif
-  std::vector<int> &next_class3_segment = 
-    *(db_->get_next_class3_segment());
-  int num_worker = next_class3_segment.size();
-  assert(num_worker == db_->get_num_workers());
-  int range = num_worker / num_class;
-  int num_class_segs = db_->db_num_class_segs[num_class-1];
-  int gap = 10, sort_range = 20;
+  num_class_segs.resize(2);
+  num_class_segs[0] = db_->db_num_class_segs[num_class-1];
+  num_class_segs[1] = db_->db_num_class_segs[num_class-2];
+  num_worker = db_->get_num_workers();
+  for(int i = 0; i < 2; i++)
+  {
+    sort_range[i] = (num_class_segs[i] - gap[i]) / ( 2 * num_worker);
+    if(sort_range[i] > 20) sort_range[i] = 20;
+  }
+  worker_range = num_worker / num_class;
+  int count = 0;
 
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning()) {
@@ -51,27 +55,16 @@ Do_Cleaning:
       if(now - clean_sort_us_before_ > 1000)
       {
         clean_sort_us_before_ = now;
-
-        for(int worker_i = cleaner_id_ * range;
-            worker_i < (cleaner_id_+1) * range && worker_i < num_worker;
-            worker_i ++)
+        help ++;
+        if(count < 3)
+        { 
+          Help_sort(0);
+          count++;
+        }
+        else
         {
-          Timer time(clean_sort_ns_time_);
-          help ++;
-          int seg_working_on = next_class3_segment[worker_i];
-          int sort_begin = seg_working_on + num_worker * gap;
-          if(sort_begin >= num_class_segs)
-          {
-            sort_begin = 
-              (gap -
-              (num_class_segs - seg_working_on) / num_worker) * 
-              num_worker + worker_i;
-          }
-
-          assert(sort_begin < db_->db_num_class_segs[num_class-1]);
-          assert(sort_begin%num_worker == worker_i);
-          Sort_for_worker(worker_i, sort_range, sort_begin, num_worker);
-          if(NeedCleaning()) goto Do_Cleaning;
+          Help_sort(1);
+          count = 0;
         }
       }
       else
@@ -82,49 +75,74 @@ Do_Cleaning:
   }
 }
 
-void LogCleaner::Sort_for_worker(int worker_i, int sort_range, 
-                                 int sort_begin, int num_worker)
+void LogCleaner::Help_sort(int id)
 {
-  assert(num_worker == db_->get_num_workers());
-  std::vector<LogSegment *> &class3_segemnts = 
-    *(log_->get_class3_segments());
+  Timer time(clean_sort_ns_time_);
+  std::vector<int> &next_class_segment = 
+    *(db_->get_next_class_segment(id));
+
+  for(int worker_i = cleaner_id_ * worker_range;
+      worker_i < (cleaner_id_+1) * worker_range && worker_i < num_worker;
+      worker_i ++)
+  {
+    int seg_working_on = next_class_segment[worker_i];
+    assert(seg_working_on < num_class_segs[id]);
+    int sort_begin = seg_working_on + num_worker * gap[id];
+    int sort_begin_;
+    assert(sort_begin%num_worker == worker_i);
+    if(sort_begin >= num_class_segs[id])
+    {
+      sort_begin_ = sort_begin;
+      sort_begin = 
+        (gap[id] -
+        (num_class_segs[id] - seg_working_on) / num_worker) * 
+        num_worker + worker_i;
+    }
+
+    if(sort_begin%num_worker != worker_i)
+    {
+      printf("sort_begin  = %d\n", sort_begin);
+      printf("sort_begin_ = %d\n", sort_begin_);
+      printf("num_worker  = %d\n", num_worker);
+      printf("worker_i    = %d\n", worker_i  );
+    }
+    assert(sort_begin%num_worker == worker_i);
+    Sort_for_worker(worker_i, sort_begin, id);
+  }
+}
+
+void LogCleaner::Sort_for_worker(int worker_i, 
+                                 int sort_begin, int id)
+{
+  std::vector<LogSegment *> &class_segemnts = 
+    *(log_->get_class_segments(id));
   std::multiset<LogSegment *, Compare_seg_offset> s;
   int idx = sort_begin;
 
-  for(int i = 0; i < sort_range; i ++)
+  for(int i = 0; i < sort_range[id]; i ++)
   {
     assert(idx%num_worker == worker_i);
-    assert(class3_segemnts[idx]->is_segment_touse());
-    s.insert(class3_segemnts[idx]);
-    assert(std::find(s.begin(), s.end(), class3_segemnts[idx]) != s.end());
+    if(!class_segemnts[idx]->is_segment_touse())
+    {
+      printf("status = %d\n", class_segemnts[idx]->get_status());
+    }
+    assert(class_segemnts[idx]->is_segment_touse());
+    s.insert(class_segemnts[idx]);
     idx += num_worker;
-    if(idx >= db_->db_num_class_segs[num_class-1]) idx = worker_i;
+    if(idx >= num_class_segs[id]) idx = worker_i;
   }
 
-  // printf("check sort re\n");
-  // for(auto it = s.begin(); it != s.end(); it++)
-  // {
-  //   printf("%ld ", (*it)->get_offset());
-  // }
-  // printf("\n");
-
-  // printf("org\n");
-  // for(int i = 0, j = sort_begin; i < sort_range; i++)
-  // {
-  //   printf("%ld ", class3_segemnts[j]->get_offset());
-  //   j += num_worker;
-  //   if(j >= db_->db_num_class_segs[num_class-1]) j = worker_i;
-  // }
-  // printf("\n");
-
-  assert(s.size() == sort_range);
   idx = sort_begin;
   for (auto it = s.begin(); it != s.end(); it++)
   {
-    class3_segemnts[idx] = *it;
-    assert(class3_segemnts[idx]->is_segment_touse());
+    class_segemnts[idx] = *it;
+    if(!class_segemnts[idx]->is_segment_touse())
+    {
+      printf("seg status = %d\n", class_segemnts[idx]->get_status());
+    }
+    assert(class_segemnts[idx]->is_segment_touse());
     idx += num_worker;
-    if(idx >= db_->db_num_class_segs[num_class-1]) idx = worker_i;
+    if(idx >= num_class_segs[id]) idx = worker_i;
   }
 }
 
@@ -244,7 +262,7 @@ void LogCleaner::BatchIndexUpdate() {
   valid_items_.clear();
 }
 
-void LogCleaner::CopyValidItemToBuffer(LogSegment *segment) {
+void LogCleaner::CopyValidItemToBuffer123(LogSegment *segment) {
   
   char *p = const_cast<char *>(segment->get_data_start());
   char *tail = segment->get_tail();
@@ -253,7 +271,56 @@ void LogCleaner::CopyValidItemToBuffer(LogSegment *segment) {
   Shortcut *shortcuts = (Shortcut *)tail;
 #endif
   uint64_t num_old = 0;
-  // printf("tail = %p\n", tail);
+  bool is_garbage = false;
+  while (p < tail) {
+    Shortcut sc;
+#ifdef GC_SHORTCUT
+    if (has_shortcut) {
+      sc = *shortcuts;
+      shortcuts++;
+    }
+#endif
+    KVItem *kv = reinterpret_cast<KVItem *>(p);
+    uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
+    if (sz == sizeof(KVItem)) {
+      break;
+    }
+    if (!volatile_segment_->HasSpaceFor(sz)) {
+      // flush reserved segment
+      BatchFlush();
+      // update reference
+      BatchIndexUpdate();
+      // new reserved segment
+      reserved_segment_->cur_cnt_ += volatile_segment_->cur_cnt_;
+      FreezeReservedAndGetNew();
+      volatile_segment_->Clear();
+      num_new = 0;
+    }
+    is_garbage = segment->roll_back_map[num_old].is_garbage;
+    if (!is_garbage) {
+      // copy item to buffer
+      char *cur = volatile_segment_->AllocOne(sz);
+      memcpy(cur, kv, sz);
+      uint64_t offset = cur - volatile_segment_->get_data_start();
+      char *new_addr = reserved_segment_->get_data_start() + offset;
+      Slice key_slice = ((KVItem *)cur)->GetKey();
+      valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz, num_old, class_),
+                                TaggedPointer(new_addr, sz, num_new, class_), sz, sc);
+      num_new ++;
+    }
+    p += sz;
+    num_old ++;
+  }
+}
+
+void LogCleaner::CopyValidItemToBuffer0(LogSegment *segment) {
+  
+  char *p = const_cast<char *>(segment->get_data_start());
+  char *tail = segment->get_tail();
+#ifdef GC_SHORTCUT
+  bool has_shortcut = segment->HasShortcut();
+  Shortcut *shortcuts = (Shortcut *)tail;
+#endif
   while (p < tail) {
     Shortcut sc;
 #ifdef GC_SHORTCUT
@@ -284,26 +351,18 @@ void LogCleaner::CopyValidItemToBuffer(LogSegment *segment) {
       uint64_t offset = cur - volatile_segment_->get_data_start();
       char *new_addr = reserved_segment_->get_data_start() + offset;
       Slice key_slice = ((KVItem *)cur)->GetKey();
-      valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz, num_old, class_),
-                                TaggedPointer(new_addr, sz, num_new, class_), sz, sc);
-      num_new ++;
+      valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz, 0, 0),
+                                TaggedPointer(new_addr, sz, 0, 0), sz, sc);
     }
     p += sz;
-#ifdef INTERLEAVED
-    num_old ++;
-#endif
   }
 }
 
 // Batch Compact if defined BATCH_COMPACTION
 void LogCleaner::BatchCompactSegment(LogSegment *segment) {
-  // printf("in BatchCompaction\n");
-#ifdef INTERLEAVED
-  if(!segment->is_segment_cleaning()) segment->set_cleaning();
-  assert(segment->is_segment_cleaning());
-#endif
   // copy to DRAM buffer
-  CopyValidItemToBuffer(segment);
+  if(class_ == 0) CopyValidItemToBuffer0(segment);
+  else CopyValidItemToBuffer123(segment);
   // flush reserved segment and update reference
   BatchFlush();
   BatchIndexUpdate();
@@ -316,6 +375,7 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment) {
   segment->Clear();
   if (backup_segment_ == nullptr) {
     backup_segment_ = segment;
+    backup_segment_->set_reserved();
   } else {
     std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_]);
     log_->free_segments_class[class_].push(segment);
@@ -378,13 +438,8 @@ void LogCleaner::CompactSegment0(LogSegment *segment) {
           kv->GetKey(), kv->GetValue(), kv->epoch, &persist_cnt);
       TIMER_STOP_LOGGING(copy_time_);
       Slice key_slice = TaggedPointer(new_val).GetKVItem()->GetKey();
-#ifdef INTERLEAVED
-      valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz, num_new++),
+      valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz, num_new++, class_),
                                 new_val, sz, sc);
-#else
-      valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz),
-                                new_val, sz, sc);
-#endif
 #else // not LOG_BATCHING
       Slice key = kv->GetKey();
       Slice data = kv->GetValue();
@@ -522,13 +577,8 @@ void LogCleaner::CompactSegment123(LogSegment *segment) {
           kv->GetKey(), kv->GetValue(), kv->epoch, &persist_cnt);
       TIMER_STOP_LOGGING(copy_time_);
       Slice key_slice = TaggedPointer(new_val).GetKVItem()->GetKey();
-#ifdef INTERLEAVED
-      valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz, num_new++),
+      valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz, num_new++, class_),
                                 new_val, sz, sc);
-#else
-      valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz),
-                                new_val, sz, sc);
-#endif
 #else // not LOG_BATCHING
       Slice key = kv->GetKey();
       Slice data = kv->GetValue();
@@ -630,9 +680,6 @@ void LogCleaner::FreezeReservedAndGetNew() {
   reserved_segment_->set_reserved();
   assert(reserved_segment_->is_segment_reserved());
   backup_segment_ = nullptr;
-#ifdef INTERLEAVED
-  num_new = 0;
-#endif
 }
 
 void LogCleaner::DoMemoryClean() {
@@ -674,8 +721,12 @@ void LogCleaner::DoMemoryClean() {
     return;
   }
 
+#ifdef BATCH_COMPACTION
+  BatchCompactSegment(segment);
+#else
   if(class_ == 0) CompactSegment0(segment);
   else CompactSegment123(segment);
+#endif
 }
 
 void LogCleaner::MarkGarbage0(ValueType tagged_val) {

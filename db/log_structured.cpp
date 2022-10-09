@@ -83,7 +83,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
       if(i < num_class_segments_[j] - 1)
       {
         all_segments_[i] =
-            new LogSegment(pool_start, SEGMENT_SIZE[j], j);
+            new LogSegment(pool_start, SEGMENT_SIZE[j], j, i);
         free_segments_class[j].push(all_segments_[i]);
         pool_start += SEGMENT_SIZE[j];
         num_free_list_class[j] ++;
@@ -92,7 +92,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
       else if(i == num_class_segments_[j] - 1)
       {
         all_segments_[i] =
-            new LogSegment(pool_start, SEGMENT_SIZE[j], j);
+            new LogSegment(pool_start, SEGMENT_SIZE[j], j, i);
         log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i], j);
         pool_start += SEGMENT_SIZE[j];
         all_segments_[i]->set_reserved();
@@ -108,7 +108,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
       if(i < (num + num_class_segments_[j] * 0.8 - 1) )
       {
         all_segments_[i] =
-            new LogSegment(pool_start, SEGMENT_SIZE[j], j);
+            new LogSegment(pool_start, SEGMENT_SIZE[j], j, i);
         class_segments_[j].push_back(all_segments_[i]);
         pool_start += SEGMENT_SIZE[j];
         all_segments_[i]->set_touse();
@@ -117,7 +117,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
       else if(i < num + num_class_segments_[j] - 1)
       {
         all_segments_[i] =
-            new LogSegment(pool_start, SEGMENT_SIZE[j], j);
+            new LogSegment(pool_start, SEGMENT_SIZE[j], j, i);
         free_segments_class[j].push(all_segments_[i]);
         pool_start += SEGMENT_SIZE[j];
         num_free_list_class[j] ++;
@@ -126,7 +126,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
       else if(i == num + num_class_segments_[j] - 1)
       {
         all_segments_[i] =
-            new LogSegment(pool_start, SEGMENT_SIZE[j], j);
+            new LogSegment(pool_start, SEGMENT_SIZE[j], j, i);
         log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i], j);
         pool_start += SEGMENT_SIZE[j];
         all_segments_[i]->set_reserved();
@@ -150,7 +150,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
   for(int i = 1; i < num_class; i ++) 
   {
     db->db_num_class_segs[i] = get_num_class_segments_(i);
-    db->change_seg_threshold_class[i] = SEGMENT_SIZE[i] / 2;
+    db->change_seg_threshold_class[i] = SEGMENT_SIZE[i] / 3;
   }
   db->mark.resize(num_workers, false);
   db->first.resize(num_workers_, true);
