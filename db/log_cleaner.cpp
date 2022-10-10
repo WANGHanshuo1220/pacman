@@ -206,12 +206,6 @@ void LogCleaner::BatchIndexUpdate() {
         }
 #endif
       } else {
-#ifndef REDUCE_PM_ACCESS
-        TaggedPointer tp(new_val);
-        // set size to mark garbage
-        // tp.size = valid_items_[j].size;
-        new_val = (ValueType)tp;
-#endif
         new_garbage_addr.push_back(new_val);
       }
       COUNTER_ADD_LOGGING(fast_path_, le_helper.fast_path);
@@ -226,12 +220,17 @@ void LogCleaner::BatchIndexUpdate() {
   }
   TIMER_STOP_LOGGING(update_index_time_);
 
-  int gc_cleaner_id =
-      log_->GetSegmentCleanerID(reserved_segment_->get_segment_start());
   for (auto it = new_garbage_addr.begin(); it != new_garbage_addr.end(); it++) {
     TaggedPointer tp(*it);
-    // reserved_segment_->MarkGarbage(tp.GetAddr(), tp.size);
-    // tmp_cleaner_garbage_bytes_[gc_cleaner_id] += tp.size;
+    if(class_ == 0)
+    {
+      reserved_segment_->MarkGarbage(tp.GetAddr(), tp.size_or_num);
+      tmp_cleaner_garbage_bytes_[0] += tp.size_or_num;
+    }
+    else
+    {
+      reserved_segment_->roll_back_map[tp.size_or_num].is_garbage = 1;
+    }
   }
   COUNTER_ADD_LOGGING(garbage_move_count_, new_garbage_addr.size());
   COUNTER_ADD_LOGGING(move_count_, valid_items_.size());
@@ -283,6 +282,10 @@ void LogCleaner::CopyValidItemToBuffer123(LogSegment *segment) {
       valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz, num_old, class_),
                                 TaggedPointer(new_addr, sz, num_new, class_), sz, sc);
       num_new ++;
+    }
+    else
+    {
+      segment->roll_back_map[num_old].is_garbage = 0;
     }
     p += sz;
     num_old ++;
