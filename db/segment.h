@@ -40,7 +40,6 @@ class BaseSegment {
 
     void Flush() {
 #ifdef LOG_PERSISTENT
-      // printf("sizeof(header) = %ld\n", sizeof(Header));
       // clflushopt_fence(this, sizeof(Header));
 #endif
     }
@@ -102,7 +101,6 @@ class BaseSegment {
 
   uint64_t get_offset() const
   {
-    assert(tail_ >= data_start_); 
     return tail_ - data_start_; 
   }
 
@@ -208,38 +206,6 @@ class LogSegment : public BaseSegment {
 #endif
   }
 
-  void update_Bitmap()
-  {
-#ifdef REDUCE_PM_ACCESS
-  char *t = tail_;
-  int idx = (t - data_start_) / BYTES_PER_BIT;
-  int byte = idx / 8;
-  int bit = idx % 8;
-  uint8_t a = 0b11111111 >> (8 - bit);
-  uint8_t old_val = volatile_tombstone_[byte];
-  uint8_t new_val = old_val & a;
-  while (true) {
-    if (__atomic_compare_exchange_n(&volatile_tombstone_[byte], &old_val,
-                                    new_val, true, __ATOMIC_ACQ_REL,
-                                    __ATOMIC_ACQUIRE)) {
-      break;
-    }
-  }
-  new_val = 0b00000000;
-  for(int i = byte + 1; i < BITMAP_SIZE; i++)
-  {
-    old_val = volatile_tombstone_[i];
-    while (true) {
-      if (__atomic_compare_exchange_n(&volatile_tombstone_[i], &old_val,
-                                      new_val, true, __ATOMIC_ACQ_REL,
-                                      __ATOMIC_ACQUIRE)) {
-        break;
-      }
-    }
-  }
-#endif
-  }
-
   void roll_back_tail(uint32_t sz) { 
     tail_ -= sz; 
 #ifdef LOG_BATCHING
@@ -337,11 +303,6 @@ class LogSegment : public BaseSegment {
   // append kv to log
   ValueType Append(const Slice &key, const Slice &value,
                    uint32_t epoch) {
-#ifdef GC_EVAL
-    struct timeval make_new_kv_start;
-    struct timeval make_new_kv_end;
-    gettimeofday(&make_new_kv_start, NULL);
-#endif
     uint32_t sz = sizeof(KVItem) + key.size() + value.size();
     if (!HasSpaceFor(sz)) {
       return INVALID_VALUE;
@@ -356,11 +317,6 @@ class LogSegment : public BaseSegment {
     kv->Flush();
     tail_ += sz;
     ++cur_cnt_;
-
-#ifdef GC_EVAL
-    gettimeofday(&make_new_kv_end, NULL);
-    make_new_kv_time += TIMEDIFF(make_new_kv_start, make_new_kv_end);
-#endif
 
     return TaggedPointer((char *)kv, sz, cur_num, class_);
   }
@@ -480,21 +436,6 @@ class LogSegment : public BaseSegment {
 
   void add_garbage_bytes(int b) 
   { 
-    if(garbage_bytes_ + b >= SEGMENT_SIZE_)
-    {
-      printf("GB_byte = %d\n", garbage_bytes_.load());
-      printf("b       = %d\n", b);
-      printf("SEG_SZ  = %ld\n", SEGMENT_SIZE_);
-      printf("status  = %d\n", get_status());
-      for(int i = 0; i < roll_back_map.size(); i++)
-      {
-        if(roll_back_map[i].is_garbage == 0)
-        {
-          printf("%d ", i);
-        }
-      }
-      printf("\n");
-    }
     garbage_bytes_.fetch_add(b); 
     assert(garbage_bytes_ <= SEGMENT_SIZE_);
   }

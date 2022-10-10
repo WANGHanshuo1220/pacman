@@ -14,13 +14,13 @@ class LogCleaner {
  public:
   std::atomic<size_t> cleaner_garbage_bytes_{0};
 // #ifdef GC_EVAL
-  std::atomic<int> GC_times = 0;
+  int GC_times = 0;
   std::atomic<long> GC_timecost = 0; // us
   std::atomic<int> help = 0;
   int get_cleaner_id() { return cleaner_id_; }
   int show_GC_times() 
   { 
-    return GC_times.load(std::memory_order_relaxed);
+    return GC_times;
   }
   long show_GC_timecost()
   { 

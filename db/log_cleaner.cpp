@@ -43,9 +43,8 @@ void LogCleaner::CleanerEntry() {
 
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning()) {
-Do_Cleaning:
-      GC_times.fetch_add(1, std::memory_order_relaxed);
-      Timer timer(clean_time_ns_);
+      // Timer timer(clean_time_ns_);
+      // GC_times ++;
       DoMemoryClean();
     }
     else 
@@ -77,7 +76,7 @@ Do_Cleaning:
 
 void LogCleaner::Help_sort(int id)
 {
-  Timer time(clean_sort_ns_time_);
+  // Timer time(clean_sort_ns_time_);
   std::vector<int> &next_class_segment = 
     *(db_->get_next_class_segment(id));
 
@@ -86,27 +85,15 @@ void LogCleaner::Help_sort(int id)
       worker_i ++)
   {
     int seg_working_on = next_class_segment[worker_i];
-    assert(seg_working_on < num_class_segs[id]);
     int sort_begin = seg_working_on + num_worker * gap[id];
-    int sort_begin_;
-    assert(sort_begin%num_worker == worker_i);
     if(sort_begin >= num_class_segs[id])
     {
-      sort_begin_ = sort_begin;
       sort_begin = 
         (gap[id] -
         (num_class_segs[id] - seg_working_on) / num_worker) * 
         num_worker + worker_i;
     }
 
-    if(sort_begin%num_worker != worker_i)
-    {
-      printf("sort_begin  = %d\n", sort_begin);
-      printf("sort_begin_ = %d\n", sort_begin_);
-      printf("num_worker  = %d\n", num_worker);
-      printf("worker_i    = %d\n", worker_i  );
-    }
-    assert(sort_begin%num_worker == worker_i);
     Sort_for_worker(worker_i, sort_begin, id);
   }
 }
@@ -121,12 +108,6 @@ void LogCleaner::Sort_for_worker(int worker_i,
 
   for(int i = 0; i < sort_range[id]; i ++)
   {
-    assert(idx%num_worker == worker_i);
-    if(!class_segemnts[idx]->is_segment_touse())
-    {
-      printf("status = %d\n", class_segemnts[idx]->get_status());
-    }
-    assert(class_segemnts[idx]->is_segment_touse());
     s.insert(class_segemnts[idx]);
     idx += num_worker;
     if(idx >= num_class_segs[id]) idx = worker_i;
@@ -136,11 +117,6 @@ void LogCleaner::Sort_for_worker(int worker_i,
   for (auto it = s.begin(); it != s.end(); it++)
   {
     class_segemnts[idx] = *it;
-    if(!class_segemnts[idx]->is_segment_touse())
-    {
-      printf("seg status = %d\n", class_segemnts[idx]->get_status());
-    }
-    assert(class_segemnts[idx]->is_segment_touse());
     idx += num_worker;
     if(idx >= num_class_segs[id]) idx = worker_i;
   }
@@ -385,17 +361,10 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment) {
 }
 
 void LogCleaner::CompactSegment0(LogSegment *segment) {
-#ifdef GC_EVAL
-  Timer time(CompactionSeg_time_ns_);
-#endif
   char *p = segment->get_data_start();
   char *tail = segment->get_tail();
   std::vector<char *> flush_addr;
   bool is_garbage;
-  {
-#ifdef GC_EVAL  
-  Timer time1(CompactionSeg_time1_ns_);
-#endif
 #ifdef GC_SHORTCUT
   bool has_shortcut = segment->HasShortcut();
   Shortcut *shortcuts = (Shortcut *)tail;
@@ -405,10 +374,6 @@ void LogCleaner::CompactSegment0(LogSegment *segment) {
     KVItem *kv = reinterpret_cast<KVItem *>(p);
     uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
     Shortcut sc;
-    {
-#ifdef GC_EVAL
-    Timer time1_1(CompactionSeg_time1_1_ns_);
-#endif
     if (sz == sizeof(KVItem)) {
       break;
     }
@@ -424,11 +389,6 @@ void LogCleaner::CompactSegment0(LogSegment *segment) {
     TIMER_START_LOGGING(check_liveness_time_);
     is_garbage = IsGarbage(kv);
     TIMER_STOP_LOGGING(check_liveness_time_);
-    }
-    {
-#ifdef GC_EVAL  
-    Timer time1_2(CompactionSeg_time1_2_ns_);
-#endif
     if (!is_garbage) {
 #ifdef LOG_BATCHING
       // batch persist the log as workers, update index in batch
@@ -480,18 +440,12 @@ void LogCleaner::CompactSegment0(LogSegment *segment) {
       COUNTER_ADD_LOGGING(fast_path_, le_helper.fast_path);
 #endif  // end of #IF LOG_BATCHING
     }
-    }
     p += sz;
 #ifdef INTERLEAVED
     num_old ++;
 #endif
   }
-  }
 
-  {
-#ifdef GC_EVAL  
-  Timer time(CompactionSeg_time2_ns_);
-#endif
 #ifdef LOG_BATCHING
   TIMER_START_LOGGING(copy_time_);
   reserved_segment_->FlushRemain();
@@ -519,22 +473,14 @@ void LogCleaner::CompactSegment0(LogSegment *segment) {
     log_->free_segments_class[class_].push(segment);
     ++log_->num_free_list_class[class_];
   }
-  }
 }
 
 // CompactSegment is used if not defined BATCH_COMPACTION
 void LogCleaner::CompactSegment123(LogSegment *segment) {
-#ifdef GC_EVAL
-  Timer time(CompactionSeg_time_ns_);
-#endif
   char *p = segment->get_data_start();
   char *tail = segment->get_tail();
   std::vector<char *> flush_addr;
   uint16_t is_garbage;
-  {
-#ifdef GC_EVAL
-  Timer time1(CompactionSeg_time1_ns_);
-#endif
 #ifdef GC_SHORTCUT
   bool has_shortcut = segment->HasShortcut();
   Shortcut *shortcuts = (Shortcut *)tail;
@@ -544,10 +490,6 @@ void LogCleaner::CompactSegment123(LogSegment *segment) {
     KVItem *kv = reinterpret_cast<KVItem *>(p);
     uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
     Shortcut sc;
-    {
-#ifdef GC_EVAL
-    Timer time1_1(CompactionSeg_time1_1_ns_);
-#endif
     if (sz == sizeof(KVItem)) {
       break;
     }
@@ -563,11 +505,6 @@ void LogCleaner::CompactSegment123(LogSegment *segment) {
     TIMER_START_LOGGING(check_liveness_time_);
     is_garbage = segment->roll_back_map[num_old].is_garbage;
     TIMER_STOP_LOGGING(check_liveness_time_);
-    }
-    {
-#ifdef GC_EVAL
-    Timer time1_2(CompactionSeg_time1_2_ns_);
-#endif
     if (!is_garbage) {
 #ifdef LOG_BATCHING
       // batch persist the log as workers, update index in batch
@@ -623,18 +560,12 @@ void LogCleaner::CompactSegment123(LogSegment *segment) {
     {
       segment->roll_back_map[num_old].is_garbage = 0;
     }
-    }
     p += sz;
 #ifdef INTERLEAVED
     num_old ++;
 #endif
   }
-  }
 
-  {
-#ifdef GC_EVAL
-  Timer time(CompactionSeg_time2_ns_);
-#endif
 #ifdef LOG_BATCHING
   TIMER_START_LOGGING(copy_time_);
   reserved_segment_->FlushRemain();
@@ -661,7 +592,6 @@ void LogCleaner::CompactSegment123(LogSegment *segment) {
     std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_]);
     log_->free_segments_class[class_].push(segment);
     ++log_->num_free_list_class[class_];
-  }
   }
 }
 
