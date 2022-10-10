@@ -1,6 +1,8 @@
 # example
+set(benchmark /home/wanghanshuo/pacman/benchmarks)
+find_package(benchmark)
 add_executable(example ${DB_FILES} example.cpp)
-target_link_libraries(example ${PMEM} ${PMEMOBJ})
+target_link_libraries(example benchmark::benchmark ${PMEM} ${PMEMOBJ})
 if (INDEX_TYPE EQUAL 1)
   target_link_libraries(example cceh)
 elseif (INDEX_TYPE EQUAL 2)

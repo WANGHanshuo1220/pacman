@@ -57,12 +57,15 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
 };
 
 DB::~DB() {
-  uint64_t c = 0;
-  for(int i = 0; i < num_class; i++)
-  {
-    c += put_c[i].load();
-  }
-  printf("total puts = %ld\n", c);
+  // uint64_t c = 0;
+  // for(int i = 0; i < num_class; i++)
+  // {
+  //   c += put_c[i].load();
+  // }
+  // printf("total puts = %ld\n", c);
+  // printf("total gets = %ld\n", get_c.load());
+  // printf("total oprs = %ld\n", get_c.load() + c);
+
   delete log_;
   delete index_;
   delete g_index_allocator;
@@ -125,9 +128,8 @@ DB::Worker::Worker(DB *db) : db_(db) {
 
   for(int i = 1; i < num_class; i++)
   {
-    p = db_->get_class_segment(i, worker_id_);
-    log_head_class[i] = *p.second;
-    class_seg_working_on[i] = p.first;
+    db_->get_class_segment(i, worker_id_,
+                           &log_head_class[i], &class_seg_working_on[i]);
   }
 
 #ifdef LOG_BATCHING
@@ -156,6 +158,7 @@ DB::Worker::~Worker() {
 }
 
 bool DB::Worker::Get(const Slice &key, std::string *value) {
+  // db_->get_c.fetch_add(1);
   db_->thread_status_.rcu_progress(worker_id_);
   ValueType val = db_->index_->Get(key);
   bool ret = false;
@@ -293,9 +296,11 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     if(accumulative_sz_class[class_] > db_->get_threshold(class_))
     {
       log_head_class[class_]->set_touse();
-      std::pair<uint32_t, LogSegment **> p = db_->get_class_segment(class_, worker_id_);
-      log_head_class[class_] = *p.second;
-      class_seg_working_on[class_] = p.first;
+      // std::pair<uint32_t, LogSegment **> p = db_->get_class_segment(class_, worker_id_);
+      // log_head_class[class_] = *p.second;
+      // class_seg_working_on[class_] = p.first;
+      db_->get_class_segment(class_, worker_id_, 
+                             &log_head_class[class_], &class_seg_working_on[class_]);
       accumulative_sz_class[class_] = sz;
       uint32_t n = log_head_class[class_]->num_kvs;
       if(n)

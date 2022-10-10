@@ -82,7 +82,7 @@ class DB {
     ValueType MakeKVItem(const Slice &key, const Slice &value, int class_);
     void UpdateIndex(const Slice &key, ValueType val, int class_);
     void MarkGarbage(ValueType tagged_val);
-    void Roll_Back1(uint32_t n_, uint32_t sz, LogSegment *segment);
+    void Roll_Back1(uint32_t n, uint32_t sz, LogSegment *segment);
     void Roll_Back2(LogSegment *segment);
     void FreezeSegment(LogSegment *segment, int class_);
 
@@ -113,19 +113,17 @@ class DB {
   void RecoveryAll();
   void NewIndexForRecoveryTest();
 
-  std::pair<uint32_t, LogSegment **> get_class_segment(int class_, int worker_id)
+  void get_class_segment(int class_, int worker_id,
+                         LogSegment **seg, uint32_t *seg_id)
   {
-    std::pair<uint32_t, LogSegment **> ret;
-    ret.second = log_->get_class_segment_(class_, next_class_segment_[class_][worker_id]);
-    ret.first = next_class_segment_[class_][worker_id];
-    assert((*ret.second)->is_segment_touse());
-    (*ret.second)->set_using();
+    *seg = *(log_->get_class_segment_(class_, next_class_segment_[class_][worker_id]));
+    *seg_id = next_class_segment_[class_][worker_id];
+    (*seg)->set_using();
     next_class_segment_[class_][worker_id] += num_workers_;
     if(next_class_segment_[class_][worker_id] >= db_num_class_segs[class_])
     {
       next_class_segment_[class_][worker_id] = worker_id;
     }
-    return ret;
   }
 
   // GC_EVAL
@@ -133,7 +131,8 @@ class DB {
   LogStructured *get_log_() { return log_; }
 #endif
   uint32_t get_threshold(int class_) { return change_seg_threshold_class[class_]; }
-  std::atomic<uint32_t> put_c[4] = {0, 0, 0, 0};
+  std::atomic<uint64_t> put_c[4] = {0, 0, 0, 0};
+  std::atomic<uint64_t> get_c = 0;
   std::vector<int>* get_next_class_segment(int i)
   {
     return &next_class_segment_[num_class-1-i];

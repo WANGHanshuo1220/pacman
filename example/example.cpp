@@ -9,6 +9,8 @@
 #include <set>
 #include <unordered_set>
 
+#include "../benchmarks/bench_base.h"
+
 #include "config.h"
 #include "db.h"
 #include "../db/log_structured.h"
@@ -28,6 +30,8 @@ std::unordered_map<uint64_t, uint64_t> re;
 std::vector<uint64_t> time_eval;
 std::vector<std::vector<uint64_t>> key_base;
 std::vector<std::vector<uint64_t>> op_base;
+pthread_t *tid;
+pthread_t *tid_prefilling = new pthread_t;
 
 struct timeval start, checkpoint1, checkpoint2;
 struct timeval zipf_s, zipf_e;
@@ -38,35 +42,99 @@ void init_zipf();
 int get_random();
 void prepare_key_base();
 
-class Random {
- private:
-  uint32_t seed_;
- public:
-  explicit Random(uint32_t s) : seed_(s & 0x7fffffffu) {
-    if (seed_ == 0 || seed_ == 2147483647L) {
-      seed_ = 1;
-    }
-  }
-  uint32_t Next() {
-    static const uint32_t M = 2147483647L;  // 2^31-1
-    static const uint64_t A = 16807;        // bits 14, 8, 7, 5, 2, 1, 0
-    uint64_t product = seed_ * A;
-    seed_ = static_cast<uint32_t>((product >> 31) + (product & M));
-    if (seed_ > M) {
-      seed_ -= M;
-    }
-    return seed_;
-  }
-  uint32_t Uniform(int n) { return Next() % n; }
-  bool OneIn(int n) { return (Next() % n) == 0; }
-  uint32_t Skewed(int max_log) { return Uniform(1 << Uniform(max_log + 1)); }
-};
 uint64_t NUM_KVS = 0;
 uint64_t dup_rate = 0;
 
 double c = 0;          // Normalization constant
 double *sum_probs;     // Pre-calculated sum of probabilities
 double alpha = 0.99;
+
+int ret;
+uint64_t runtime = 0;
+std::vector<int> a;
+
+void init_zipf()
+{
+  printf("init zipf...\n");
+  // Compute normalization constant on first call only
+  for (int i=1; i<= dup_rate; i++)
+    c = c + (1.0 / pow((double) i, alpha));
+  c = 1.0 / c;
+
+  sum_probs = (double *)malloc(( dup_rate + 1)*sizeof(*sum_probs));
+  sum_probs[0] = 0;
+  for (int i=1; i<= dup_rate; i++) {
+    sum_probs[i] = sum_probs[i-1] + c / pow((double) i, alpha);
+  }
+  printf("finished...\n");
+}
+
+uint64_t uniform()
+{
+  uint64_t re = floor( dup_rate * (distrib(gen)));
+  assert(re >= 0 && re <= dup_rate);
+  return re;
+}
+
+uint64_t zipf()
+{
+  double z;                     // Uniform random number (0 < z < 1)
+  int zipf_value;               // Computed exponential value to be returned
+  int low, high, mid;           // Binary-search bounds
+
+  // Pull a uniform random number (0 < z < 1)
+  // gettimeofday(&zipf_s, NULL);
+  do
+  {
+    z = distrib(gen);
+  }
+  while ((z < 0.00000001) || (z > 0.99999999));
+
+  // Map z to the value
+  low = 1, high = dup_rate, mid;
+  do {
+    mid = floor((low+high)/2);
+    if (sum_probs[mid] >= z && sum_probs[mid-1] < z) {
+      zipf_value = mid;
+      break;
+    } else if (sum_probs[mid] >= z) {
+      high = mid-1;
+    } else {
+      low = mid+1;
+    }
+  } while (low <= high);
+
+  // Assert that zipf_value is between 1 and N
+  assert((zipf_value >=1) && (zipf_value <= dup_rate));
+
+  // gettimeofday(&zipf_e, NULL);
+  // zipf_time_cost += TIMEDIFF(zipf_s, zipf_e);
+  return(zipf_value);
+}
+
+Random ra((unsigned)time(NULL));
+int get_random()
+{
+  return ra.Next()%100;
+}
+
+
+void prepare_key_base()
+{
+  key_base.resize(num_workers);
+  op_base.resize(num_workers);
+  for(int i = 0; i < num_workers; i++)
+  {
+    for(uint64_t j = 0; j < NUM_KVS; j++)
+    {
+      uint64_t key = zipf();
+      key_base[i].push_back(key);
+      uint32_t op = get_random();
+      if(op < 50) op_base[i].push_back(0);
+      else op_base[i].push_back(1);
+    }
+  }
+}
 
 void job0()
 { 
@@ -193,9 +261,9 @@ void job2()
 
 std::map<uint64_t, std::string> kvs;
 
-void *put_KVS(void *id)
+void *put_KVS(int id)
 {
-  uint32_t t_id = *(int*)id;
+  uint32_t t_id = id;
   uint64_t key;
   int op;
   std::string value = "hello world 22-08-24";
@@ -207,8 +275,6 @@ void *put_KVS(void *id)
   for(uint64_t i = 0; i < NUM_KVS; i++)
   {
     key = key_base[t_id][i];
-    // key = uniform();
-    // gettimeofday(&s, NULL);
     if(op_base[t_id][i])
     {
       worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
@@ -217,8 +283,6 @@ void *put_KVS(void *id)
     {
       bool found = worker->Get(Slice((const char *)&key, sizeof(KeyType)), &value1);
     }
-    // gettimeofday(&e, NULL);
-    // time_eval[t_id] +=TIMEDIFF(s, e);
   }
 
   worker.reset();
@@ -247,23 +311,14 @@ void *prefilling(void *)
   worker.reset();
 }
 
-void job3()
+void prepare()
 {
-  num_cleaners = 1;
-  num_workers = 24;
-  time_eval.resize(num_workers);
-  pthread_t *tid_prefilling = new pthread_t;
-  pthread_t *tid = new pthread_t[num_workers];
   int ret;
-  uint64_t runtime = 0;
 
-  db = new DB(db_path, log_size, num_workers, num_cleaners);
   printf("Preparing key base\n");
   prepare_key_base();
   printf("Preparing key base done...\n");
   
-  printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
-
   printf("prefilling\n");
   ret = pthread_create(tid_prefilling, NULL, &prefilling, NULL); 
   if(ret != 0)
@@ -273,170 +328,61 @@ void job3()
   }
   pthread_join(*tid_prefilling, NULL);
   printf("prefilling done...\n");
+}
 
-  // db->start_GCThreads();
-  gettimeofday(&start, NULL);
-
-  int a[num_workers];
-  for(int i = 0; i < num_workers; i++)
-  {
-    a[i] = i;
-    ret = pthread_create(&tid[i], NULL, &put_KVS, &a[i]);
-    if(ret != 0)
-    {
-      printf("%dth thread create error\n", i);
-      exit(0);
-    }
-  }
-
-  for(int i = 0; i < num_workers; i++)
-  {
-    pthread_join(tid[i], NULL);
-  }
-
-  gettimeofday(&checkpoint1, NULL);
-  runtime = TIMEDIFF(start, checkpoint1);
-
-  delete db;
+void job3()
+{
+  // gettimeofday(&start, NULL);
 
   // for(int i = 0; i < num_workers; i++)
   // {
-  //   printf("worker %d: %ld us (%ld s)\n",
-  //     i, time_eval[i], time_eval[i]/1000000);
+  //   a[i] = i;
+  //   ret = pthread_create(&tid[i], NULL, &put_KVS, &a[i]);
+  //   if(ret != 0)
+  //   {
+  //     printf("%dth thread create error\n", i);
+  //     exit(0);
+  //   }
   // }
 
-  printf("runtime = %ldns (%.2f s)\n", runtime, (float)runtime/1000000);
+  // for(int i = 0; i < num_workers; i++)
+  // {
+  //   pthread_join(tid[i], NULL);
+  // }
+
+  // gettimeofday(&checkpoint1, NULL);
+  // runtime = TIMEDIFF(start, checkpoint1);
+
+  // printf("runtime = %ldns (%.2f s)\n", runtime, (float)runtime/1000000);
 }
 
 void (*jobs[])() = {job0, job1, job2, job3};
 
-int main(int argc, char **argv) {
-// #ifdef GC_EVAL
-//   printf("in main: GC_EVAL ON\n");
-// #endif
-// #ifdef INTERLEAVED
-//   printf("in main: INTERLEAVED ON\n");
-// #endif
-  int job = 0;
-  char *arg;
-  if(argc == 1)
+static void BM_job3(benchmark::State& st)
+{
+  if(st.thread_index() == 0)
   {
-    std::cout << "usage: " << argv[0];
-    std::cout << " [job] " << " [NUM_KVs] " << " [dup_rate]" << std::endl;
-    return 0;
+    num_workers = 24;
+    num_cleaners = 1;
+    NUM_KVS = 20000000;
+    dup_rate = 5000000;
+    a.resize(num_workers);
+    printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
+    db = new DB(db_path, log_size, num_workers, num_cleaners);
+    init_zipf();
+    prepare();
+    tid = new pthread_t[num_workers];
   }
-  else
+  for(auto _ : st)
   {
-    if(argc == 2)
-    {
-      arg = argv[1];
-    }
-    else if(argc == 3)
-    {
-      arg = argv[1];
-      NUM_KVS = atoi(argv[2]);
-    }
-    else if(argc == 4)
-    {
-      arg = argv[1];
-      NUM_KVS = atoi(argv[2]);
-      dup_rate = atoi(argv[3]);
-    }
-    else
-    {
-      std::cout << "usage: " << argv[0];
-      std::cout << " [job] " << " [NUM_KVs] " << " [dup_rate]" << std::endl;
-      return 0;
-    }
+    put_KVS(st.thread_index());
   }
-  init_zipf();
-  for (int i = 0; i < 20; i++)
-  {  
-    printf("----------------%d-----------------\n", i);
-    (*jobs[atoi(arg)])();
-  }
-  return 0;
-}
-
-void init_zipf()
-{
-  printf("init zipf...\n");
-  // Compute normalization constant on first call only
-  for (int i=1; i<= dup_rate; i++)
-    c = c + (1.0 / pow((double) i, alpha));
-  c = 1.0 / c;
-
-  sum_probs = (double *)malloc(( dup_rate + 1)*sizeof(*sum_probs));
-  sum_probs[0] = 0;
-  for (int i=1; i<= dup_rate; i++) {
-    sum_probs[i] = sum_probs[i-1] + c / pow((double) i, alpha);
-  }
-  printf("finished...\n");
-}
-
-uint64_t uniform()
-{
-  uint64_t re = floor( dup_rate * (distrib(gen)));
-  assert(re >= 0 && re <= dup_rate);
-  return re;
-}
-
-uint64_t zipf()
-{
-  double z;                     // Uniform random number (0 < z < 1)
-  int zipf_value;               // Computed exponential value to be returned
-  int low, high, mid;           // Binary-search bounds
-
-  // Pull a uniform random number (0 < z < 1)
-  // gettimeofday(&zipf_s, NULL);
-  do
+  if(st.thread_index() == 0)
   {
-    z = distrib(gen);
-  }
-  while ((z < 0.00000001) || (z > 0.99999999));
-
-  // Map z to the value
-  low = 1, high = dup_rate, mid;
-  do {
-    mid = floor((low+high)/2);
-    if (sum_probs[mid] >= z && sum_probs[mid-1] < z) {
-      zipf_value = mid;
-      break;
-    } else if (sum_probs[mid] >= z) {
-      high = mid-1;
-    } else {
-      low = mid+1;
-    }
-  } while (low <= high);
-
-  // Assert that zipf_value is between 1 and N
-  assert((zipf_value >=1) && (zipf_value <= dup_rate));
-
-  // gettimeofday(&zipf_e, NULL);
-  // zipf_time_cost += TIMEDIFF(zipf_s, zipf_e);
-  return(zipf_value);
-}
-
-Random ra((unsigned)time(NULL));
-int get_random()
-{
-  return ra.Next()%100;
-}
-
-
-void prepare_key_base()
-{
-  key_base.resize(num_workers);
-  op_base.resize(num_workers);
-  for(int i = 0; i < num_workers; i++)
-  {
-    for(uint64_t j = 0; j < NUM_KVS; j++)
-    {
-      uint64_t key = zipf();
-      key_base[i].push_back(key);
-      uint32_t op = get_random();
-      if(op < 50) op_base[i].push_back(0);
-      else op_base[i].push_back(1);
-    }
+    delete db;
   }
 }
+
+BENCHMARK(BM_job3)->Iterations(1)->Threads(24);
+
+BENCHMARK_MAIN();
