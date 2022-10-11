@@ -5,7 +5,6 @@
 #include <mutex>
 
 HotKeySet::HotKeySet(DB *db) : db_(db) {
-  Record_c = 0;
   for(int i = 0; i < num_class-1; i++)
   {
     current_set_class[i] = nullptr;
@@ -49,9 +48,9 @@ void HotKeySet::Record(const Slice &key, int worker_id, int class_) {
       uint32_t total_hit = 0;
       for(int i = 1; i < num_class; i++) total_hit += record.hit_cnt[i];
       // printf("hit ratio = %.1lf%%\n", 100. * record.hit_cnt / record.total_cnt);
-      if (     total_hit    < RECORD_BATCH_CNT  * 0.7
-          // record.hit_cnt[3] < record.hit_cnt[2] * 1.0 ||
-          // record.hit_cnt[2] < record.hit_cnt[1] * 1.0 
+      if (     total_hit    < RECORD_BATCH_CNT  * 0.70 
+          // record.hit_cnt[3] < record.hit_cnt[2] * 1.00 ||
+          // record.hit_cnt[2] < record.hit_cnt[1] * 1.00 
          ) { /* means many keys that has been accessed 
               * frequently in a sampling period have not 
               * been add in to current_set_, so current_set
@@ -64,10 +63,12 @@ void HotKeySet::Record(const Slice &key, int worker_id, int class_) {
           BeginUpdateHotKeySet();
         }
       }
-      record.hit_cnt[1] = record.hit_cnt[2] = record.hit_cnt[3] = record.total_cnt = 0;
+      record.hit_cnt[1] = 0;
+      record.hit_cnt[2] = 0;
+      record.hit_cnt[3] = 0;
+      record.total_cnt = 0;
     }
   }
-  // Record_c++;
 }
 
 void HotKeySet::BeginUpdateHotKeySet() {
@@ -190,4 +191,5 @@ void HotKeySet::UpdateHotSet() {
 
   update_schedule_flag_.clear(std::memory_order_relaxed);
   need_count_hit_ = true;
+  update ++;
 }

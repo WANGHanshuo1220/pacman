@@ -53,7 +53,7 @@ class HotKeySet {
     else
       return 0;
   }
-  uint64_t Record_c = 0;
+  uint32_t update = 0;
 
  private:
   DB *db_;

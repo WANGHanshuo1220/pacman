@@ -41,7 +41,7 @@ class DB {
     ~Worker();
 
     bool Get(const Slice &key, std::string *value);
-    void Put(const Slice &key, const Slice &value);
+    void Put(const Slice &key, const Slice &value, bool prefill);
     size_t Scan(const Slice &key, int cnt);
     bool Delete(const Slice &key);
     // int show_ID() {return worker_id_; };

@@ -57,14 +57,21 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
 };
 
 DB::~DB() {
-  // uint64_t c = 0;
-  // for(int i = 0; i < num_class; i++)
-  // {
-  //   c += put_c[i].load();
-  // }
-  // printf("total puts = %ld\n", c);
-  // printf("total gets = %ld\n", get_c.load());
-  // printf("total oprs = %ld\n", get_c.load() + c);
+  uint64_t c = 0;
+  for(int i = 0; i < num_class; i++)
+  {
+    printf("%dth class puts = %ld\n", i, put_c[i].load());
+    c += put_c[i].load();
+  }
+  printf("total puts = %ld\n", c);
+  printf("total gets = %ld\n", get_c.load());
+  printf("total oprs = %ld\n", get_c.load() + c);
+  printf("update c = %d\n", hot_key_set_->update);
+
+  for(int i = 0; i < 3; i++)
+  {
+    printf("%d hot set sz = %ld\n", i+1, hot_key_set_->get_set_sz(i));
+  }
 
   delete log_;
   delete index_;
@@ -175,11 +182,11 @@ bool DB::Worker::Get(const Slice &key, std::string *value) {
 *    2. make a new kv item, append it at the end of the segment;
 *    3. update index
 */
-void DB::Worker::Put(const Slice &key, const Slice &value) {
+void DB::Worker::Put(const Slice &key, const Slice &value, bool prefill) {
 
   // sub-opr 1 : check the hotness of the key;
   int class_ = db_->hot_key_set_->Exist(key);
-  // db_->put_c[class_].fetch_add(1);
+  if(!prefill) db_->put_c[class_].fetch_add(1);
 
   // sub-opr 2 : make a new kv item, append it at the end of the segment;
   ValueType val = MakeKVItem(key, value, class_);

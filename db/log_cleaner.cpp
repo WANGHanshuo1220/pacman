@@ -54,7 +54,7 @@ void LogCleaner::CleanerEntry() {
       if(now - clean_sort_us_before_ > 1000)
       {
         clean_sort_us_before_ = now;
-        help ++;
+        // help ++;
         if(count < 3)
         { 
           Help_sort(0);
