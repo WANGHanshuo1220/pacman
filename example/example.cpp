@@ -383,6 +383,8 @@ static void BM_job3(benchmark::State& st)
   }
 }
 
-BENCHMARK(BM_job3)->Iterations(1)->Threads(24);
+BENCHMARK(BM_job3)
+  ->Iterations(1)
+  ->Threads(24);
 
 BENCHMARK_MAIN();

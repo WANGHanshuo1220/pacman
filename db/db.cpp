@@ -296,20 +296,9 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     if(accumulative_sz_class[class_] > db_->get_threshold(class_))
     {
       log_head_class[class_]->set_touse();
-      // std::pair<uint32_t, LogSegment **> p = db_->get_class_segment(class_, worker_id_);
-      // log_head_class[class_] = *p.second;
-      // class_seg_working_on[class_] = p.first;
       db_->get_class_segment(class_, worker_id_, 
                              &log_head_class[class_], &class_seg_working_on[class_]);
       accumulative_sz_class[class_] = sz;
-      uint32_t n = log_head_class[class_]->num_kvs;
-      if(n)
-      {
-        if(log_head_class[class_]->roll_back_map[n-1].is_garbage) 
-        {
-          Roll_Back2(log_head_class[class_]);
-        }
-      }
     }
   }
   LogSegment *&segment = log_head_class[class_];
@@ -412,9 +401,8 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
   }
 }
 
-void DB::Worker::Roll_Back1(uint32_t n_, uint32_t sz, LogSegment *segment)
+void DB::Worker::Roll_Back1(uint32_t n, uint32_t sz, LogSegment *segment)
 {
-  uint32_t n = segment->num_kvs;
   int roll_back_sz = sz;
   uint32_t RB_count = 1;
   for(int i = n - 2; i >= 0; i--)

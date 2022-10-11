@@ -150,10 +150,8 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
   for(int i = 1; i < num_class; i ++) 
   {
     db->db_num_class_segs[i] = get_num_class_segments_(i);
-    db->change_seg_threshold_class[i] = SEGMENT_SIZE[i] / 3;
+    db->change_seg_threshold_class[i] = SEGMENT_SIZE[i] / (6 - i);
   }
-  db->mark.resize(num_workers, false);
-  db->first.resize(num_workers_, true);
 
   for (int j = 0; j < num_cleaners_; j++) {
     // log_cleaners_[j]->show_closed_list_sz();

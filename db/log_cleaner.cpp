@@ -44,7 +44,7 @@ void LogCleaner::CleanerEntry() {
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning()) {
       // Timer timer(clean_time_ns_);
-      // GC_times ++;
+      GC_times ++;
       DoMemoryClean();
     }
     else 
@@ -627,20 +627,38 @@ void LogCleaner::DoMemoryClean() {
   double max_score = 0.;
   double max_garbage_proportion = 0.;
   std::list<LogSegment *>::iterator gc_it = to_compact_segments_.end();
-  uint64_t cur_time = NowMicros();
   int i = 0;
 
-  for (auto it = to_compact_segments_.begin();
-       it != to_compact_segments_.end() && i < 200; it++, i++) {
-    assert(*it);
-    double cur_garbage_proportion = (*it)->GetGarbageProportion();
-    double cur_score = 1000. * cur_garbage_proportion /
-                       (1 - cur_garbage_proportion) *
-                       (cur_time - (*it)->get_close_time());
-    if (cur_score > max_score) {
-      max_score = cur_score;
-      max_garbage_proportion = cur_garbage_proportion;
-      gc_it = it;
+  if(class_ == 0)
+  {
+    uint64_t cur_time = NowMicros();
+    for (auto it = to_compact_segments_.begin();
+         it != to_compact_segments_.end() && i < 200; it++, i++) {
+      assert(*it);
+      double cur_garbage_proportion = (*it)->GetGarbageProportion();
+      double cur_score = 1000. * cur_garbage_proportion /
+                         (1 - cur_garbage_proportion) *
+                         (cur_time - (*it)->get_close_time());
+      if (cur_score > max_score) {
+        max_score = cur_score;
+        max_garbage_proportion = cur_garbage_proportion;
+        gc_it = it;
+      }
+    }
+  }
+  else
+  {
+    for (auto it = to_compact_segments_.begin();
+         it != to_compact_segments_.end() && i < 200; it++, i++) {
+      assert(*it);
+      double cur_garbage_proportion = (*it)->GetGarbageProportion();
+      double cur_score = 1000. * cur_garbage_proportion /
+                         (1 - cur_garbage_proportion);
+      if (cur_score > max_score) {
+        max_score = cur_score;
+        max_garbage_proportion = cur_garbage_proportion;
+        gc_it = it;
+      }
     }
   }
 
