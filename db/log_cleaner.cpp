@@ -49,27 +49,27 @@ void LogCleaner::CleanerEntry() {
     }
     else 
     {
-      // usleep(10);
-      uint64_t now = NowMicros();
-      if(now - clean_sort_us_before_ > 1000)
-      {
-        clean_sort_us_before_ = now;
-        // help ++;
-        if(count < 3)
-        { 
-          Help_sort(0);
-          count++;
-        }
-        else
-        {
-          Help_sort(1);
-          count = 0;
-        }
-      }
-      else
-      {
-        usleep(10);
-      }
+      usleep(10);
+      // uint64_t now = NowMicros();
+      // if(now - clean_sort_us_before_ > 1000)
+      // {
+      //   clean_sort_us_before_ = now;
+      //   // help ++;
+      //   if(count < 3)
+      //   { 
+      //     Help_sort(0);
+      //     count++;
+      //   }
+      //   else
+      //   {
+      //     Help_sort(1);
+      //     count = 0;
+      //   }
+      // }
+      // else
+      // {
+      //   usleep(10);
+      // }
     }
   }
 }
@@ -123,7 +123,6 @@ void LogCleaner::Sort_for_worker(int worker_i,
 }
 
 bool LogCleaner::NeedCleaning() {
-
   uint64_t Free, Available, Total;
   double threshold = (double)log_->clean_threshold_[class_] / 100;
 
@@ -372,7 +371,6 @@ void LogCleaner::CompactSegment0(LogSegment *segment) {
   bool has_shortcut = segment->HasShortcut();
   Shortcut *shortcuts = (Shortcut *)tail;
 #endif
-  uint32_t num_old = 0;
   while (p < tail) {
     KVItem *kv = reinterpret_cast<KVItem *>(p);
     uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
@@ -410,7 +408,7 @@ void LogCleaner::CompactSegment0(LogSegment *segment) {
       ValueType val = reserved_segment_->Append(key, data, kv->epoch);
       TIMER_STOP_LOGGING(copy_time_);
       LogEntryHelper le_helper(val);
-      le_helper.old_val = TaggedPointer(p, sz, num_old, class_);
+      le_helper.old_val = TaggedPointer(p, sz, 0, 0);
       le_helper.shortcut = sc;
       TIMER_START_LOGGING(update_index_time_);
       db_->index_->GCMove(key, le_helper);
@@ -444,9 +442,6 @@ void LogCleaner::CompactSegment0(LogSegment *segment) {
 #endif  // end of #IF LOG_BATCHING
     }
     p += sz;
-#ifdef INTERLEAVED
-    num_old ++;
-#endif
   }
 
 #ifdef LOG_BATCHING
@@ -472,9 +467,9 @@ void LogCleaner::CompactSegment0(LogSegment *segment) {
     backup_segment_ = segment;
     backup_segment_->set_reserved();
   } else {
-    std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_]);
-    log_->free_segments_class[class_].push(segment);
-    ++log_->num_free_list_class[class_];
+    std::lock_guard<SpinLock> guard(log_->class_list_lock_[0]);
+    log_->free_segments_class[0].push(segment);
+    ++log_->num_free_list_class[0];
   }
 }
 
@@ -633,7 +628,7 @@ void LogCleaner::DoMemoryClean() {
   {
     uint64_t cur_time = NowMicros();
     for (auto it = to_compact_segments_.begin();
-         it != to_compact_segments_.end() && i < 200; it++, i++) {
+         it != to_compact_segments_.end(); it++) {
       assert(*it);
       double cur_garbage_proportion = (*it)->GetGarbageProportion();
       double cur_score = 1000. * cur_garbage_proportion /

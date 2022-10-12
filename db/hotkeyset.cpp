@@ -59,7 +59,9 @@ void HotKeySet::Record(const Slice &key, int worker_id, int class_) {
         // LOG("hit ratio = %.1lf%%", 100. * record.hit_cnt / record.total_cnt);
         if (!update_schedule_flag_.test_and_set()) {
           uint64_t total_num_key = db_->index_->get_num_key();
-          HOT_NUM = total_num_key * 0.40;
+          printf("total keys = %ld\n", total_num_key);
+          HOT_NUM = total_num_key * 0.30;
+          printf("Hot_NUM = %ld\n", HOT_NUM);
           BeginUpdateHotKeySet();
         }
       }
@@ -99,12 +101,14 @@ int HotKeySet::Exist(const Slice &key) {
 }
 
 void HotKeySet::UpdateHotSet() {
+  printf("Update Hot set\n");
   // bind_core_on_numa(db_->num_workers_);
 
   std::unordered_map<uint64_t, int> count;
   uint64_t update_cnt = 0;
   while (!stop_flag_.load(std::memory_order_relaxed)) {
-    if (count.size() > HOT_NUM * 4 || update_cnt > HOT_NUM * 16) {
+    if (count.size() > HOT_NUM * 3 || update_cnt > HOT_NUM * 12) {
+    // if (count.size() > HOT_NUM) {
       break;
     }
     std::list<std::vector<uint64_t>> list;
@@ -121,6 +125,7 @@ void HotKeySet::UpdateHotSet() {
   }
 
   need_record_ = false;
+  printf("count.sz = %ld\n", count.size());
 
   std::priority_queue<RecordEntry, std::vector<RecordEntry>,
                       std::greater<RecordEntry>>
@@ -137,6 +142,8 @@ void HotKeySet::UpdateHotSet() {
       }
     }
   }
+
+  printf("topK.sz = %ld\n", topK.size());
 
   std::unordered_set<uint64_t> *old_set_class1 = current_set_class[0];
   std::unordered_set<uint64_t> *old_set_class2 = current_set_class[1];
@@ -192,4 +199,5 @@ void HotKeySet::UpdateHotSet() {
   update_schedule_flag_.clear(std::memory_order_relaxed);
   need_count_hit_ = true;
   update ++;
+  printf("Update Hot set done...\n");
 }

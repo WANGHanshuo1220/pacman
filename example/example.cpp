@@ -21,8 +21,8 @@
 #define value_sz 32
 #define kv_sz (value_sz + 20)
 uint64_t log_size = 1ul << 30;
-int num_workers = 0;
-int num_cleaners = 0;
+int num_workers = 24;
+int num_cleaners = 1;
 std::string db_path = std::string(PMEM_DIR) + "log_kvs";
 DB *db;
 std::random_device rd;  //Will be used to obtain a seed for the random number engine
@@ -264,13 +264,14 @@ void prepare_key_base()
 // }
 
 std::map<uint64_t, std::string> kvs;
+SpinLock lock;
 
 void *put_KVS(int id)
 {
   uint32_t t_id = id;
   uint64_t key;
   int op;
-  std::string value = "hello world 22-08-24";
+  std::string value = "hello world";
   std::unique_ptr<DB::Worker> worker = db->GetWorker();
   value.resize(value_sz);
   struct timeval s, e;
@@ -281,6 +282,11 @@ void *put_KVS(int id)
     key = key_base[t_id][i];
     if(op_base[t_id][i])
     {
+      // value = value + std::to_string(i%100);
+      // value.resize(value_sz);
+      // lock.lock();
+      // kvs[key] = value;
+      // lock.unlock();
       worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value), false);
     }
     else
@@ -301,17 +307,24 @@ void *prefilling(void *)
   for(uint64_t i = 1; i <= dup_rate; i++)
   {
     key = i;
-    value.resize(value_sz);
+    // value.resize(value_sz);
+    // lock.lock();
+    // kvs[key] = value;
+    // lock.unlock();
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value), true);
   }
 
-  for(uint64_t i = 0; i <  prefilling_rate * log_size / kv_sz - dup_rate; i++)
-  {
-    key = zipf();
-    // key = uniform();
-    value.resize(value_sz);
-    worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value), true);
-  }
+  // for(uint64_t i = 0; i <  prefilling_rate * log_size / kv_sz - dup_rate; i++)
+  // {
+  //   key = zipf();
+  //   // key = uniform();
+  //   // value = value + std::to_string(i % 100);
+  //   // value.resize(value_sz);
+  //   // lock.lock();
+  //   // kvs[key] = value;
+  //   // lock.unlock();
+  //   worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value), true);
+  // }
   worker.reset();
 }
 
@@ -366,14 +379,12 @@ static void BM_job3(benchmark::State& st)
 {
   if(st.thread_index() == 0)
   {
-    num_workers = 24;
-    num_cleaners = 1;
-    NUM_KVS = 200000;
+    NUM_KVS = 20000000;
     // dup_rate = 200000000;
-    dup_rate = 500000;
-    log_size = 
-      (dup_rate * kv_sz * 4 + SEGMENT_SIZE[0] - 1) 
-      / SEGMENT_SIZE[0] * SEGMENT_SIZE[0];
+    dup_rate = 5000000;
+    // log_size = 
+    //   (dup_rate * kv_sz * 4 + SEGMENT_SIZE[0] - 1) 
+    //   / SEGMENT_SIZE[0] * SEGMENT_SIZE[0];
     a.resize(num_workers);
     printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
     db = new DB(db_path, log_size, num_workers, num_cleaners);
@@ -387,12 +398,45 @@ static void BM_job3(benchmark::State& st)
   }
   if(st.thread_index() == 0)
   {
+    // printf("\nstart checking...\n");
+    // std::unique_ptr<DB::Worker> worker = db->GetWorker();
+    // std::string val_;
+    // uint64_t key_;
+    // int find_kvs = 0;
+    // int false_kv = 0;
+    // bool c = true;
+    // for(uint64_t i = 1; i <= dup_rate; i++)
+    // {
+    //   key_ = i;
+    //   worker->Get(Slice((const char *)&key_, sizeof(uint64_t)), &val_);
+    //   if( kvs.find(key_) != kvs.end())
+    //   {
+    //     find_kvs ++;
+    //     if(kvs[key_].compare(val_) != 0)
+    //     {
+    //       // printf("kvs not equal, key_ = %d\n", key_);
+    //       // std::cout << "  kvs not equal. key_ = " << key_ << std::endl;
+    //       // std::cout << "    right_val = " << kvs[key_] << std::endl;
+    //       // std::cout << "    db_val = " << val_ << std::endl;
+    //       false_kv ++;
+    //       c = false;
+    //     }
+    //   }
+    // }
+    // if(c)
+    // {
+    //   std::cout << "all kvs correct: " << find_kvs << std::endl;
+    // }else
+    // {
+    //   std::cout << "some kvs incorrect: " << false_kv << std::endl;
+    // }
+    // worker.reset();
     delete db;
   }
 }
 
 BENCHMARK(BM_job3)
   ->Iterations(1)
-  ->Threads(24);
+  ->Threads(num_workers);
 
 BENCHMARK_MAIN();

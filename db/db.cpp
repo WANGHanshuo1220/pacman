@@ -21,6 +21,7 @@ static_assert(false, "error index kind");
 DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
     : num_workers_(num_workers),
       num_cleaners_(num_class), // change to num_class
+      // num_cleaners_(num_cleaners), 
       thread_status_(num_workers) {
 #if defined(USE_PMDK) && defined(IDX_PERSISTENT)
   g_index_allocator = new PMDKAllocator(db_path + "/idx_pool", IDX_POOL_SIZE);
@@ -66,12 +67,6 @@ DB::~DB() {
   printf("total puts = %ld\n", c);
   printf("total gets = %ld\n", get_c.load());
   printf("total oprs = %ld\n", get_c.load() + c);
-  printf("update c = %d\n", hot_key_set_->update);
-
-  for(int i = 0; i < 3; i++)
-  {
-    printf("%d hot set sz = %ld\n", i+1, hot_key_set_->get_set_sz(i));
-  }
 
   delete log_;
   delete index_;
@@ -81,6 +76,12 @@ DB::~DB() {
     ERROR_EXIT("%d worker(s) not ending", cur_num_workers_.load());
   }
 #ifdef HOT_COLD_SEPARATE
+  printf("update c = %d\n", hot_key_set_->update);
+
+  for(int i = 0; i < 3; i++)
+  {
+    printf("%d hot set sz = %ld\n", i+1, hot_key_set_->get_set_sz(i));
+  }
   delete hot_key_set_;
   hot_key_set_ = nullptr;
 #endif
@@ -186,7 +187,8 @@ void DB::Worker::Put(const Slice &key, const Slice &value, bool prefill) {
 
   // sub-opr 1 : check the hotness of the key;
   int class_ = db_->hot_key_set_->Exist(key);
-  if(!prefill) db_->put_c[class_].fetch_add(1);
+  // int class_ = 0;
+  // if(!prefill) db_->put_c[class_].fetch_add(1);
 
   // sub-opr 2 : make a new kv item, append it at the end of the segment;
   ValueType val = MakeKVItem(key, value, class_);

@@ -96,7 +96,6 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
         log_cleaners_[j] = new LogCleaner(db, j, this, all_segments_[i], j);
         pool_start += SEGMENT_SIZE[j];
         all_segments_[i]->set_reserved();
-        assert(all_segments_[i]->is_segment_reserved());
         j++;
         num = 0;
         for(int n = 0; n < j; n ++) num += num_class_segments_[n];

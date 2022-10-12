@@ -79,7 +79,7 @@ class LogStructured {
   // const int max_reserved_segments_;
   SpinLock class_list_lock_[num_class];
 
-  int num_class_segments_[num_class];
+  int num_class_segments_[num_class] = {0};
 
   std::vector<LogSegment *> all_segments_;
   std::vector<LogCleaner *> log_cleaners_;

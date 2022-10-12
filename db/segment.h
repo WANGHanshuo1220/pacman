@@ -187,9 +187,9 @@ class LogSegment : public BaseSegment {
     else init_RB_map();
     garbage_bytes_ = 0;
     clear_num_kvs();
-    // header_->offset = 0;
-    // header_->objects_tail_offset = 0;
-    // header_->Flush();
+    header_->offset = 0;
+    header_->objects_tail_offset = 0;
+    header_->Flush();
 #ifdef LOG_BATCHING
     flush_tail_ = data_start_;
 #endif
@@ -242,8 +242,8 @@ class LogSegment : public BaseSegment {
 
   void StartUsing(bool has_shortcut = false) {
     header_->status = StatusUsing;
-    // header_->has_shortcut = has_shortcut;
-    // header_->Flush();
+    header_->has_shortcut = has_shortcut;
+    header_->Flush();
     // is_hot_ = is_hot;
 #ifdef GC_SHORTCUT
     has_shortcut_ = has_shortcut;
@@ -254,11 +254,11 @@ class LogSegment : public BaseSegment {
   void Close() {
     header_->status = StatusClosed;
     close_time_ = NowMicros();
-    // if (HasSpaceFor(sizeof(KVItem))) {
-    //   KVItem *end = new (tail_) KVItem();
-    //   end->Flush();
-    //   tail_ += sizeof(KVItem);
-    // }
+    if (HasSpaceFor(sizeof(KVItem))) {
+      KVItem *end = new (tail_) KVItem();
+      end->Flush();
+      tail_ += sizeof(KVItem);
+    }
 #ifdef GC_SHORTCUT
     if (shortcut_buffer_) {
       assert(tail_ + shortcut_buffer_->size() * sizeof(Shortcut) <= end_);
@@ -269,11 +269,10 @@ class LogSegment : public BaseSegment {
       shortcut_buffer_ = nullptr;
     }
 #endif
-    // header_->offset = get_offset();
-    // header_->objects_tail_offset = get_offset();
-    // header_->has_shortcut = has_shortcut_;
-    // header_->Flush();
-    // printf("after close tail pointer = %p (data_start = %p)\n", tail_, data_start_);
+    header_->offset = get_offset();
+    header_->objects_tail_offset = get_offset();
+    header_->has_shortcut = has_shortcut_;
+    header_->Flush();
   }
 
   void Clear() {
@@ -281,9 +280,9 @@ class LogSegment : public BaseSegment {
     garbage_bytes_ = 0;
     header_->status = StatusAvailable;
     clear_num_kvs();
-    // header_->objects_tail_offset = 0;
-    // header_->has_shortcut = false;
-    // header_->Flush();
+    header_->objects_tail_offset = 0;
+    header_->has_shortcut = false;
+    header_->Flush();
 #ifdef GC_EVAL
     make_new_kv_time = 0;
 #endif
