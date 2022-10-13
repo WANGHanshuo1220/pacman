@@ -21,7 +21,6 @@ static_assert(false, "error index kind");
 DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
     : num_workers_(num_workers),
       num_cleaners_(num_class), // change to num_class
-      // num_cleaners_(num_cleaners), 
       thread_status_(num_workers) {
 #if defined(USE_PMDK) && defined(IDX_PERSISTENT)
   g_index_allocator = new PMDKAllocator(db_path + "/idx_pool", IDX_POOL_SIZE);
@@ -58,15 +57,14 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
 };
 
 DB::~DB() {
-  uint64_t c = 0;
-  for(int i = 0; i < num_class; i++)
-  {
-    printf("%dth class puts = %ld\n", i, put_c[i].load());
-    c += put_c[i].load();
-  }
-  printf("total puts = %ld\n", c);
-  printf("total gets = %ld\n", get_c.load());
-  printf("total oprs = %ld\n", get_c.load() + c);
+  // uint64_t c = 0;
+  // for(int i = 0; i < num_class; i++)
+  // {
+  //   c += put_c[i].load();
+  // }
+  // printf("total puts = %ld\n", c);
+  // printf("total gets = %ld\n", get_c.load());
+  // printf("total oprs = %ld\n", get_c.load() + c);
 
   delete log_;
   delete index_;
@@ -76,12 +74,6 @@ DB::~DB() {
     ERROR_EXIT("%d worker(s) not ending", cur_num_workers_.load());
   }
 #ifdef HOT_COLD_SEPARATE
-  printf("update c = %d\n", hot_key_set_->update);
-
-  for(int i = 0; i < 3; i++)
-  {
-    printf("%d hot set sz = %ld\n", i+1, hot_key_set_->get_set_sz(i));
-  }
   delete hot_key_set_;
   hot_key_set_ = nullptr;
 #endif
@@ -183,12 +175,11 @@ bool DB::Worker::Get(const Slice &key, std::string *value) {
 *    2. make a new kv item, append it at the end of the segment;
 *    3. update index
 */
-void DB::Worker::Put(const Slice &key, const Slice &value, bool prefill) {
+void DB::Worker::Put(const Slice &key, const Slice &value) {
 
   // sub-opr 1 : check the hotness of the key;
   int class_ = db_->hot_key_set_->Exist(key);
-  // int class_ = 0;
-  // if(!prefill) db_->put_c[class_].fetch_add(1);
+  // db_->put_c[class_].fetch_add(1);
 
   // sub-opr 2 : make a new kv item, append it at the end of the segment;
   ValueType val = MakeKVItem(key, value, class_);
@@ -305,9 +296,20 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     if(accumulative_sz_class[class_] > db_->get_threshold(class_))
     {
       log_head_class[class_]->set_touse();
+      // std::pair<uint32_t, LogSegment **> p = db_->get_class_segment(class_, worker_id_);
+      // log_head_class[class_] = *p.second;
+      // class_seg_working_on[class_] = p.first;
       db_->get_class_segment(class_, worker_id_, 
                              &log_head_class[class_], &class_seg_working_on[class_]);
       accumulative_sz_class[class_] = sz;
+      uint32_t n = log_head_class[class_]->num_kvs;
+      if(n)
+      {
+        if(log_head_class[class_]->roll_back_map[n-1].is_garbage) 
+        {
+          Roll_Back2(log_head_class[class_]);
+        }
+      }
     }
   }
   LogSegment *&segment = log_head_class[class_];
@@ -410,8 +412,9 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
   }
 }
 
-void DB::Worker::Roll_Back1(uint32_t n, uint32_t sz, LogSegment *segment)
+void DB::Worker::Roll_Back1(uint32_t n_, uint32_t sz, LogSegment *segment)
 {
+  uint32_t n = segment->num_kvs;
   int roll_back_sz = sz;
   uint32_t RB_count = 1;
   for(int i = n - 2; i >= 0; i--)

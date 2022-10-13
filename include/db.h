@@ -41,7 +41,7 @@ class DB {
     ~Worker();
 
     bool Get(const Slice &key, std::string *value);
-    void Put(const Slice &key, const Slice &value, bool prefill);
+    void Put(const Slice &key, const Slice &value);
     size_t Scan(const Slice &key, int cnt);
     bool Delete(const Slice &key);
     // int show_ID() {return worker_id_; };
@@ -140,6 +140,8 @@ class DB {
 
   uint32_t change_seg_threshold_class[num_class];
   uint32_t db_num_class_segs[num_class] = {0};
+  std::vector<bool> mark;
+  std::vector<bool> first;
   int get_num_workers() { return num_workers_; }
 
  private:
