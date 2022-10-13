@@ -379,7 +379,7 @@ static void BM_job3(benchmark::State& st)
 {
   if(st.thread_index() == 0)
   {
-    NUM_KVS = 20000000;
+    NUM_KVS = 2000000;
     // dup_rate = 200000000;
     dup_rate = 5000000;
     // log_size = 
