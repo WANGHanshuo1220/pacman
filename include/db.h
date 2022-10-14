@@ -156,9 +156,9 @@ class DB {
   HotKeySet *hot_key_set_ = nullptr;
   ThreadStatus thread_status_;
   std::vector<std::vector<int>> next_class_segment_;
-  SpinLock class_segment_list_lock[num_class];
-  std::atomic<uint64_t> roll_back_count = 0;
-  std::atomic<uint64_t> roll_back_bytes = 0;
+  // SpinLock class_segment_list_lock[num_class];
+  // std::atomic<uint64_t> roll_back_count = 0;
+  // std::atomic<uint64_t> roll_back_bytes = 0;
 
   static constexpr int EPOCH_MAP_SIZE = 1024;
   std::array<std::atomic_uint_fast32_t, EPOCH_MAP_SIZE> epoch_map_{};

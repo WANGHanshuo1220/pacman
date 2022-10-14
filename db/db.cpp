@@ -64,9 +64,6 @@ DB::~DB() {
   printf("total puts = %ld\n", c);
   printf("total gets = %ld\n", get_c.load());
   printf("total oprs = %ld\n", get_c.load() + c);
-  printf("RB_c = %ld, RB_bytes = %ld KB (%ld MB)\n",
-    roll_back_count.load(), roll_back_bytes.load()/1024,
-    roll_back_bytes.load()/(1024*1024));
 
   delete log_;
   delete index_;

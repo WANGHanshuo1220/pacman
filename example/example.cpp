@@ -138,9 +138,9 @@ void prepare_key_base()
 
 std::map<uint64_t, std::string> kvs;
 
-void *put_KVS(int id)
+void *put_KVS(void *id)
 {
-  uint32_t t_id = id;
+  uint32_t t_id = *(int *)id;
   uint64_t key;
   int op;
   std::string value = "hello world 22-08-24";
@@ -207,27 +207,64 @@ void prepare()
   printf("prefilling done...\n");
 }
 
-static void BM_job3(benchmark::State& st)
+int main()
 {
-  if(st.thread_index() == 0)
+  a.resize(num_workers);
+  printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
+  db = new DB(db_path, log_size, num_workers, num_cleaners);
+  init_zipf();
+  prepare();
+  tid = new pthread_t[num_workers];
+  struct timeval s, e;
+
+  gettimeofday(&s, NULL);
+  for(int i = 0; i < num_workers; i++)
   {
-    a.resize(num_workers);
-    printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
-    db = new DB(db_path, log_size, num_workers, num_cleaners);
-    init_zipf();
-    prepare();
-    tid = new pthread_t[num_workers];
+    a[i] = i;
+    int ret = pthread_create(&tid[i], NULL, &put_KVS, &a[i]); 
+    if(ret != 0)
+    {
+      printf("prefilling thread create error\n");
+      exit(0);
+    }
   }
-  for(auto _ : st)
+
+  for(int i = 0; i < num_workers; i++)
   {
-    put_KVS(st.thread_index());
+    pthread_join(tid[i], NULL);
   }
-  if(st.thread_index() == 0)
-  {
-    delete db;
-  }
+  gettimeofday(&e, NULL);
+  uint64_t t = TIMEDIFF(s, e);
+  printf("time = %ld us (%ld s)\n", t, t/1000000);
+
+  delete db;
+  return 0;
 }
 
-BENCHMARK(BM_job3)->Iterations(1)->Threads(num_workers);
+// static void BM_job3(benchmark::State& st)
+// {
+//   if(st.thread_index() == 0)
+//   {
+//     a.resize(num_workers);
+//     printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
+//     db = new DB(db_path, log_size, num_workers, num_cleaners);
+//     init_zipf();
+//     prepare();
+//     tid = new pthread_t[num_workers];
+//   }
+//   for(auto _ : st)
+//   {
+//     int id = st.thread_index();
+//     put_KVS(&id);
+//   }
+//   if(st.thread_index() == 0)
+//   {
+//     delete db;
+//   }
+// }
 
-BENCHMARK_MAIN();
+// BENCHMARK(BM_job3)
+//   ->Iterations(1)
+//   ->Threads(num_workers);
+
+// BENCHMARK_MAIN();
