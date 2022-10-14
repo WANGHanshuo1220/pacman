@@ -33,43 +33,49 @@ void LogCleaner::CleanerEntry() {
   num_class_segs[0] = db_->db_num_class_segs[num_class-1];
   num_class_segs[1] = db_->db_num_class_segs[num_class-2];
   num_worker = db_->get_num_workers();
+  bool need_sort = true;
   for(int i = 0; i < 2; i++)
   {
-    sort_range[i] = (num_class_segs[i] - gap[i]) / ( 2 * num_worker);
+    sort_range[i] = (num_class_segs[i] - gap[i]) / (num_worker);
     if(sort_range[i] > 20) sort_range[i] = 20;
+    if(num_class_segs[i]/num_worker < gap[i] + 5 ) need_sort = false;
   }
   worker_range = num_worker / num_class;
   int count = 0;
 
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning()) {
-      // Timer timer(clean_time_ns_);
-      // GC_times ++;
+      Timer timer(clean_time_ns_);
+      GC_times ++;
       DoMemoryClean();
     }
     else 
     {
-      // usleep(10);
-      uint64_t now = NowMicros();
-      if(now - clean_sort_us_before_ > 1000)
-      {
-        clean_sort_us_before_ = now;
-        help ++;
-        if(count < 3)
-        { 
-          Help_sort(0);
-          count++;
-        }
-        else
-        {
-          Help_sort(1);
-          count = 0;
-        }
-      }
-      else
-      {
-        usleep(10);
-      }
+      usleep(10);
+      // if(need_sort)
+      // {
+      //   uint64_t now = NowMicros();
+      //   if(now - clean_sort_us_before_ > 1000)
+      //   {
+      //     clean_sort_us_before_ = now;
+      //     help ++;
+      //     Help_sort(0);
+      //     // if(count < 3)
+      //     // { 
+      //     //   Help_sort(0);
+      //     //   count++;
+      //     // }
+      //     // else
+      //     // {
+      //     //   Help_sort(1);
+      //     //   count = 0;
+      //     // }
+      //   }
+      // }
+      // else
+      // {
+      //   usleep(10);
+      // }
     }
   }
 }

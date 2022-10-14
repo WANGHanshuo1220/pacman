@@ -2,7 +2,6 @@
 #include "db_common.h"
 #include "log_structured.h"
 #include "hotkeyset.h"
-// #include "circlequeue.h"
 
 #if INDEX_TYPE <= 1
 #include "index_cceh.h"
@@ -57,14 +56,17 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
 };
 
 DB::~DB() {
-  // uint64_t c = 0;
-  // for(int i = 0; i < num_class; i++)
-  // {
-  //   c += put_c[i].load();
-  // }
-  // printf("total puts = %ld\n", c);
-  // printf("total gets = %ld\n", get_c.load());
-  // printf("total oprs = %ld\n", get_c.load() + c);
+  uint64_t c = 0;
+  for(int i = 0; i < num_class; i++)
+  {
+    c += put_c[i].load();
+  }
+  printf("total puts = %ld\n", c);
+  printf("total gets = %ld\n", get_c.load());
+  printf("total oprs = %ld\n", get_c.load() + c);
+  printf("RB_c = %ld, RB_bytes = %ld KB (%ld MB)\n",
+    roll_back_count.load(), roll_back_bytes.load()/1024,
+    roll_back_bytes.load()/(1024*1024));
 
   delete log_;
   delete index_;
@@ -314,7 +316,8 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
   }
   LogSegment *&segment = log_head_class[class_];
 
-  while ((ret = segment->Append(key, value, epoch)) == INVALID_VALUE) {
+  while (segment == nullptr
+    || (ret = segment->Append(key, value, epoch)) == INVALID_VALUE) {
     FreezeSegment(segment, class_);
     segment = db_->log_->NewSegment(class_);
     if(class_ != 0)
@@ -429,6 +432,8 @@ void DB::Worker::Roll_Back1(uint32_t n_, uint32_t sz, LogSegment *segment)
       break;
     }
   }
+  // db_->roll_back_count.fetch_add(1);
+  // db_->roll_back_bytes.fetch_add(roll_back_sz);
   segment->roll_back_tail(roll_back_sz);
   segment->reduce_garbage_bytes(roll_back_sz);
   segment->RB_num_kvs(RB_count);
@@ -453,6 +458,8 @@ void DB::Worker::Roll_Back2(LogSegment *segment)
         break;
       }
     }
+    // db_->roll_back_count.fetch_add(1);
+    // db_->roll_back_bytes.fetch_add(roll_back_sz);
     segment->roll_back_tail(roll_back_sz);
     segment->reduce_garbage_bytes(roll_back_sz);
     segment->RB_num_kvs(RB_count);

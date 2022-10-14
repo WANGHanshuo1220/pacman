@@ -89,9 +89,9 @@ class LogStructured {
 
   std::vector<std::vector<LogSegment *>> class_segments_{num_class};
 
-  const float class0_prop = 0.5;
-  const float class1_prop = 0.25;
-  const float class2_prop = 0.15;
+  const float class0_prop = 0.95;
+  const float class1_prop = 0.025;
+  const float class2_prop = 0.015;
   const float class3_prop = 1. - class0_prop - class1_prop - class2_prop;
   const float class_prop[num_class] = {class0_prop, class1_prop, class2_prop, class3_prop};
 

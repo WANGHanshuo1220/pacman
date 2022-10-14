@@ -48,7 +48,7 @@ void HotKeySet::Record(const Slice &key, int worker_id, int class_) {
       uint32_t total_hit = 0;
       for(int i = 1; i < num_class; i++) total_hit += record.hit_cnt[i];
       // printf("hit ratio = %.1lf%%\n", 100. * record.hit_cnt / record.total_cnt);
-      if (     total_hit    < RECORD_BATCH_CNT  * 0.7
+      if (     total_hit    < RECORD_BATCH_CNT  * 0.5
           // record.hit_cnt[3] < record.hit_cnt[2] * 1.0 ||
           // record.hit_cnt[2] < record.hit_cnt[1] * 1.0 
          ) { /* means many keys that has been accessed 
@@ -59,7 +59,7 @@ void HotKeySet::Record(const Slice &key, int worker_id, int class_) {
         // LOG("hit ratio = %.1lf%%", 100. * record.hit_cnt / record.total_cnt);
         if (!update_schedule_flag_.test_and_set()) {
           uint64_t total_num_key = db_->index_->get_num_key();
-          HOT_NUM = total_num_key * 0.40;
+          HOT_NUM = total_num_key * 0.01;
           BeginUpdateHotKeySet();
         }
       }

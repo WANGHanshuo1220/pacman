@@ -90,7 +90,6 @@ endif()
 
 option(LOGGING "LOGGING" OFF)
 
-set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 if (CMAKE_BUILD_TYPE MATCHES Release)
   message(STATUS "Setting build type to 'Release'")
 else()
