@@ -19,7 +19,7 @@
 
 #define prefilling_rate 0.75
 uint64_t log_size = 1ul << 30;
-std::string db_path = std::string(PMEM_DIR) + "log_kvs_IGC";
+std::string db_path = std::string(PMEM_DIR) + "log_kvs";
 DB *db;
 std::random_device rd;  //Will be used to obtain a seed for the random number engine
 std::mt19937 gen(rd()); //Standard mersenne_twister_engine seeded with rd()
@@ -43,10 +43,10 @@ void prepare_key_base();
 uint64_t NUM_KVS = 20000000;
 uint64_t dup_rate = 5000000;
 int num_workers = 24;
-int num_cleaners = 1;
+int num_cleaners = 2;
 
 double c = 0;          // Normalization constant
-double *sum_probs;     // Pre-calculated sum of probabilities
+double *sum_probs = nullptr;     // Pre-calculated sum of probabilities
 double alpha = 0.99;
 
 int ret;
@@ -57,6 +57,7 @@ void init_zipf()
 {
   printf("init zipf...\n");
   // Compute normalization constant on first call only
+  c = 0;
   for (int i=1; i<= dup_rate; i++)
     c = c + (1.0 / pow((double) i, alpha));
   c = 1.0 / c;
@@ -91,7 +92,7 @@ uint64_t zipf()
   while ((z < 0.00000001) || (z > 0.99999999));
 
   // Map z to the value
-  low = 1, high = dup_rate, mid;
+  low = 1, high = dup_rate;
   do {
     mid = floor((low+high)/2);
     if (sum_probs[mid] >= z && sum_probs[mid-1] < z) {
@@ -112,26 +113,20 @@ uint64_t zipf()
   return(zipf_value);
 }
 
-Random ra((unsigned)time(NULL));
-int get_random()
+int get_random(Random *ra)
 {
-  return ra.Next()%100;
+  return ra->Next()%100;
 }
-
 
 void prepare_key_base()
 {
   key_base.resize(num_workers);
-  op_base.resize(num_workers);
   for(int i = 0; i < num_workers; i++)
   {
     for(uint64_t j = 0; j < NUM_KVS; j++)
     {
       uint64_t key = zipf();
       key_base[i].push_back(key);
-      uint32_t op = get_random();
-      if(op < 50) op_base[i].push_back(0);
-      else op_base[i].push_back(1);
     }
   }
 }
@@ -148,11 +143,12 @@ void *put_KVS(void *id)
   value.resize(32);
   struct timeval s, e;
   std::string value1;
+  Random ra(t_id + 512);
 
   for(uint64_t i = 0; i < NUM_KVS; i++)
   {
     key = key_base[t_id][i];
-    if(op_base[t_id][i])
+    if(get_random(&ra) > 50)
     {
       worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
     }
@@ -165,7 +161,7 @@ void *put_KVS(void *id)
   worker.reset();
 }
 
-void *prefilling(void *)
+void *prefilling()
 {
   uint64_t key;
   std::unique_ptr<DB::Worker> worker = db->GetWorker();
@@ -197,74 +193,74 @@ void prepare()
   printf("Preparing key base done...\n");
   
   printf("prefilling\n");
-  ret = pthread_create(tid_prefilling, NULL, &prefilling, NULL); 
-  if(ret != 0)
-  {
-    printf("prefilling thread create error\n");
-    exit(0);
-  }
-  pthread_join(*tid_prefilling, NULL);
+  prefilling();
   printf("prefilling done...\n");
 }
 
-int main()
-{
-  a.resize(num_workers);
-  printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
-  db = new DB(db_path, log_size, num_workers, num_cleaners);
-  init_zipf();
-  prepare();
-  tid = new pthread_t[num_workers];
-  struct timeval s, e;
-
-  gettimeofday(&s, NULL);
-  for(int i = 0; i < num_workers; i++)
-  {
-    a[i] = i;
-    int ret = pthread_create(&tid[i], NULL, &put_KVS, &a[i]); 
-    if(ret != 0)
-    {
-      printf("prefilling thread create error\n");
-      exit(0);
-    }
-  }
-
-  for(int i = 0; i < num_workers; i++)
-  {
-    pthread_join(tid[i], NULL);
-  }
-  gettimeofday(&e, NULL);
-  uint64_t t = TIMEDIFF(s, e);
-  printf("time = %ld us (%ld s)\n", t, t/1000000);
-
-  delete db;
-  return 0;
-}
-
-// static void BM_job3(benchmark::State& st)
+// int main()
 // {
-//   if(st.thread_index() == 0)
+//   a.resize(num_workers);
+//   printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
+//   db = new DB(db_path, log_size, num_workers, num_cleaners);
+//   init_zipf();
+//   prepare();
+//   tid = new pthread_t[num_workers];
+//   struct timeval s, e;
+
+//   gettimeofday(&s, NULL);
+//   for(int i = 0; i < num_workers; i++)
 //   {
-//     a.resize(num_workers);
-//     printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
-//     db = new DB(db_path, log_size, num_workers, num_cleaners);
-//     init_zipf();
-//     prepare();
-//     tid = new pthread_t[num_workers];
+//     a[i] = i;
+//     int ret = pthread_create(&tid[i], NULL, &put_KVS, &a[i]); 
+//     if(ret != 0)
+//     {
+//       printf("prefilling thread create error\n");
+//       exit(0);
+//     }
 //   }
-//   for(auto _ : st)
+
+//   for(int i = 0; i < num_workers; i++)
 //   {
-//     int id = st.thread_index();
-//     put_KVS(&id);
+//     pthread_join(tid[i], NULL);
 //   }
-//   if(st.thread_index() == 0)
-//   {
-//     delete db;
-//   }
+//   gettimeofday(&e, NULL);
+//   uint64_t t = TIMEDIFF(s, e);
+//   printf("time = %ld us (%ld s)\n", t, t/1000000);
+
+//   delete db;
+//   return 0;
 // }
 
-// BENCHMARK(BM_job3)
-//   ->Iterations(1)
-//   ->Threads(num_workers);
+static void BM_job3(benchmark::State& st)
+{
+  if(st.thread_index() == 0)
+  {
+    num_workers = st.threads();
+    a.resize(num_workers);
+    printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
+    db = new DB(db_path, log_size, num_workers, num_cleaners);
+    init_zipf();
+    prepare();
+    tid = new pthread_t[num_workers];
+  }
+  for(auto _ : st)
+  {
+    int id = st.thread_index();
+    put_KVS(&id);
+  }
+  if(st.thread_index() == 0)
+  {
+    delete db;
+    free(sum_probs);
+    key_base.clear();
+  }
+}
 
-// BENCHMARK_MAIN();
+BENCHMARK(BM_job3)
+  ->Iterations(1)
+  ->DenseThreadRange(6, 12, 6)
+  // ->Threads(2)
+  ->Unit(benchmark::kMicrosecond)
+  ->UseRealTime();
+
+BENCHMARK_MAIN();

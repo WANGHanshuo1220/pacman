@@ -2,6 +2,7 @@
 #include "db_common.h"
 #include "log_structured.h"
 #include "hotkeyset.h"
+#include <random>
 
 #if INDEX_TYPE <= 1
 #include "index_cceh.h"
@@ -19,7 +20,7 @@ static_assert(false, "error index kind");
 
 DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
     : num_workers_(num_workers),
-      num_cleaners_(num_class), // change to num_class
+      num_cleaners_(num_cleaners + num_class - 1), // change to num_class
       thread_status_(num_workers) {
 #if defined(USE_PMDK) && defined(IDX_PERSISTENT)
   g_index_allocator = new PMDKAllocator(db_path + "/idx_pool", IDX_POOL_SIZE);
@@ -42,7 +43,7 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
   hot_key_set_ = new HotKeySet(this);
 #endif
   next_class_segment_.resize(num_class);
-  for(int i = 0; i < num_class; i++)
+  for(int i = 1; i < num_class; i++)
   {
     next_class_segment_[i].resize(num_workers_);
     for(int j = 0; j < num_workers_; j++)
@@ -56,14 +57,18 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
 };
 
 DB::~DB() {
-  uint64_t c = 0;
-  for(int i = 0; i < num_class; i++)
-  {
-    c += put_c[i].load();
-  }
-  printf("total puts = %ld\n", c);
-  printf("total gets = %ld\n", get_c.load());
-  printf("total oprs = %ld\n", get_c.load() + c);
+  // uint64_t c = 0;
+  // for(int i = 0; i < num_class; i++)
+  // {
+  //   c += put_c[i].load();
+  //   printf("class %d puts = %lu\n", i, put_c[i].load());
+  // }
+  // printf("total puts = %ld\n", c);
+  // printf("total gets = %ld\n", get_c.load());
+  // printf("total oprs = %ld\n", get_c.load() + c);
+  // printf("RB_C = %ld, RB_bytes = %ld KB (%ld MB)\n",
+  //   roll_back_count.load(), roll_back_bytes.load()/1024,
+  //   roll_back_bytes/(1024*1024));
 
   delete log_;
   delete index_;
@@ -121,9 +126,9 @@ void DB::NewIndexForRecoveryTest() {
 DB::Worker::Worker(DB *db) : db_(db) {
   worker_id_ = db_->cur_num_workers_.fetch_add(1);
   tmp_cleaner_garbage_bytes_.resize(db_->num_cleaners_, 0);
-  std::pair<uint32_t, LogSegment **> p;
 
   log_head_class[0] = db_->log_->NewSegment(0);
+  log_head_cold_class0_ = db_->log_->NewSegment(0);
 
   for(int i = 1; i < num_class; i++)
   {
@@ -149,9 +154,19 @@ DB::Worker::~Worker() {
   }
 #endif
   db_->log_->SyncCleanerGarbageBytes(tmp_cleaner_garbage_bytes_);
-  for(int i = 0; i < num_class; i++)
+  for(int i = 1; i < num_class; i++)
   {
-    log_head_class[i]->set_touse();
+    if(log_head_class[i]) log_head_class[i]->set_touse();
+  }
+  if(log_head_class[0]) 
+  {
+    FreezeSegment(log_head_class[0], 0);
+    log_head_class[0] = nullptr;
+  }
+  if(log_head_cold_class0_) 
+  {
+    FreezeSegment(log_head_cold_class0_, -1);
+    log_head_cold_class0_ = nullptr;
   }
   db_->cur_num_workers_--;
 }
@@ -177,15 +192,17 @@ bool DB::Worker::Get(const Slice &key, std::string *value) {
 void DB::Worker::Put(const Slice &key, const Slice &value) {
 
   // sub-opr 1 : check the hotness of the key;
-  int class_ = db_->hot_key_set_->Exist(key);
-  // db_->put_c[class_].fetch_add(1);
+  int class_t = db_->hot_key_set_->Exist(key);
+  // int class_t = 0;
+  // int class_t_ = class_t >= 0 ? class_t : 0;
+  // db_->put_c[class_t_].fetch_add(1);
 
   // sub-opr 2 : make a new kv item, append it at the end of the segment;
-  ValueType val = MakeKVItem(key, value, class_);
+  ValueType val = MakeKVItem(key, value, class_t);
 
   // sub-opr 3 : update index;
 #ifndef LOG_BATCHING
-  UpdateIndex(key, val, class_);
+  UpdateIndex(key, val, class_t);
 #endif
 }
 
@@ -282,53 +299,62 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 }
 #else
 ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
-                                 int class_) {
+                                 int class_t) {
   ValueType ret = INVALID_VALUE;
   uint64_t i_key = *(uint64_t *)key.data();
   uint32_t epoch = db_->GetKeyEpoch(i_key);
 
   uint32_t sz = sizeof(KVItem) + key.size() + value.size();
+  LogSegment *segment = nullptr;
 
-  if(class_ != 0)
+  if(class_t == 0)
   {
-    accumulative_sz_class[class_] += sz;
-    if(accumulative_sz_class[class_] > db_->get_threshold(class_))
+    segment = log_head_class[0];
+  }
+  else if(class_t == -1)
+  {
+    segment = log_head_cold_class0_;
+  }
+  else
+  {
+    accumulative_sz_class[class_t] += sz;
+    if(accumulative_sz_class[class_t] > db_->get_threshold(class_t))
     {
-      log_head_class[class_]->set_touse();
-      // std::pair<uint32_t, LogSegment **> p = db_->get_class_segment(class_, worker_id_);
-      // log_head_class[class_] = *p.second;
-      // class_seg_working_on[class_] = p.first;
-      db_->get_class_segment(class_, worker_id_, 
-                             &log_head_class[class_], &class_seg_working_on[class_]);
-      accumulative_sz_class[class_] = sz;
-      uint32_t n = log_head_class[class_]->num_kvs;
+      log_head_class[class_t]->set_touse();
+      db_->get_class_segment(class_t, worker_id_, 
+                             &log_head_class[class_t], &class_seg_working_on[class_t]);
+      accumulative_sz_class[class_t] = sz;
+      uint32_t n = log_head_class[class_t]->num_kvs;
       if(n)
       {
-        if(log_head_class[class_]->roll_back_map[n-1].is_garbage) 
+        if(log_head_class[class_t]->roll_back_map[n-1].is_garbage) 
         {
-          Roll_Back2(log_head_class[class_]);
+          Roll_Back2(log_head_class[class_t]);
         }
       }
     }
+    segment = log_head_class[class_t];
   }
-  LogSegment *&segment = log_head_class[class_];
 
   while (segment == nullptr
     || (ret = segment->Append(key, value, epoch)) == INVALID_VALUE) {
-    FreezeSegment(segment, class_);
-    segment = db_->log_->NewSegment(class_);
-    if(class_ != 0)
+    FreezeSegment(segment, class_t);
+    segment = db_->log_->NewSegment(class_t);
+    assert(segment->num_kvs.load() == 0);
+    if(class_t > 0)
     {
-      accumulative_sz_class[class_] = sz;
-      db_->log_->set_class_segment_(class_, class_seg_working_on[class_], segment);
+      accumulative_sz_class[class_t] = sz;
+      db_->log_->set_class_segment_(class_t, class_seg_working_on[class_t], segment);
     }
+    if(class_t == -1) log_head_cold_class0_ = segment;
+    else  log_head_class[class_t] = segment;
   }
   assert(ret);
   return ret;
 }
 #endif
 
-void DB::Worker::UpdateIndex(const Slice &key, ValueType val, int class_) {
+void DB::Worker::UpdateIndex(const Slice &key, ValueType val, int class_t) {
   LogEntryHelper le_helper(val);
   db_->index_->Put(key, le_helper);
 #ifdef GC_SHORTCUT
@@ -347,7 +373,7 @@ void DB::Worker::UpdateIndex(const Slice &key, ValueType val, int class_) {
   if (le_helper.old_val != INVALID_VALUE) {
 #ifdef HOT_COLD_SEPARATE
     db_->thread_status_.rcu_progress(worker_id_);
-    db_->hot_key_set_->Record(key, worker_id_, class_);
+    db_->hot_key_set_->Record(key, worker_id_, class_t);
     db_->thread_status_.rcu_exit(worker_id_);
 #endif
 
@@ -360,9 +386,9 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
 
   int segment_id = db_->log_->GetSegmentID(tp.GetAddr());
   LogSegment *segment = db_->log_->GetSegment(segment_id);
-  int class_ = segment->get_class();
+  int class_t = segment->get_class();
 
-  if(class_ == 0)
+  if(class_t == 0 || class_t == -1)
   {
     uint32_t sz = tp.size_or_num;
     if (sz == 0) {
@@ -371,7 +397,8 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
       sz = sizeof(KVItem) + kv->key_size + kv->val_size;
     }
     segment->MarkGarbage(tp.GetAddr(), sz);
-    tmp_cleaner_garbage_bytes_[class_] += sz;
+    int cleaner_id = db_->log_->GetSegmentCleanerID(tp.GetAddr());
+    tmp_cleaner_garbage_bytes_[cleaner_id] += sz;
   }
   else
   {
@@ -463,7 +490,8 @@ void DB::Worker::Roll_Back2(LogSegment *segment)
   }
 }
 
-void DB::Worker::FreezeSegment(LogSegment *segment, int class_) {
-  db_->log_->FreezeSegment(segment, class_);
-  if(class_ == 0) db_->log_->SyncCleanerGarbageBytes(tmp_cleaner_garbage_bytes_);
+void DB::Worker::FreezeSegment(LogSegment *segment, int class_t) {
+  db_->log_->FreezeSegment(segment, class_t);
+  if(class_t == 0 || class_t == -1) 
+    db_->log_->SyncCleanerGarbageBytes(tmp_cleaner_garbage_bytes_);
 }

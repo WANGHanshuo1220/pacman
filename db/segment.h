@@ -157,6 +157,7 @@ class LogSegment : public BaseSegment {
   uint8_t  get_status() { return header_->status; }
   void set_status(uint8_t s) { header_->status = s; }
   std::atomic<uint32_t> num_kvs = 0;
+  std::atomic<uint32_t> RB_c = 0;
   // uint32_t num_kvs = 0;
   std::atomic_flag RB_flag{ATOMIC_FLAG_INIT};
   std::atomic_flag Change_hash_flag{ATOMIC_FLAG_INIT};
@@ -168,11 +169,13 @@ class LogSegment : public BaseSegment {
   {
     roll_back_map.resize(SEGMENT_SIZE_/48);
     clear_num_kvs();
+    assert(num_kvs.load() == 0);
   }
 
   void RB_num_kvs(uint32_t a)
   {
     num_kvs.fetch_sub(a);
+    RB_c.fetch_add(a);
   }
 
   uint16_t get_num_kvs() { return num_kvs; }
@@ -186,7 +189,6 @@ class LogSegment : public BaseSegment {
     if(class_ == 0) InitBitmap();
     else init_RB_map();
     garbage_bytes_ = 0;
-    clear_num_kvs();
     // header_->offset = 0;
     // header_->objects_tail_offset = 0;
     // header_->Flush();
@@ -208,6 +210,7 @@ class LogSegment : public BaseSegment {
 
   void roll_back_tail(uint32_t sz) { 
     tail_ -= sz; 
+    assert(tail_ >= data_start_);
 #ifdef LOG_BATCHING
     flush_tail_ == tail_;
 #endif
@@ -307,16 +310,29 @@ class LogSegment : public BaseSegment {
     if (!HasSpaceFor(sz)) {
       return INVALID_VALUE;
     }
-    uint32_t cur_num = num_kvs;
+    uint32_t cur_num = num_kvs.load();
     KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
     if(class_ != 0)
     {
       roll_back_map[cur_num].kv_sz = (uint16_t)(sz/kv_align);
-      num_kvs ++;
+      num_kvs.fetch_add(1);
     }
     kv->Flush();
     tail_ += sz;
     ++cur_cnt_;
+    // if(class_ == 2) 
+    //   printf("class_ = %d, seg_id = %ld, num_kv = %d(%d)\n",
+    //     class_, seg_id, num_kvs.load(), cur_num);
+    if(num_kvs.load() > roll_back_map.size())
+    {
+      printf("num_kvs(%d) = %d, RB_MAP sz = %ld, RB_c = %d, cur_cnt_ = %d\n",
+        num_kvs.load(), cur_num, roll_back_map.size(), RB_c.load(), cur_cnt_);
+      printf("status = %d, class_ = %d\n", get_status(), get_class());
+      printf("seg_bg = %p\nend    = %p\ntail   = %p\n",
+        get_segment_start(), get_end(), get_tail());
+    }
+    assert(tail_ > data_start_ && tail_ < end_);
+    assert(num_kvs.load() <= roll_back_map.size());
 
     return TaggedPointer((char *)kv, sz, cur_num, class_);
   }

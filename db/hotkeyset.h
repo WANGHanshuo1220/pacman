@@ -26,7 +26,7 @@ struct RecordEntry {
 };
 
 struct alignas(CACHE_LINE_SIZE) UpdateKeyRecord {
-  int hit_cnt[4] = {0};
+  int hit_cnt = 0;
   int total_cnt = 0;
   SpinLock lock;
   std::list<std::vector<uint64_t> > records_list;
@@ -57,7 +57,7 @@ class HotKeySet {
 
  private:
   DB *db_;
-  std::unordered_set<uint64_t> *current_set_class[num_class-1] = {nullptr};
+  std::vector<std::unordered_set<uint64_t>*>current_set_class;
   std::unique_ptr<UpdateKeyRecord[]> update_record_;
   std::thread update_hot_set_thread_;
   std::atomic_flag update_schedule_flag_{ATOMIC_FLAG_INIT};

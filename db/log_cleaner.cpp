@@ -136,8 +136,11 @@ bool LogCleaner::NeedCleaning() {
   Free = (uint64_t)log_->num_free_list_class[class_] * SEGMENT_SIZE[class_];
   if(class_ == 0) 
   {
+    Free = Free / (log_->num_cleaners_ - num_class + 1);
     Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
-    Total = (log_->num_class_segments_[class_] - 1) * SEGMENT_SIZE[class_];
+    Total = (log_->num_class_segments_[class_] - 1) 
+            / (log_->num_cleaners_ - num_class + 1)
+            * SEGMENT_SIZE[class_];
     threshold = std::min(threshold, (double)Available / Total / 2);
   }
   else
@@ -621,43 +624,91 @@ void LogCleaner::FreezeReservedAndGetNew() {
   backup_segment_ = nullptr;
 }
 
-void LogCleaner::DoMemoryClean() {
-  TIMER_START_LOGGING(pick_time_);
-  
-  LockUsedList();
+void LogCleaner::DoMemoryClean()
+{
   to_compact_segments_.splice(to_compact_segments_.end(),
-                              closed_segments_);
+                                  closed_segments_);
   UnlockUsedList();
 
   LogSegment *segment = nullptr;
   double max_score = 0.;
+  double cold_score = 0.;
   double max_garbage_proportion = 0.;
   std::list<LogSegment *>::iterator gc_it = to_compact_segments_.end();
-  uint64_t cur_time = NowMicros();
-  int i = 0;
 
-  for (auto it = to_compact_segments_.begin();
-       it != to_compact_segments_.end() && i < 200; it++, i++) {
-    assert(*it);
-    double cur_garbage_proportion = (*it)->GetGarbageProportion();
-    double cur_score = 1000. * cur_garbage_proportion /
-                       (1 - cur_garbage_proportion) *
-                       (cur_time - (*it)->get_close_time());
-    if (cur_score > max_score) {
-      max_score = cur_score;
-      max_garbage_proportion = cur_garbage_proportion;
-      gc_it = it;
-    }
-  }
-
-  if(gc_it != to_compact_segments_.end())
+  if(class_ == 0)
   {
-    segment = *gc_it;
-    to_compact_segments_.erase(gc_it);
+    uint64_t cur_time = NowMicros();
+    for (auto it = to_compact_segments_.begin();
+         it != to_compact_segments_.end(); it++) {
+      assert(*it);
+      double cur_garbage_proportion = (*it)->GetGarbageProportion();
+      double cur_score = 1000. * cur_garbage_proportion /
+                         (1 - cur_garbage_proportion) *
+                         (cur_time - (*it)->get_close_time());
+      if (cur_score > max_score) {
+        max_score = cur_score;
+        max_garbage_proportion = cur_garbage_proportion;
+        gc_it = it;
+      }
+    }
+
+    if (max_garbage_proportion < 0.99 && cur_time - last_update_time_ > 1e6) {
+      // update cold segment list
+      LockUsedList();
+      to_compact_cold_segments_.splice(to_compact_cold_segments_.end(),
+                                       closed_cold_segments_);
+      UnlockUsedList();
+      last_update_time_ = cur_time;
+      for (auto it = to_compact_cold_segments_.begin();
+           it != to_compact_cold_segments_.end(); it++) {
+        double garbage_proportion = it->segment->GetGarbageProportion();
+        it->compaction_score = 1000. * garbage_proportion /
+                               (1 - garbage_proportion) *
+                               (cur_time - it->segment->get_close_time());
+      }
+      if (!to_compact_cold_segments_.empty()) {
+        to_compact_cold_segments_.sort();
+        cold_score = to_compact_cold_segments_.begin()->compaction_score;
+      }
+    } else if (!to_compact_cold_segments_.empty()) {
+      LogSegment *seg = to_compact_cold_segments_.begin()->segment;
+      double garbage_proportion = seg->GetGarbageProportion();
+      cold_score = 1000. * garbage_proportion / (1 - garbage_proportion) *
+                   (cur_time - seg->get_close_time());
+    }
+
+    if (cold_score > max_score) {
+      segment = to_compact_cold_segments_.begin()->segment;
+      to_compact_cold_segments_.erase(to_compact_cold_segments_.begin());
+    } else if (gc_it != to_compact_segments_.end()) {
+      segment = *gc_it;
+      to_compact_segments_.erase(gc_it);
+    } else {
+      return;
+    }
   }
   else
   {
-    return;
+    for (auto it = to_compact_segments_.begin();
+         it != to_compact_segments_.end(); it++) {
+      assert(*it);
+      double cur_garbage_proportion = (*it)->GetGarbageProportion();
+      double cur_score = 1000. * cur_garbage_proportion /
+                         (1 - cur_garbage_proportion);
+      if (cur_score > max_score) {
+        max_score = cur_score;
+        max_garbage_proportion = cur_garbage_proportion;
+        gc_it = it;
+      }
+    }
+
+    if (gc_it != to_compact_segments_.end()) {
+      segment = *gc_it;
+      to_compact_segments_.erase(gc_it);
+    } else {
+      return;
+    }
   }
 
 #ifdef BATCH_COMPACTION

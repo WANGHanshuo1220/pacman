@@ -48,7 +48,7 @@ if [[ $2 == 1 ]]; then
 fi
 
 THREADS="1|6|12|18|24|30"
-FILTER="--benchmark_filter=/(80)/.*/threads:(${THREADS})$"
+FILTER="--benchmark_filter=/(50)/.*/threads:(${THREADS})$"
 # skew (Zipfian) or uniform
 SKEW="true" # true (Zipfian), false (uniform)
 
@@ -67,18 +67,18 @@ ls | grep -v _deps | xargs rm -rf
 cmake -DCMAKE_BUILD_TYPE=Release -DUSE_NUMA_NODE=${NUMA_AFFINITY} \
   ${WITH_OTHERS} -DINDEX_TYPE=${INDEX_TYPE} ${IDX_PERSISTENT} ${PACMAN_OPT} \
   -DNUM_KEYS=200000000 -DNUM_OPS_PER_THREAD=25000000 \
-  -DNUM_WARMUP_OPS_PER_THREAD=25000000 -DNUM_GC_THREADS=4 -DSKEW=${SKEW} ..
+  -DNUM_WARMUP_OPS_PER_THREAD=25000000 -DNUM_GC_THREADS=1 -DSKEW=${SKEW} ..
 
 make ${TARGET} -j
 
 # disable cpu scaling
-sudo cpupower frequency-set --governor performance > /dev/null
+# sudo cpupower frequency-set --governor performance > /dev/null
 
 # clean cache
-sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
+# sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
 
 numactl --membind=${NUMA_AFFINITY} --cpunodebind=${NUMA_AFFINITY} \
   ${TARGET_CMD} --benchmark_repetitions=1 ${FILTER} \
   --benchmark_out=${OUTPUT_FILE} --benchmark_out_format=json
 
-sudo cpupower frequency-set --governor powersave > /dev/null
+# sudo cpupower frequency-set --governor powersave > /dev/null

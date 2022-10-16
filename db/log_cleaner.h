@@ -186,13 +186,22 @@ class LogCleaner {
     gc_thread_ = std::thread(&LogCleaner::RecoveryAll, this);
   }
 
-  void AddClosedSegment(LogSegment *segment) {
-    LockUsedList();
-    closed_segments_.push_back(segment);
-    UnlockUsedList();
+  void AddClosedSegment(LogSegment *segment, int class_t) {
+    if(class_t > 0)
+    {
+      LockUsedList();
+      closed_segments_.push_back(segment);
+      UnlockUsedList();
+    }
+    else
+    {
+      LockUsedList();
+      if(class_t == 0) closed_segments_.push_back(segment);
+      else closed_cold_segments_.push_back({segment, 0});
+      UnlockUsedList();
+    }
   }
 
-  uint32_t closed = 0;
   std::vector<int> range = {100, 75, 50, 25, 0};
   int gap[2] = {10, 5};
   int sort_range[2];
@@ -212,7 +221,9 @@ class LogCleaner {
   std::vector<size_t> tmp_cleaner_garbage_bytes_;
   double last_update_time_ = 0.;
   std::list<LogSegment *> closed_segments_;
+  std::list<SegmentInfo> closed_cold_segments_;
   std::list<LogSegment *> to_compact_segments_;
+  std::list<SegmentInfo> to_compact_cold_segments_;
   SpinLock list_lock_;
   const uint32_t class_;
 

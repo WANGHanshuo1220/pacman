@@ -16,7 +16,6 @@ class DBFixture : public BaseFixture {
   DB *db_ = nullptr;
 
   virtual void OpenDB(benchmark::State &st) override {
-    // printf("OpenDB\n");
     if (st.thread_index() == 0) {
       if (db_ != nullptr) {
         ERROR_EXIT("barrier error");
@@ -41,10 +40,10 @@ class DBFixture : public BaseFixture {
         double init_size = object_size * NUM_KEYS;
         total_size = init_size * 100. / init_util;
         total_size =
-            (total_size + SEGMENT_SIZE - 1) / SEGMENT_SIZE * SEGMENT_SIZE;
-        if (total_size < init_size + num_threads * 3 * SEGMENT_SIZE) {
+            (total_size + SEGMENT_SIZE[0] - 1) / SEGMENT_SIZE[0] * SEGMENT_SIZE[0];
+        if (total_size < init_size + num_threads * 3 * SEGMENT_SIZE[0]) {
           printf("Warning: not enough space for free segment per thread\n");
-          total_size = init_size + num_threads * 3 * SEGMENT_SIZE;
+          total_size = init_size + num_threads * 3 * SEGMENT_SIZE[0];
         }
       } else {
         // infinity log space <=> no gc
@@ -56,23 +55,22 @@ class DBFixture : public BaseFixture {
             NUM_KEYS + (uint64_t)actual_num_ops_per_thread *
                            (YCSB_Put_Ratio[type] + 10) / 100 * num_threads;
         total_size =
-            total_put_ops * object_size + num_threads * SEGMENT_SIZE * 2;
+            total_put_ops * object_size + num_threads * SEGMENT_SIZE[0] * 2;
         num_gc_threads = 0;
       }
       printf(
           "Init capacity utilization %d%%  threads of service / gc : %d / "
           "%d\n",
           init_util, num_threads, num_gc_threads);
+      printf("total sz = %ld\n", total_size);
       std::string db_path = std::string(PMEM_DIR) + "log_kvs";
       std::experimental::filesystem::remove_all(db_path);
       std::experimental::filesystem::create_directory(db_path);
 
-      printf("db size = %ld\n", total_size);
       db_ = new DB(db_path, total_size, num_threads, num_gc_threads);
     }
 
     barrier.Wait(st.threads());
-    // printf("get worker\n");
     worker = db_->GetWorker();
   }
 
@@ -115,7 +113,7 @@ BENCHMARK_DEFINE_F(DBFixture, bench)(benchmark::State &st) {
   if (st.thread_index() == 0) {
     double compaction_cpu_usage = db_->GetCompactionCPUUsage(); 
     double compaction_tp = db_->GetCompactionThroughput();
-    st.counters["CompactionCPUUsage"] = compaction_cpu_usage;
+    // st.counters["CompactionCPUUsage"] = compaction_cpu_usage;
     st.counters["CompactionThroughput"] =
         benchmark::Counter(compaction_tp, benchmark::Counter::kDefaults,
                            benchmark::Counter::kIs1024);

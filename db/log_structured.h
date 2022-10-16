@@ -66,9 +66,6 @@ class LogStructured {
     return &class_segments_[num_class-1-i];
   }
 
-  std::vector<int> cleaner_seg_sort_record;
-
-  // char *get_pool_start() { return pool_start_; }
  private:
   const int num_workers_;
   const int num_cleaners_;
@@ -84,21 +81,20 @@ class LogStructured {
   std::vector<LogSegment *> all_segments_;
   std::vector<LogCleaner *> log_cleaners_;
 
-  std::atomic<int> num_free_list_class[num_class] = {0, 0, 0, 0};
+  std::atomic<int> num_free_list_class[num_class] = {0, 0, 0};
   std::vector<std::queue<LogSegment *>> free_segments_class{num_class};
 
   std::vector<std::vector<LogSegment *>> class_segments_{num_class};
 
   const float class0_prop = 0.95;
-  const float class1_prop = 0.025;
-  const float class2_prop = 0.015;
-  const float class3_prop = 1. - class0_prop - class1_prop - class2_prop;
-  const float class_prop[num_class] = {class0_prop, class1_prop, class2_prop, class3_prop};
+  const float class1_prop = (1 - class0_prop) * 0.6;
+  const float class2_prop = 1. - class0_prop - class1_prop;
+  const float class_prop[num_class] = {class0_prop, class1_prop, class2_prop};
 
   std::atomic<int> num_free_segments_{0};
   std::atomic<int> alloc_counter_{0};
   const int num_limit_free_segments_;
-  volatile int clean_threshold_[num_class] = {10, 10, 10, 10};
+  volatile int clean_threshold_[num_class] = {10, 10, 10};
 
   volatile FreeStatus free_status_ = FS_Sufficient;
   std::atomic_flag FS_flag_{ATOMIC_FLAG_INIT};

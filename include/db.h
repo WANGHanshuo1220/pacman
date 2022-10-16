@@ -68,12 +68,12 @@ class DB {
 #endif
     uint32_t class_seg_working_on[num_class];
     uint32_t accumulative_sz_class[num_class] = {0};
-    std::vector<std::pair<uint32_t, uint32_t>> s;
   
    private:
     int worker_id_;
     DB *db_;
     LogSegment *log_head_class[num_class] = {nullptr};
+    LogSegment *log_head_cold_class0_ = nullptr;
     bool need_change[num_class] = {false};
 
     // lazily update garbage bytes for cleaner, avoid too many FAAs
@@ -126,10 +126,6 @@ class DB {
     }
   }
 
-  // GC_EVAL
-#ifdef GC_EVAL
-  LogStructured *get_log_() { return log_; }
-#endif
   uint32_t get_threshold(int class_) { return change_seg_threshold_class[class_]; }
   std::atomic<uint64_t> put_c[4] = {0, 0, 0, 0};
   std::atomic<uint64_t> get_c = 0;
@@ -140,14 +136,9 @@ class DB {
 
   uint32_t change_seg_threshold_class[num_class];
   uint32_t db_num_class_segs[num_class] = {0};
-  std::vector<bool> mark;
-  std::vector<bool> first;
   int get_num_workers() { return num_workers_; }
 
  private:
-  std::queue<LogSegment *> roll_back_list;
-  std::thread roll_back_thread_[2];
-  std::atomic<bool> stop_flag_RB{false};
   Index *index_;
   LogStructured *log_;
   const int num_workers_;
@@ -156,9 +147,8 @@ class DB {
   HotKeySet *hot_key_set_ = nullptr;
   ThreadStatus thread_status_;
   std::vector<std::vector<int>> next_class_segment_;
-  // SpinLock class_segment_list_lock[num_class];
-  // std::atomic<uint64_t> roll_back_count = 0;
-  // std::atomic<uint64_t> roll_back_bytes = 0;
+  std::atomic<uint64_t> roll_back_count = 0;
+  std::atomic<uint64_t> roll_back_bytes = 0;
 
   static constexpr int EPOCH_MAP_SIZE = 1024;
   std::array<std::atomic_uint_fast32_t, EPOCH_MAP_SIZE> epoch_map_{};

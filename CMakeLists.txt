@@ -36,13 +36,13 @@ if (PACMAN)
   endif()
 endif()
 
-if (INTERLEAVED)
-  set(HOT_COLD_SEPARATE ON)
-endif()
+# if (INTERLEAVED)
+#   set(HOT_COLD_SEPARATE ON)
+# endif()
 
-if (GC_EVAL)
-  set(GC_EVAL ON)
-endif()
+# if (GC_EVAL)
+#   set(GC_EVAL ON)
+# endif()
 
 message(STATUS "SET USE_NUMA_NODE ${USE_NUMA_NODE}")
 message(STATUS "SET INDEX_TYPE ${INDEX_TYPE}")
@@ -90,6 +90,7 @@ endif()
 
 option(LOGGING "LOGGING" OFF)
 
+# set(CMAKE_CXX_FLAGS_RELEASE "-O0 -DNDEBUG")
 if (CMAKE_BUILD_TYPE MATCHES Release)
   message(STATUS "Setting build type to 'Release'")
 else()

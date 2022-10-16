@@ -15,12 +15,12 @@ using KeyType = uint64_t;
 using ValueType = uint64_t;
 static constexpr ValueType INVALID_VALUE = 0;
 
-static constexpr uint64_t num_class     = 4;
+static constexpr uint64_t num_class     = 3;
 static constexpr uint64_t kv_align      = 4;
 static constexpr uint64_t hash_sz       = 20;
 static constexpr uint64_t SEGMENT_SIZE[num_class] = 
-    // {4ul << 20, 1ul << 20, 1ul << 18, 1ul << 16};
-    {4ul << 20, 1ul << 18, 1ul << 16, 1ul << 14};
+    {4ul << 20, 1ul << 18, 1ul << 16};
+    // {4ul << 20, 1ul << 16, 1ul << 14};
 
 // shortcut
 class __attribute__((__packed__)) Shortcut {
@@ -131,15 +131,15 @@ struct TaggedPointer {
     };
   };
 
-  TaggedPointer(char *ptr, uint64_t sz, uint64_t num_, int class_) {
+  TaggedPointer(char *ptr, uint64_t sz, uint64_t num_, int class_t) {
     addr = (uint64_t)ptr;
-    if(class_ == 0)
+    if(class_t != 0)
     {
-      size_or_num = sz <= 0xFFFF ? sz : 0;
+      size_or_num = num_ < 0xFFFF ? num_ : 0xFFFF;
     }
     else
     {
-      size_or_num = num_ < 0xFFFF ? num_ : 0xFFFF;
+      size_or_num = sz <= 0xFFFF ? sz : 0;
     }
   }
 
