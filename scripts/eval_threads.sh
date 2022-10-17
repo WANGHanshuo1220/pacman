@@ -48,6 +48,7 @@ if [[ $2 == 1 ]]; then
 fi
 
 THREADS="1|6|12|18|24|30"
+# THREADS="24"
 FILTER="--benchmark_filter=/(50)/.*/threads:(${THREADS})$"
 # skew (Zipfian) or uniform
 SKEW="true" # true (Zipfian), false (uniform)
@@ -66,8 +67,8 @@ ls | grep -v _deps | xargs rm -rf
 # build
 cmake -DCMAKE_BUILD_TYPE=Release -DUSE_NUMA_NODE=${NUMA_AFFINITY} \
   ${WITH_OTHERS} -DINDEX_TYPE=${INDEX_TYPE} ${IDX_PERSISTENT} ${PACMAN_OPT} \
-  -DNUM_KEYS=200000000 -DNUM_OPS_PER_THREAD=25000000 \
-  -DNUM_WARMUP_OPS_PER_THREAD=25000000 -DNUM_GC_THREADS=1 -DSKEW=${SKEW} ..
+  -DNUM_KEYS=10000000 -DNUM_OPS_PER_THREAD=20000000 -DVALUE_SIZE=44 \
+  -DNUM_WARMUP_OPS_PER_THREAD=2500000 -DNUM_GC_THREADS=4 -DSKEW=${SKEW} ..
 
 make ${TARGET} -j
 
@@ -80,5 +81,6 @@ make ${TARGET} -j
 numactl --membind=${NUMA_AFFINITY} --cpunodebind=${NUMA_AFFINITY} \
   ${TARGET_CMD} --benchmark_repetitions=1 ${FILTER} \
   --benchmark_out=${OUTPUT_FILE} --benchmark_out_format=json
+# gdb ./../build/benchmarks/pacman_bench 
 
 # sudo cpupower frequency-set --governor powersave > /dev/null

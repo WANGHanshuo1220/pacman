@@ -29,16 +29,26 @@ void LogCleaner::CleanerEntry() {
   reinterpret_cast<MasstreeIndex *>(db_->index_)
       ->MasstreeThreadInit(log_->num_workers_ + cleaner_id_);
 #endif
-  num_class_segs.resize(2);
-  num_class_segs[0] = db_->db_num_class_segs[num_class-1];
-  num_class_segs[1] = db_->db_num_class_segs[num_class-2];
   num_worker = db_->get_num_workers();
-  bool need_sort = true;
-  for(int i = 0; i < 2; i++)
+  num_class_segs.resize(num_class-1);
+  for(int i = 0; i < num_class_segs.size(); i++)
   {
-    sort_range[i] = (num_class_segs[i] - gap[i]) / (num_worker);
-    if(sort_range[i] > 20) sort_range[i] = 20;
-    if(num_class_segs[i]/num_worker < gap[i] + 5 ) need_sort = false;
+    num_class_segs[i] = db_->db_num_class_segs[num_class-1-i];
+  }
+  bool need_sort = true;
+  for(int i = 0; i < num_class-1; i++)
+  {
+    int seg_per_worker = num_class_segs[i] / num_worker;
+    if(seg_per_worker < gap[i] + 5 ) 
+    {
+      need_sort = false;
+      break;
+    }
+    else
+    {
+      sort_range[i] = seg_per_worker - gap[i];
+      if(sort_range[i] > 20) sort_range[i] = 20;
+    }
   }
   worker_range = num_worker / num_class;
   int count = 0;
@@ -59,17 +69,17 @@ void LogCleaner::CleanerEntry() {
       //   {
       //     clean_sort_us_before_ = now;
       //     help ++;
-      //     Help_sort(0);
-      //     // if(count < 3)
-      //     // { 
-      //     //   Help_sort(0);
-      //     //   count++;
-      //     // }
-      //     // else
-      //     // {
-      //     //   Help_sort(1);
-      //     //   count = 0;
-      //     // }
+      //     // Help_sort(0);
+      //     if(count < 3)
+      //     { 
+      //       Help_sort(0);
+      //       count++;
+      //     }
+      //     else
+      //     {
+      //       Help_sort(1);
+      //       count = 0;
+      //     }
       //   }
       // }
       // else
@@ -136,11 +146,11 @@ bool LogCleaner::NeedCleaning() {
   Free = (uint64_t)log_->num_free_list_class[class_] * SEGMENT_SIZE[class_];
   if(class_ == 0) 
   {
+    int num_cleaners0 = log_->num_cleaners_ - num_class + 1;
     Free = Free / (log_->num_cleaners_ - num_class + 1);
     Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
-    Total = (log_->num_class_segments_[class_] - 1) 
-            / (log_->num_cleaners_ - num_class + 1)
-            * SEGMENT_SIZE[class_];
+    Total = (log_->num_class_segments_[class_] - num_cleaners0) 
+            / num_cleaners0 * SEGMENT_SIZE[class_];
     threshold = std::min(threshold, (double)Available / Total / 2);
   }
   else

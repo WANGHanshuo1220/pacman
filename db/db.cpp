@@ -20,7 +20,7 @@ static_assert(false, "error index kind");
 
 DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
     : num_workers_(num_workers),
-      num_cleaners_(num_cleaners + num_class - 1), // change to num_class
+      num_cleaners_(num_cleaners),
       thread_status_(num_workers) {
 #if defined(USE_PMDK) && defined(IDX_PERSISTENT)
   g_index_allocator = new PMDKAllocator(db_path + "/idx_pool", IDX_POOL_SIZE);
@@ -340,7 +340,6 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     || (ret = segment->Append(key, value, epoch)) == INVALID_VALUE) {
     FreezeSegment(segment, class_t);
     segment = db_->log_->NewSegment(class_t);
-    assert(segment->num_kvs.load() == 0);
     if(class_t > 0)
     {
       accumulative_sz_class[class_t] = sz;
@@ -411,7 +410,7 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
 
     uint32_t sz = segment->roll_back_map[num_].kv_sz * kv_align;
     segment->add_garbage_bytes(sz);
-    uint32_t n = segment->num_kvs.load();
+    uint32_t n = segment->num_kvs;
 
     if( segment->is_segment_touse() )
     {

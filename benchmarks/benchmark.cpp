@@ -35,7 +35,7 @@ class DBFixture : public BaseFixture {
       double object_size = sizeof(KVItem) + sizeof(KeyType) + avg_val_size;
       uint64_t total_size = 0;
       if (init_util > 0) {
-        // double init_size = object_size * NUM_KEYS * SEGMENT_SIZE /
+        // double init_size = object_size * NUM_KEYS * SEGMENT_SIZE[0] /
         //                    LogSegment::SEGMENT_DATA_SIZE;
         double init_size = object_size * NUM_KEYS;
         total_size = init_size * 100. / init_util;
@@ -58,11 +58,11 @@ class DBFixture : public BaseFixture {
             total_put_ops * object_size + num_threads * SEGMENT_SIZE[0] * 2;
         num_gc_threads = 0;
       }
+      // num_gc_threads = 4;
       printf(
           "Init capacity utilization %d%%  threads of service / gc : %d / "
           "%d\n",
           init_util, num_threads, num_gc_threads);
-      printf("total sz = %ld\n", total_size);
       std::string db_path = std::string(PMEM_DIR) + "log_kvs";
       std::experimental::filesystem::remove_all(db_path);
       std::experimental::filesystem::create_directory(db_path);
@@ -139,8 +139,10 @@ BENCHMARK_DEFINE_F(DBFixture, bench)(benchmark::State &st) {
 
 BENCHMARK_REGISTER_F(DBFixture, bench)
     ->Arg(0)
+    // ->Arg(50)
     ->DenseRange(50, 90, 10)
     ->DenseThreadRange(1, 32, 1)
+    // ->DenseThreadRange(6, 24, 6)
     ->Iterations(1)
     ->Unit(benchmark::kMicrosecond)
     ->UseRealTime();

@@ -1,5 +1,4 @@
 # pacman_bench
-set(benchmark /home/wanghanshuo/pacman/benchmarks)
 find_package(benchmark)
 if (NOT benchmark_FOUND)
   include(FetchContent)
@@ -11,13 +10,11 @@ if (NOT benchmark_FOUND)
   set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Suppressing benchmark's tests" FORCE)
   FetchContent_MakeAvailable(benchmark)
 endif()
-
+link_libraries(stdc++fs)
 set(BENCHMARK_FILES
   ${PROJECT_SOURCE_DIR}/benchmarks/benchmark.cpp
   ${PROJECT_SOURCE_DIR}/benchmarks/histogram.cpp
 )
-
-link_libraries(stdc++fs)
 
 add_executable(pacman_bench ${BENCHMARK_FILES} ${DB_FILES})
 # target_link_libraries(pacman_bench benchmark::benchmark ${PMEM} ${PMEMOBJ} jemalloc)
@@ -42,6 +39,7 @@ elseif (INDEX_TYPE EQUAL 3)
   target_link_libraries(recovery_test masstree)
 endif()
 
-if (EVAL_OTHER_SYSTEMS)
-  add_subdirectory(other)
-endif()
+# if (EVAL_OTHER_SYSTEMS)
+#   add_subdirectory(other)
+# endif()
+

@@ -80,7 +80,7 @@ class BaseSegment {
 
   char *AllocOne(size_t size) {
     char *ret = tail_;
-    if (ret + size < end_) {
+    if (ret + size <= end_) {
       tail_ += size;
       ++cur_cnt_;
       return ret;
@@ -91,7 +91,7 @@ class BaseSegment {
 
   char *AllocSpace(size_t size) {
     char *ret = tail_;
-    if (ret + size < end_) {
+    if (ret + size <= end_) {
       tail_ += size;
       return ret;
     } else {
@@ -156,26 +156,20 @@ class LogSegment : public BaseSegment {
   void set_RB() { header_->status = StatusRB; }
   uint8_t  get_status() { return header_->status; }
   void set_status(uint8_t s) { header_->status = s; }
-  std::atomic<uint32_t> num_kvs = 0;
-  std::atomic<uint32_t> RB_c = 0;
-  // uint32_t num_kvs = 0;
+
+  uint32_t num_kvs = 0;
   std::atomic_flag RB_flag{ATOMIC_FLAG_INIT};
-  std::atomic_flag Change_hash_flag{ATOMIC_FLAG_INIT};
-  std::atomic<int> flag = 0;
-  SpinLock RB_lock;
   std::vector<record_info> roll_back_map;
 
   void init_RB_map()
   {
     roll_back_map.resize(SEGMENT_SIZE_/48);
     clear_num_kvs();
-    assert(num_kvs.load() == 0);
   }
 
   void RB_num_kvs(uint32_t a)
   {
-    num_kvs.fetch_sub(a);
-    RB_c.fetch_add(a);
+    num_kvs -= a;
   }
 
   uint16_t get_num_kvs() { return num_kvs; }
@@ -257,11 +251,11 @@ class LogSegment : public BaseSegment {
   void Close() {
     header_->status = StatusClosed;
     close_time_ = NowMicros();
-    // if (HasSpaceFor(sizeof(KVItem))) {
-    //   KVItem *end = new (tail_) KVItem();
-    //   end->Flush();
-    //   tail_ += sizeof(KVItem);
-    // }
+    if (HasSpaceFor(sizeof(KVItem))) {
+      KVItem *end = new (tail_) KVItem();
+      end->Flush();
+      tail_ += sizeof(KVItem);
+    }
 #ifdef GC_SHORTCUT
     if (shortcut_buffer_) {
       assert(tail_ + shortcut_buffer_->size() * sizeof(Shortcut) <= end_);
@@ -310,29 +304,16 @@ class LogSegment : public BaseSegment {
     if (!HasSpaceFor(sz)) {
       return INVALID_VALUE;
     }
-    uint32_t cur_num = num_kvs.load();
+    uint32_t cur_num = num_kvs;
     KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
     if(class_ != 0)
     {
       roll_back_map[cur_num].kv_sz = (uint16_t)(sz/kv_align);
-      num_kvs.fetch_add(1);
+      num_kvs++;
     }
     kv->Flush();
     tail_ += sz;
     ++cur_cnt_;
-    // if(class_ == 2) 
-    //   printf("class_ = %d, seg_id = %ld, num_kv = %d(%d)\n",
-    //     class_, seg_id, num_kvs.load(), cur_num);
-    if(num_kvs.load() > roll_back_map.size())
-    {
-      printf("num_kvs(%d) = %d, RB_MAP sz = %ld, RB_c = %d, cur_cnt_ = %d\n",
-        num_kvs.load(), cur_num, roll_back_map.size(), RB_c.load(), cur_cnt_);
-      printf("status = %d, class_ = %d\n", get_status(), get_class());
-      printf("seg_bg = %p\nend    = %p\ntail   = %p\n",
-        get_segment_start(), get_end(), get_tail());
-    }
-    assert(tail_ > data_start_ && tail_ < end_);
-    assert(num_kvs.load() <= roll_back_map.size());
 
     return TaggedPointer((char *)kv, sz, cur_num, class_);
   }
@@ -463,13 +444,13 @@ class LogSegment : public BaseSegment {
   int get_class() { return class_; }
   
  private:
-  uint64_t close_time_;
+  uint64_t close_time_ = 0;
   uint64_t seg_id = 0;
 #ifdef REDUCE_PM_ACCESS
   uint8_t *volatile_tombstone_ = nullptr;
 #endif
 
-  std::atomic<int> garbage_bytes_;
+  std::atomic<int> garbage_bytes_ = 0;
   const int class_ = 0;
   uint64_t SEGMENT_SIZE_ = 0;
 
@@ -503,7 +484,7 @@ class VirtualSegment : public BaseSegment {
 };
 
 struct SegmentInfo {
-  LogSegment *segment;
+  LogSegment *segment = nullptr;
   double compaction_score = 0.0;
 
   bool operator<(const SegmentInfo &other) const {

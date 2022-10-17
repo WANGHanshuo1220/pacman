@@ -17,8 +17,8 @@ static constexpr int RECORD_BATCH_CNT = 4096;
 static constexpr size_t RECORD_BUFFER_SIZE = 16 * 1024;
 
 struct RecordEntry {
-  uint64_t key;
-  int64_t cnt;
+  uint64_t key = 0;
+  int64_t cnt = 0;
 
   bool operator>(const RecordEntry &other) const {
     return cnt > other.cnt;

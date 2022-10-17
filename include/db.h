@@ -66,7 +66,7 @@ class DB {
     bool hot_batch_persistent = false;
     bool cold_batch_persistent = false;
 #endif
-    uint32_t class_seg_working_on[num_class];
+    uint32_t class_seg_working_on[num_class] = {0};
     uint32_t accumulative_sz_class[num_class] = {0};
   
    private:

@@ -62,7 +62,7 @@ TMP_OUTPUT=../results/value_size_$1_$2_tmp
 cat /dev/null > ${OUTPUT_FILE}
 
 # disable cpu scaling
-sudo cpupower frequency-set --governor performance > /dev/null
+# sudo cpupower frequency-set --governor performance > /dev/null
 
 VALUE_SIZE=(32 64 128 256 512 1024)
 
@@ -80,7 +80,7 @@ for size in "${VALUE_SIZE[@]}"; do
 
   make ${TARGET} -j
   # clean cache
-  sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
+  # sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
 
   numactl --membind=${NUMA_AFFINITY} --cpunodebind=${NUMA_AFFINITY} \
     ${TARGET_CMD} --benchmark_repetitions=1 ${FILTER} \
@@ -91,4 +91,4 @@ for size in "${VALUE_SIZE[@]}"; do
 done
 rm ${TMP_OUTPUT}
 
-sudo cpupower frequency-set --governor powersave > /dev/null
+# sudo cpupower frequency-set --governor powersave > /dev/null

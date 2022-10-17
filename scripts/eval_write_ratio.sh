@@ -62,7 +62,7 @@ TMP_OUTPUT=../results/write_ratio_$1_$2_tmp
 cat /dev/null > ${OUTPUT_FILE}
 
 # disable cpu scaling
-sudo cpupower frequency-set --governor performance > /dev/null
+# sudo cpupower frequency-set --governor performance > /dev/null
 
 WORKLOAD_TYPE=(
   YCSB_W0
@@ -81,13 +81,13 @@ for workload in "${WORKLOAD_TYPE[@]}"; do
   # build
   cmake -DCMAKE_BUILD_TYPE=Release -DUSE_NUMA_NODE=${NUMA_AFFINITY} \
     ${WITH_OTHERS} -DINDEX_TYPE=${INDEX_TYPE} ${IDX_PERSISTENT} ${PACMAN_OPT} \
-    -DNUM_KEYS=200000000 -DNUM_OPS_PER_THREAD=25000000 \
+    -DNUM_KEYS=200000000 -DNUM_OPS_PER_THREAD=25000000 -DVALUE_SIZE=44\
     -DNUM_WARMUP_OPS_PER_THREAD=25000000 -DNUM_GC_THREADS=4 \
     -DYCSB_TYPE=${workload} -DSKEW=${SKEW} ..
 
   make ${TARGET} -j
   # clean cache
-  sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
+  # sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
 
   numactl --membind=${NUMA_AFFINITY} --cpunodebind=${NUMA_AFFINITY} \
     ${TARGET_CMD} --benchmark_repetitions=1 ${FILTER} \
@@ -98,4 +98,4 @@ for workload in "${WORKLOAD_TYPE[@]}"; do
 done
 rm ${TMP_OUTPUT}
 
-sudo cpupower frequency-set --governor powersave > /dev/null
+# sudo cpupower frequency-set --governor powersave > /dev/null

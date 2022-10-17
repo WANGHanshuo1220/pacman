@@ -131,16 +131,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
       }
     }
   }
-  assert(j == num_class);
-  assert(cleaner_c = num_cleaners);
-  assert(pool_start <= class_pool_start_[0] + log_size);
 
-  // printf("num_seg_class0 = %d, num_seg_class1 = %d (%ld), " 
-  //        "num_seg_class2 = %d (%ld), num_seg_class3 = %d (%ld), "
-  //        "num_seg = %d\nworkers = %d, cleaners = %d\n",
-  //       num_class_segments_[0], num_class_segments_[1], class_segments_[1].size(), 
-  //       num_class_segments_[2], class_segments_[2].size(), num_class_segments_[3],
-  //       class_segments_[3].size(), num_segments_, num_workers_, num_cleaners_);
   printf("num_seg_class0 = %d, ", num_class_segments_[0]);
   for(int a = 1; a < num_class; a++)
   {
@@ -158,7 +149,6 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
   }
 
   for (int j = 0; j < num_cleaners_; j++) {
-    // log_cleaners_[j]->show_closed_list_sz();
     log_cleaners_[j]->StartGCThread();
   }
 
@@ -273,14 +263,11 @@ LogSegment *LogStructured::NewSegment(int class_t) {
       break;
     }
   }
-  // TIMER_STOP(waiting_time);
 
-  COUNTER_ADD_LOGGING(num_new_segment_, 1);
   // not store shortcuts for hot segment
   ret->StartUsing(true);
-  assert(ret->get_class() == class_t_);
 
-  // UpdateCleanThreshold(class_t_);
+  if(class_t_ == 0) UpdateCleanThreshold(class_t_);
   return ret;
 }
 

@@ -54,7 +54,8 @@ void HotKeySet::Record(const Slice &key, int worker_id, int class_t) {
         // LOG("hit ratio = %.1lf%%", 100. * record.hit_cnt / record.total_cnt);
         if (!update_schedule_flag_.test_and_set()) {
           uint64_t total_num_key = db_->index_->get_num_key();
-          HOT_NUM = total_num_key * 0.01;
+          // HOT_NUM = total_num_key * 0.01;
+          HOT_NUM = 128 * 1024;
           BeginUpdateHotKeySet();
         }
       }
@@ -84,7 +85,7 @@ int HotKeySet::Exist(const Slice &key) {
     for(int i = num_class-1; i >= 0; i--)
     {
       if(current_set_class[i]->find(i_key) != current_set_class[i]->end())
-        return i;
+        return 0;
     }
   }
   
