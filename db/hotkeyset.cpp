@@ -25,7 +25,6 @@ HotKeySet::~HotKeySet() {
 }
 
 void HotKeySet::Record(const Slice &key, int worker_id, int class_t) {
-  // printf("in Record %ld\n", Record_c);
   UpdateKeyRecord &record = update_record_[worker_id];
   if (need_record_) {
     uint64_t i_key = *(uint64_t *)key.data();
@@ -54,15 +53,14 @@ void HotKeySet::Record(const Slice &key, int worker_id, int class_t) {
         // LOG("hit ratio = %.1lf%%", 100. * record.hit_cnt / record.total_cnt);
         if (!update_schedule_flag_.test_and_set()) {
           uint64_t total_num_key = db_->index_->get_num_key();
-          // HOT_NUM = total_num_key * 0.01;
-          HOT_NUM = 128 * 1024;
+          HOT_NUM = total_num_key * 0.01;
+          // HOT_NUM = 128 * 1024;
           BeginUpdateHotKeySet();
         }
       }
       record.hit_cnt = record.total_cnt = 0;
     }
   }
-  // Record_c++;
 }
 
 void HotKeySet::BeginUpdateHotKeySet() {
@@ -85,7 +83,7 @@ int HotKeySet::Exist(const Slice &key) {
     for(int i = num_class-1; i >= 0; i--)
     {
       if(current_set_class[i]->find(i_key) != current_set_class[i]->end())
-        return 0;
+        return i;
     }
   }
   
@@ -132,13 +130,6 @@ void HotKeySet::UpdateHotSet() {
     }
   }
 
-  // std::unordered_set<uint64_t> *old_set_class1 = current_set_class[0];
-  // std::unordered_set<uint64_t> *old_set_class2 = current_set_class[1];
-  // std::unordered_set<uint64_t> *old_set_class3 = current_set_class[2];
-  // std::unordered_set<uint64_t> *new_set_class1 = nullptr;
-  // std::unordered_set<uint64_t> *new_set_class2 = nullptr;
-  // std::unordered_set<uint64_t> *new_set_class3 = nullptr;
-
   std::vector<std::unordered_set<uint64_t>*>old_set_class;
   std::vector<std::unordered_set<uint64_t>*>new_set_class;
   old_set_class.resize(num_class, nullptr);
@@ -158,11 +149,9 @@ void HotKeySet::UpdateHotSet() {
   {
     new_set_class[i] = new std::unordered_set<uint64_t>();
   }
-  // printf("min = %ld\n", topK.top().cnt);
   if (!topK.empty()) {
     if (max_cnt > 3 * topK.top().cnt) {
       for(int i = 0; !topK.empty(); i ++) {
-        // if(topK.size() == 1) printf("max = %ld\n", topK.top().cnt);
         if(i < a[0]) new_set_class[0]->insert(topK.top().key);
         else if(i < a[0] + a[1] && i >= a[0]) new_set_class[1]->insert(topK.top().key);
         else new_set_class[2]->insert(topK.top().key);
@@ -173,9 +162,6 @@ void HotKeySet::UpdateHotSet() {
     }
   }
 
-  // current_set_class[0] = new_set_class1;
-  // current_set_class[1] = new_set_class2;
-  // current_set_class[2] = new_set_class3;
   for(int i = 0; i < num_class; i++)
   {
     current_set_class[i] = new_set_class[i];

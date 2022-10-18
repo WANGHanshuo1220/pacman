@@ -249,6 +249,8 @@ void LogCleaner::BatchIndexUpdate() {
     else
     {
       reserved_segment_->roll_back_map[tp.size_or_num].is_garbage = 1;
+      uint32_t gb_b = reserved_segment_->roll_back_map[tp.size_or_num].kv_sz * kv_align;
+      reserved_segment_->add_garbage_bytes(gb_b);
     }
   }
   COUNTER_ADD_LOGGING(garbage_move_count_, new_garbage_addr.size());
@@ -312,7 +314,6 @@ void LogCleaner::CopyValidItemToBuffer123(LogSegment *segment) {
 }
 
 void LogCleaner::CopyValidItemToBuffer0(LogSegment *segment) {
-  
   char *p = const_cast<char *>(segment->get_data_start());
   char *tail = segment->get_tail();
 #ifdef GC_SHORTCUT
@@ -329,9 +330,9 @@ void LogCleaner::CopyValidItemToBuffer0(LogSegment *segment) {
 #endif
     KVItem *kv = reinterpret_cast<KVItem *>(p);
     uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
-    if (sz == sizeof(KVItem)) {
-      break;
-    }
+    // if (sz == sizeof(KVItem)) {
+    //   break;
+    // }
     if (!volatile_segment_->HasSpaceFor(sz)) {
       // flush reserved segment
       BatchFlush();
@@ -636,6 +637,7 @@ void LogCleaner::FreezeReservedAndGetNew() {
 
 void LogCleaner::DoMemoryClean()
 {
+  LockUsedList();
   to_compact_segments_.splice(to_compact_segments_.end(),
                                   closed_segments_);
   UnlockUsedList();

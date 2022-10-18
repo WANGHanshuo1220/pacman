@@ -251,11 +251,11 @@ class LogSegment : public BaseSegment {
   void Close() {
     header_->status = StatusClosed;
     close_time_ = NowMicros();
-    if (HasSpaceFor(sizeof(KVItem))) {
-      KVItem *end = new (tail_) KVItem();
-      end->Flush();
-      tail_ += sizeof(KVItem);
-    }
+    // if (HasSpaceFor(sizeof(KVItem))) {
+    //   KVItem *end = new (tail_) KVItem();
+    //   end->Flush();
+    //   tail_ += sizeof(KVItem);
+    // }
 #ifdef GC_SHORTCUT
     if (shortcut_buffer_) {
       assert(tail_ + shortcut_buffer_->size() * sizeof(Shortcut) <= end_);

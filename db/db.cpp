@@ -324,14 +324,6 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
       db_->get_class_segment(class_t, worker_id_, 
                              &log_head_class[class_t], &class_seg_working_on[class_t]);
       accumulative_sz_class[class_t] = sz;
-      uint32_t n = log_head_class[class_t]->num_kvs;
-      if(n)
-      {
-        if(log_head_class[class_t]->roll_back_map[n-1].is_garbage) 
-        {
-          Roll_Back2(log_head_class[class_t]);
-        }
-      }
     }
     segment = log_head_class[class_t];
   }

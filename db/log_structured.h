@@ -42,13 +42,10 @@ class LogStructured {
   size_t get_num_class_segments_(int class_) { return class_segments_[class_].size(); }
   LogSegment **get_class_segment_(int class_, int i) 
   {
-    assert(class_ > 0 && class_ <=3);
-    assert(class_segments_[class_][i]->is_segment_touse());
     return &class_segments_[class_][i];
   }
   void set_class_segment_(uint32_t class_, uint32_t i, LogSegment *s) 
   { 
-    assert(s->is_segment_using());
     class_segments_[class_][i] = s; 
   } 
   void start_GCThreads();
