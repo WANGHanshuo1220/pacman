@@ -324,6 +324,14 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
       db_->get_class_segment(class_t, worker_id_, 
                              &log_head_class[class_t], &class_seg_working_on[class_t]);
       accumulative_sz_class[class_t] = sz;
+      int n = log_head_class[class_t]->num_kvs;
+      if(n)
+      {
+        if(log_head_class[class_t]->roll_back_map[n-1].is_garbage == 1)
+        {
+          Roll_Back2(log_head_class[class_t]);
+        }
+      }
     }
     segment = log_head_class[class_t];
   }
@@ -402,31 +410,33 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
 
     uint32_t sz = segment->roll_back_map[num_].kv_sz * kv_align;
     segment->add_garbage_bytes(sz);
-    uint32_t n = segment->num_kvs;
+    segment->roll_back_map[num_].is_garbage = 1;
 
-    if( segment->is_segment_touse() )
-    {
-      if( n-1 == num_)
-      {
-        Roll_Back1(n, sz, segment);
-      }
-      else
-      {
-        segment->roll_back_map[num_].is_garbage = 1;
-        if(segment->roll_back_map[n-1].is_garbage == 1)
-        {
-          if(!segment->RB_flag.test_and_set())
-          {
-            Roll_Back2(segment);
-            segment->RB_flag.clear();
-          }
-        }
-      }
-    }
-    else
-    {
-      segment->roll_back_map[num_].is_garbage = 1;
-    }
+    // uint32_t n = segment->num_kvs;
+
+    // if( segment->is_segment_touse() )
+    // {
+    //   if( n-1 == num_)
+    //   {
+    //     Roll_Back1(n, sz, segment);
+    //   }
+    //   else
+    //   {
+    //     segment->roll_back_map[num_].is_garbage = 1;
+    //     if(segment->roll_back_map[n-1].is_garbage == 1)
+    //     {
+    //       if(!segment->RB_flag.test_and_set())
+    //       {
+    //         Roll_Back2(segment);
+    //         segment->RB_flag.clear();
+    //       }
+    //     }
+    //   }
+    // }
+    // else
+    // {
+    //   segment->roll_back_map[num_].is_garbage = 1;
+    // }
   }
 }
 
@@ -457,28 +467,25 @@ void DB::Worker::Roll_Back1(uint32_t n_, uint32_t sz, LogSegment *segment)
 void DB::Worker::Roll_Back2(LogSegment *segment)
 {
   uint32_t n = segment->num_kvs;
-  if(segment->roll_back_map[n-1].is_garbage == 1)
+  int roll_back_sz = 0;
+  uint32_t RB_count = 0;
+  for(int i = n - 1; i >= 0; i--)
   {
-    int roll_back_sz = 0;
-    uint32_t RB_count = 0;
-    for(int i = n - 1; i >= 0; i--)
+    if(segment->roll_back_map[i].is_garbage == 1)
     {
-      if(segment->roll_back_map[i].is_garbage == 1)
-      {
-        segment->roll_back_map[i].is_garbage = 0;
-        roll_back_sz += (segment->roll_back_map[i].kv_sz * kv_align);
-        RB_count ++;
-      }
-      else{
-        break;
-      }
+      segment->roll_back_map[i].is_garbage = 0;
+      roll_back_sz += (segment->roll_back_map[i].kv_sz * kv_align);
+      RB_count ++;
     }
-    // db_->roll_back_count.fetch_add(1);
-    // db_->roll_back_bytes.fetch_add(roll_back_sz);
-    segment->roll_back_tail(roll_back_sz);
-    segment->reduce_garbage_bytes(roll_back_sz);
-    segment->RB_num_kvs(RB_count);
+    else{
+      break;
+    }
   }
+  // db_->roll_back_count.fetch_add(1);
+  // db_->roll_back_bytes.fetch_add(roll_back_sz);
+  segment->roll_back_tail(roll_back_sz);
+  segment->reduce_garbage_bytes(roll_back_sz);
+  segment->RB_num_kvs(RB_count);
 }
 
 void DB::Worker::FreezeSegment(LogSegment *segment, int class_t) {

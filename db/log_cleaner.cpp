@@ -55,8 +55,8 @@ void LogCleaner::CleanerEntry() {
 
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning()) {
-      Timer timer(clean_time_ns_);
-      GC_times ++;
+      // Timer timer(clean_time_ns_);
+      // GC_times ++;
       DoMemoryClean();
     }
     else 
@@ -147,7 +147,7 @@ bool LogCleaner::NeedCleaning() {
   if(class_ == 0) 
   {
     int num_cleaners0 = log_->num_cleaners_ - num_class + 1;
-    Free = Free / (log_->num_cleaners_ - num_class + 1);
+    Free = Free / num_cleaners0;
     Available = Free + cleaner_garbage_bytes_.load(std::memory_order_relaxed);
     Total = (log_->num_class_segments_[class_] - num_cleaners0) 
             / num_cleaners0 * SEGMENT_SIZE[class_];

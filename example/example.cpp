@@ -43,7 +43,7 @@ void prepare_key_base();
 uint64_t NUM_KVS = 20000000;
 uint64_t dup_rate = 5000000;
 int num_workers = 24;
-int num_cleaners = 2;
+int num_cleaners = 4;
 
 double c = 0;          // Normalization constant
 double *sum_probs = nullptr;     // Pre-calculated sum of probabilities
