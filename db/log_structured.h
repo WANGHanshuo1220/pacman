@@ -60,7 +60,7 @@ class LogStructured {
   void get_seg_usage_info();
   std::vector<LogSegment *>* get_class_segments(int i)
   {
-    return &class_segments_[num_class-1-i];
+    return &class_segments_[i];
   }
 
  private:
@@ -84,14 +84,15 @@ class LogStructured {
   std::vector<std::vector<LogSegment *>> class_segments_{num_class};
 
   const float class0_prop = 0.95;
-  const float class1_prop = (1 - class0_prop) * 0.3;
+  const float class1_prop = 0.6 * (1 - class0_prop);
   const float class2_prop = 1. - class0_prop - class1_prop;
   const float class_prop[num_class] = {class0_prop, class1_prop, class2_prop};
 
   std::atomic<int> num_free_segments_{0};
   std::atomic<int> alloc_counter_{0};
   const int num_limit_free_segments_;
-  volatile int clean_threshold_[num_class] = {10, 10, 10};
+  volatile int clean_threshold_[num_class] = 
+    {10, 50, 60};
 
   volatile FreeStatus free_status_ = FS_Sufficient;
   std::atomic_flag FS_flag_{ATOMIC_FLAG_INIT};

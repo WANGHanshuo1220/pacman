@@ -57,11 +57,22 @@ DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
 };
 
 DB::~DB() {
+  // printf("cold   append time = %ld ms\t, puts = %ld\t, (%ld ns/put)\n",
+  //   AP_t[0]/(num_workers_ * 1000000), put_c[0].load(), AP_t[0]/put_c[0].load());
+  // printf("hot    append time = %ld ms\t, puts = %ld\t, (%ld ns/put)\n",
+  //   AP_t[1]/(num_workers_ * 1000000), put_c[1].load(), AP_t[1]/put_c[1].load());
+  // printf("class1 append time = %ld ms\t, puts = %ld\t, (%ld ns/put)\n",
+  //   AP_t[2]/(num_workers_ * 1000000), put_c[2].load(), AP_t[2]/put_c[2].load());
+  // printf("class2 append time = %ld ms\t, puts = %ld\t, (%.2f ns/put)\n",
+  //   AP_t[3]/(num_workers_ * 1000000), put_c[3].load(), (float)AP_t[3]/put_c[3].load());
+  // printf("total append time  = %ld\n",
+  //   (AP_t[0] + AP_t[1] + AP_t[2] + AP_t[3])/(num_workers_ * 1000000));
   // uint64_t c = 0;
   // for(int i = 0; i < num_class; i++)
   // {
-  //   c += put_c[i].load();
+  //   // c += put_c[i].load();
   //   printf("class %d puts = %lu\n", i, put_c[i].load());
+  //   // printf("class %d RB_c = %d\n", i, RB_class[i].load());
   // }
   // printf("total puts = %ld\n", c);
   // printf("total gets = %ld\n", get_c.load());
@@ -147,6 +158,10 @@ DB::Worker::Worker(DB *db) : db_(db) {
 }
 
 DB::Worker::~Worker() {
+  // for(int i = 0; i < 4; i++)
+  // {
+  //   db_->AP_t[i] += append_t[i];
+  // }
 #ifdef LOG_BATCHING
   for(int i = 0; i < num_class; i++)
   {
@@ -154,10 +169,10 @@ DB::Worker::~Worker() {
   }
 #endif
   db_->log_->SyncCleanerGarbageBytes(tmp_cleaner_garbage_bytes_);
-  for(int i = 1; i < num_class; i++)
-  {
-    if(log_head_class[i]) log_head_class[i]->set_touse();
-  }
+  // for(int i = 1; i < num_class; i++)
+  // {
+  //   if(log_head_class[i]) log_head_class[i]->set_touse();
+  // }
   if(log_head_class[0]) 
   {
     FreezeSegment(log_head_class[0], 0);
@@ -195,7 +210,7 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
   int class_t = db_->hot_key_set_->Exist(key);
   // int class_t = 0;
   // int class_t_ = class_t >= 0 ? class_t : 0;
-  // db_->put_c[class_t_].fetch_add(1);
+  // db_->put_c[class_t+1].fetch_add(1);
 
   // sub-opr 2 : make a new kv item, append it at the end of the segment;
   ValueType val = MakeKVItem(key, value, class_t);
@@ -320,7 +335,6 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     accumulative_sz_class[class_t] += sz;
     if(accumulative_sz_class[class_t] > db_->get_threshold(class_t))
     {
-      log_head_class[class_t]->set_touse();
       db_->get_class_segment(class_t, worker_id_, 
                              &log_head_class[class_t], &class_seg_working_on[class_t]);
       accumulative_sz_class[class_t] = sz;
@@ -329,7 +343,7 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
       {
         if(log_head_class[class_t]->roll_back_map[n-1].is_garbage == 1)
         {
-          Roll_Back2(log_head_class[class_t]);
+          Roll_Back(log_head_class[class_t]);
         }
       }
     }
@@ -348,6 +362,44 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     if(class_t == -1) log_head_cold_class0_ = segment;
     else  log_head_class[class_t] = segment;
   }
+
+  // int a = class_t + 1;
+  // do
+  // {
+  //   if(segment == nullptr)
+  //   {
+  //     FreezeSegment(segment, class_t);
+  //     segment = db_->log_->NewSegment(class_t);
+  //     if(class_t > 0)
+  //     {
+  //       accumulative_sz_class[class_t] = sz;
+  //       db_->log_->set_class_segment_(class_t, class_seg_working_on[class_t], segment);
+  //     }
+  //     if(class_t == -1) log_head_cold_class0_ = segment;
+  //     else  log_head_class[class_t] = segment;
+  //   }
+  //   else
+  //   {
+  //     {
+  //       Timer time(append_t[a]);
+  //       ret = segment->Append(key, value, epoch);
+  //     }
+  //     if(ret == INVALID_VALUE)
+  //     {
+  //       FreezeSegment(segment, class_t);
+  //       segment = db_->log_->NewSegment(class_t);
+  //       if(class_t > 0)
+  //       {
+  //         accumulative_sz_class[class_t] = sz;
+  //         db_->log_->set_class_segment_(class_t, class_seg_working_on[class_t], segment);
+  //       }
+  //       if(class_t == -1) log_head_cold_class0_ = segment;
+  //       else  log_head_class[class_t] = segment;
+  //     }
+  //   }
+  // } while (ret == INVALID_VALUE);
+  
+
   assert(ret);
   return ret;
 }
@@ -411,61 +463,13 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
     uint32_t sz = segment->roll_back_map[num_].kv_sz * kv_align;
     segment->add_garbage_bytes(sz);
     segment->roll_back_map[num_].is_garbage = 1;
-
-    // uint32_t n = segment->num_kvs;
-
-    // if( segment->is_segment_touse() )
-    // {
-    //   if( n-1 == num_)
-    //   {
-    //     Roll_Back1(n, sz, segment);
-    //   }
-    //   else
-    //   {
-    //     segment->roll_back_map[num_].is_garbage = 1;
-    //     if(segment->roll_back_map[n-1].is_garbage == 1)
-    //     {
-    //       if(!segment->RB_flag.test_and_set())
-    //       {
-    //         Roll_Back2(segment);
-    //         segment->RB_flag.clear();
-    //       }
-    //     }
-    //   }
-    // }
-    // else
-    // {
-    //   segment->roll_back_map[num_].is_garbage = 1;
-    // }
   }
 }
 
-void DB::Worker::Roll_Back1(uint32_t n_, uint32_t sz, LogSegment *segment)
+void DB::Worker::Roll_Back(LogSegment *segment)
 {
-  uint32_t n = segment->num_kvs;
-  int roll_back_sz = sz;
-  uint32_t RB_count = 1;
-  for(int i = n - 2; i >= 0; i--)
-  {
-    if(segment->roll_back_map[i].is_garbage == 1)
-    {
-      segment->roll_back_map[i].is_garbage = 0;
-      roll_back_sz += (segment->roll_back_map[i].kv_sz * kv_align);
-      RB_count ++;
-    }
-    else{
-      break;
-    }
-  }
-  // db_->roll_back_count.fetch_add(1);
-  // db_->roll_back_bytes.fetch_add(roll_back_sz);
-  segment->roll_back_tail(roll_back_sz);
-  segment->reduce_garbage_bytes(roll_back_sz);
-  segment->RB_num_kvs(RB_count);
-}
-
-void DB::Worker::Roll_Back2(LogSegment *segment)
-{
+  // int class_t = segment->get_class();
+  // db_->RB_class[class_t].fetch_add(1);
   uint32_t n = segment->num_kvs;
   int roll_back_sz = 0;
   uint32_t RB_count = 0;

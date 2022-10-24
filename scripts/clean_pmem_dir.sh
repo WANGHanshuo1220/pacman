@@ -1,10 +1,10 @@
 #! /bin/bash -e
 
-PMEM_DIR="/mnt/pmem0"
+PMEM_DIR="/mnt/aep0"
 
 DB_PATH=(
-  #"${PMEM_DIR}"/log_kvs
   "${PMEM_DIR}"/log_kvs
+  "${PMEM_DIR}"/log_kvs_IGC
   "${PMEM_DIR}"/viper
   "${PMEM_DIR}"/chameleondb
   "${PMEM_DIR}"/pmem_rocksdb

@@ -46,6 +46,8 @@ class DB {
     bool Delete(const Slice &key);
     // int show_ID() {return worker_id_; };
 
+    long append_t[4] = {0, 0, 0, 0};
+
 #ifdef GC_EVAL
     long check_hotcold_time = 0;
     long insert_time = 0;
@@ -82,8 +84,7 @@ class DB {
     ValueType MakeKVItem(const Slice &key, const Slice &value, int class_);
     void UpdateIndex(const Slice &key, ValueType val, int class_);
     void MarkGarbage(ValueType tagged_val);
-    void Roll_Back1(uint32_t n, uint32_t sz, LogSegment *segment);
-    void Roll_Back2(LogSegment *segment);
+    void Roll_Back(LogSegment *segment);
     void FreezeSegment(LogSegment *segment, int class_);
 
 #ifdef LOG_BATCHING
@@ -102,6 +103,8 @@ class DB {
     return std::make_unique<Worker>(this);
   }
 
+  long AP_t[4] = {0, 0, 0, 0};
+
   // statistics
   void StartCleanStatistics();
   double GetCompactionCPUUsage();
@@ -118,7 +121,6 @@ class DB {
   {
     *seg = *(log_->get_class_segment_(class_, next_class_segment_[class_][worker_id]));
     *seg_id = next_class_segment_[class_][worker_id];
-    (*seg)->set_using();
     next_class_segment_[class_][worker_id] += num_workers_;
     if(next_class_segment_[class_][worker_id] >= db_num_class_segs[class_])
     {
@@ -126,12 +128,20 @@ class DB {
     }
   }
 
+  std::atomic<int> RB_class[num_class] = {0, 0, 0};
   uint32_t get_threshold(int class_) { return change_seg_threshold_class[class_]; }
-  std::atomic<uint64_t> put_c[4] = {0, 0, 0, 0};
+  std::atomic<uint64_t> put_c[num_class+1] = {0, 0, 0, 0};
   std::atomic<uint64_t> get_c = 0;
+  void clear_put_c() 
+  {
+    for(int i = 0; i < num_class; i++)
+    {
+      put_c[i] = 0;
+    }
+  }
   std::vector<int>* get_next_class_segment(int i)
   {
-    return &next_class_segment_[num_class-1-i];
+    return &next_class_segment_[i];
   }
 
   uint32_t change_seg_threshold_class[num_class];

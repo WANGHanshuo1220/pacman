@@ -18,7 +18,36 @@ typedef struct
 {
   bool operator ()(const LogSegment *a, const LogSegment *b)
   {
-    return a->get_offset() <= b->get_offset();
+    bool re = false;
+    float a_util = 0.0, b_util = 0.0;
+
+    a_util = a->get_util();
+    b_util = b->get_util();
+
+    if(a_util <= 0.5 || b_util <= 0.5)
+    {
+      re = (a_util <= b_util);
+    }
+    else
+    {
+      int a_num_kvs = 0, a_top = -1, b_num_kvs = 0, b_top = -1;
+      a_num_kvs = a->num_kvs;
+      if(a_num_kvs) a_top = a->roll_back_map[a_num_kvs-1].is_garbage;
+
+      b_num_kvs = b->num_kvs;
+      if(b_num_kvs) b_top = b->roll_back_map[b_num_kvs-1].is_garbage;
+
+      if((a_top == 1) && (b_top == 1))
+      {
+        re = (a_util <= b_util);
+      }
+      else
+      {
+        re = (a_top <= b_top);
+      }
+    }
+
+    return re;
   }
 }Compare_seg_offset;
 
@@ -30,24 +59,23 @@ void LogCleaner::CleanerEntry() {
       ->MasstreeThreadInit(log_->num_workers_ + cleaner_id_);
 #endif
   num_worker = db_->get_num_workers();
-  num_class_segs.resize(num_class-1);
-  for(int i = 0; i < num_class_segs.size(); i++)
+  num_class_segs.resize(num_class);
+  for(int i = 1; i < num_class_segs.size(); i++)
   {
-    num_class_segs[i] = db_->db_num_class_segs[num_class-1-i];
+    num_class_segs[i] = db_->db_num_class_segs[i];
   }
-  bool need_sort = true;
-  for(int i = 0; i < num_class-1; i++)
+  bool need_sort[num_class-1] = {true};
+  for(int i = 1; i < num_class; i++)
   {
     int seg_per_worker = num_class_segs[i] / num_worker;
-    if(seg_per_worker < gap[i] + 5 ) 
+    if(seg_per_worker < gap[i] + 3 ) 
     {
-      need_sort = false;
-      break;
+      need_sort[i] = false;
     }
     else
     {
       sort_range[i] = seg_per_worker - gap[i];
-      if(sort_range[i] > 20) sort_range[i] = 20;
+      if(sort_range[i] > 10) sort_range[i] = 10;
     }
   }
   worker_range = num_worker / num_class;
@@ -56,28 +84,30 @@ void LogCleaner::CleanerEntry() {
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning()) {
       // Timer timer(clean_time_ns_);
-      // GC_times ++;
+      GC_times ++;
       DoMemoryClean();
     }
     else 
     {
       usleep(10);
-      // if(need_sort)
+      // if(need_sort[num_class-1])
       // {
       //   uint64_t now = NowMicros();
       //   if(now - clean_sort_us_before_ > 1000)
       //   {
       //     clean_sort_us_before_ = now;
-      //     help ++;
-      //     // Help_sort(0);
       //     if(count < 3)
       //     { 
-      //       Help_sort(0);
+      //       Help_sort(num_class-1);
       //       count++;
+      //     }
+      //     else if(need_sort[num_class-2])
+      //     {
+      //       Help_sort(num_class-2);
+      //       count = 0;
       //     }
       //     else
       //     {
-      //       Help_sort(1);
       //       count = 0;
       //     }
       //   }
@@ -143,7 +173,8 @@ bool LogCleaner::NeedCleaning() {
   uint64_t Free, Available, Total;
   double threshold = (double)log_->clean_threshold_[class_] / 100;
 
-  Free = (uint64_t)log_->num_free_list_class[class_] * SEGMENT_SIZE[class_];
+  Free = (uint64_t)log_->num_free_list_class[class_].load(std::memory_order_relaxed)
+         * SEGMENT_SIZE[class_];
   if(class_ == 0) 
   {
     int num_cleaners0 = log_->num_cleaners_ - num_class + 1;
@@ -297,6 +328,7 @@ void LogCleaner::CopyValidItemToBuffer123(LogSegment *segment) {
       // copy item to buffer
       char *cur = volatile_segment_->AllocOne(sz);
       memcpy(cur, kv, sz);
+      flush_times ++;
       uint64_t offset = cur - volatile_segment_->get_data_start();
       char *new_addr = reserved_segment_->get_data_start() + offset;
       Slice key_slice = ((KVItem *)cur)->GetKey();
@@ -347,6 +379,7 @@ void LogCleaner::CopyValidItemToBuffer0(LogSegment *segment) {
       // copy item to buffer
       char *cur = volatile_segment_->AllocOne(sz);
       memcpy(cur, kv, sz);
+      flush_times ++;
       uint64_t offset = cur - volatile_segment_->get_data_start();
       char *new_addr = reserved_segment_->get_data_start() + offset;
       Slice key_slice = ((KVItem *)cur)->GetKey();
@@ -428,6 +461,7 @@ void LogCleaner::CompactSegment0(LogSegment *segment) {
       Slice data = kv->GetValue();
       TIMER_START_LOGGING(copy_time_);
       ValueType val = reserved_segment_->Append(key, data, kv->epoch);
+      flush_times ++;
       TIMER_STOP_LOGGING(copy_time_);
       LogEntryHelper le_helper(val);
       le_helper.old_val = TaggedPointer(p, sz, num_old, class_);
@@ -544,6 +578,7 @@ void LogCleaner::CompactSegment123(LogSegment *segment) {
       Slice data = kv->GetValue();
       TIMER_START_LOGGING(copy_time_);
       ValueType val = reserved_segment_->Append(key, data, kv->epoch);
+      flush_times ++;
       TIMER_STOP_LOGGING(copy_time_);
       LogEntryHelper le_helper(val);
       le_helper.old_val = TaggedPointer(p, sz, num_old, class_);
@@ -631,7 +666,6 @@ void LogCleaner::FreezeReservedAndGetNew() {
   reserved_segment_ = backup_segment_;
   reserved_segment_->StartUsing(false);
   reserved_segment_->set_reserved();
-  assert(reserved_segment_->is_segment_reserved());
   backup_segment_ = nullptr;
 }
 

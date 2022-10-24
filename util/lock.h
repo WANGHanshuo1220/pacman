@@ -41,6 +41,11 @@ class SpinLock {
         name.c_str(), contendedAcquisitions, contendedTime);
   }
 
+  void print_report() {
+    printf("spinlock %s: contendedAcquisitions %lu contendedTime %lu us\n",
+        name.c_str(), contendedAcquisitions, contendedTime);
+  }
+
  private:
   std::atomic_bool mutex;
   std::string name;

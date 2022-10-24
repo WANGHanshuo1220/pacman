@@ -110,6 +110,8 @@ class BaseSegment {
 
   char *get_tail() { return tail_; }
 
+  uint64_t get_data_space() const { return end_ - data_start_; }
+
   char **get_tail_addr() { return &tail_; }
 
   char *get_end() { return end_; }
@@ -156,6 +158,7 @@ class LogSegment : public BaseSegment {
   void set_RB() { header_->status = StatusRB; }
   uint8_t  get_status() { return header_->status; }
   void set_status(uint8_t s) { header_->status = s; }
+  float get_util() const { return (float)get_offset()/get_data_space(); }
 
   uint32_t num_kvs = 0;
   std::atomic_flag RB_flag{ATOMIC_FLAG_INIT};
@@ -433,12 +436,12 @@ class LogSegment : public BaseSegment {
 
   void add_garbage_bytes(int b) 
   { 
-    garbage_bytes_.fetch_add(b); 
+    garbage_bytes_ += b; 
     assert(garbage_bytes_ <= SEGMENT_SIZE_);
   }
   void reduce_garbage_bytes(int b) 
   { 
-    garbage_bytes_.fetch_sub(b); 
+    garbage_bytes_ -= b; 
     assert(garbage_bytes_ >= 0);
   }
   int get_class() { return class_; }

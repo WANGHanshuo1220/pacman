@@ -17,6 +17,7 @@ class LogCleaner {
   int GC_times = 0;
   std::atomic<long> GC_timecost = 0; // us
   std::atomic<int> help = 0;
+  uint64_t flush_times = 0;
   int get_cleaner_id() { return cleaner_id_; }
   int show_GC_times() 
   { 
@@ -202,8 +203,8 @@ class LogCleaner {
     }
   }
 
-  int gap[2] = {10, 5};
-  int sort_range[2];
+  int gap[num_class] = {-1, 2, 4};
+  int sort_range[num_class];
   int num_worker = 0;
   int worker_range = 0;
   std::vector<uint32_t> num_class_segs;

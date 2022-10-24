@@ -17,9 +17,8 @@ static constexpr ValueType INVALID_VALUE = 0;
 
 static constexpr uint64_t num_class     = 3;
 static constexpr uint64_t kv_align      = 4;
-static constexpr uint64_t hash_sz       = 20;
 static constexpr uint64_t SEGMENT_SIZE[num_class] = 
-    {4ul << 20, 1ul << 18, 1ul << 16};
+    {4ul << 20, 2ul << 20, 1ul << 20};
     // {4ul << 20, 1ul << 16, 1ul << 14};
 
 // shortcut

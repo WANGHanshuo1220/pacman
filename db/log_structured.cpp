@@ -64,13 +64,24 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
   log_cleaners_.resize(num_cleaners_, nullptr);
   class_segments_.resize(num_class);
 
-  int i = 0, j = 0, num = 0, cleaner_c = 0;
   char * pool_start = class_pool_start_[0];
   for(int i = 1; i < num_class; i ++)
   {
     class_pool_start_[i] = class_pool_start_[i-1] +
                           num_class_segments_[i-1] * SEGMENT_SIZE[i-1];
   }
+
+  std::vector<int> num_class_IGC;
+  num_class_IGC.resize(num_class);
+  for(int i = 1; i < num_class; i++)
+  {
+    num_class_IGC[i] = num_class_segments_[i] * 0.8;
+    num_class_IGC[i] = (num_class_IGC[i] / num_workers_ + 1) * num_workers_;
+    if(num_class_IGC[i]/num_class_segments_[i] > 0.9)
+      num_class_IGC[i] = (num_class_IGC[i] / num_workers_ ) * num_workers_;
+  }
+
+  int i = 0, j = 0, num = 0, cleaner_c = 0;
   for (i = 0, j = 0; i < num_segments_, j < num_class; i++) {
     // for class0
     if(j == 0)
@@ -102,7 +113,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
       num = 0;
       for(int n = 0; n < j; n ++) num += num_class_segments_[n];
 
-      if(i < (num + num_class_segments_[j] * 0.8 - 1) && i >= num)
+      if(i < (num + num_class_IGC[j]) && i >= num)
       {
         all_segments_[i] =
             new LogSegment(pool_start, SEGMENT_SIZE[j], j, i);
@@ -111,7 +122,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
         all_segments_[i]->set_touse();
       }
       else if(i < num + num_class_segments_[j] - 1 &&
-              i >= (num + num_class_segments_[j] * 0.8 - 1) )
+              i >= (num + num_class_IGC[j]) )
       {
         all_segments_[i] =
             new LogSegment(pool_start, SEGMENT_SIZE[j], j, i);
@@ -132,11 +143,12 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
     }
   }
 
-  printf("num_seg_class0 = %d, ", num_class_segments_[0]);
+  printf("num_seg_class0 = %d; ", num_class_segments_[0]);
   for(int a = 1; a < num_class; a++)
   {
-    printf("num_seg_class%d = %d (%ld), ",
-      a, num_class_segments_[a], class_segments_[a].size());
+    printf("num_seg_class%d = %d (%ld), free_seg_list = %d; ",
+      a, num_class_segments_[a], class_segments_[a].size(),
+      num_free_list_class[a].load());
   }
   printf("num_segs = %d\n", num_segments_);
   printf("workers = %d, cleaners = %d\n", num_workers, num_cleaners);
@@ -145,7 +157,7 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
   for(int i = 1; i < num_class; i ++) 
   {
     db->db_num_class_segs[i] = get_num_class_segments_(i);
-    db->change_seg_threshold_class[i] = SEGMENT_SIZE[i] / 3;
+    db->change_seg_threshold_class[i] = SEGMENT_SIZE[i] / 2;
   }
 
   for (int j = 0; j < num_cleaners_; j++) {
@@ -202,6 +214,15 @@ LogStructured::~LogStructured() {
       log_cleaners_[i]->StopThread();
     }
   }
+
+  uint64_t c = 0;
+  for(int i = 0; i < num_cleaners_; i++)
+  {
+    printf("cleaner%d flush_times = %ld\t GC_times = %d\n", 
+      i, log_cleaners_[i]->flush_times, log_cleaners_[i]->GC_times);
+    c += log_cleaners_[i]->flush_times;
+  }
+  printf("total flush_times = %ld (%.2f)\n", c, (float)c/1000000);
 
   for (int i = 0; i < num_cleaners_; i++) {
     if (log_cleaners_[i]) {
@@ -267,7 +288,7 @@ LogSegment *LogStructured::NewSegment(int class_t) {
   // not store shortcuts for hot segment
   ret->StartUsing(true);
 
-  if(class_t_ == 0) UpdateCleanThreshold(class_t_);
+  UpdateCleanThreshold(class_t_);
   return ret;
 }
 

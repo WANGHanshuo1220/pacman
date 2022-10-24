@@ -19,7 +19,7 @@
 
 #define prefilling_rate 0.75
 uint64_t log_size = 1ul << 30;
-std::string db_path = std::string(PMEM_DIR) + "log_kvs";
+std::string db_path = std::string(PMEM_DIR) + "log_kvs_IGC";
 DB *db;
 std::random_device rd;  //Will be used to obtain a seed for the random number engine
 std::mt19937 gen(rd()); //Standard mersenne_twister_engine seeded with rd()
@@ -40,10 +40,12 @@ void init_zipf();
 int get_random();
 void prepare_key_base();
 
-uint64_t NUM_KVS = 20000000;
-uint64_t dup_rate = 5000000;
+uint64_t NUM_KVS = 20000;
+uint64_t dup_rate = 5000;
 int num_workers = 24;
 int num_cleaners = 4;
+int kv_sz = 64;
+int value_sz = kv_sz - sizeof(KeyType) - sizeof(KVItem);
 
 double c = 0;          // Normalization constant
 double *sum_probs = nullptr;     // Pre-calculated sum of probabilities
@@ -140,7 +142,7 @@ void *put_KVS(void *id)
   int op;
   std::string value = "hello world 22-08-24";
   std::unique_ptr<DB::Worker> worker = db->GetWorker();
-  value.resize(32);
+  value.resize(value_sz);
   struct timeval s, e;
   std::string value1;
   Random ra(t_id + 512);
@@ -166,19 +168,18 @@ void *prefilling()
   uint64_t key;
   std::unique_ptr<DB::Worker> worker = db->GetWorker();
   std::string value = "hello world 22-09-08";
+  value.resize(value_sz);
 
   for(uint64_t i = 1; i <= dup_rate; i++)
   {
     key = i;
-    value.resize(32);
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
   }
 
-  for(uint64_t i = 0; i <  prefilling_rate * log_size / 52 - dup_rate; i++)
+  for(uint64_t i = 0; i <  prefilling_rate * log_size / kv_sz - dup_rate; i++)
   {
     key = zipf();
     // key = uniform();
-    value.resize(32);
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
   }
   worker.reset();
@@ -258,8 +259,8 @@ static void BM_job3(benchmark::State& st)
 
 BENCHMARK(BM_job3)
   ->Iterations(1)
-  ->DenseThreadRange(6, 24, 6)
-  // ->Threads(2)
+  // ->DenseThreadRange(6, 12, 6)
+  ->Threads(6)
   ->Unit(benchmark::kMicrosecond)
   ->UseRealTime();
 
