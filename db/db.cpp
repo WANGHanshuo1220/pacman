@@ -18,14 +18,14 @@ static_assert(false, "error index kind");
 
 // class DB
 
-DB::DB(std::string db_path, size_t log_size, int num_workers, int num_cleaners)
+DB::DB(std::string db_path[], size_t log_size, int num_workers, int num_cleaners)
     : num_workers_(num_workers),
       num_cleaners_(num_cleaners),
       thread_status_(num_workers) {
 #if defined(USE_PMDK) && defined(IDX_PERSISTENT)
-  g_index_allocator = new PMDKAllocator(db_path + "/idx_pool", IDX_POOL_SIZE);
+  g_index_allocator = new PMDKAllocator(db_path[0] + "/idx_pool", IDX_POOL_SIZE);
 #else
-  g_index_allocator = new MMAPAllocator(db_path + "/idx_pool", IDX_POOL_SIZE);
+  g_index_allocator = new MMAPAllocator(db_path[0] + "/idx_pool", IDX_POOL_SIZE);
 #endif
 
 #if INDEX_TYPE <= 1
@@ -74,7 +74,7 @@ DB::~DB() {
   //   printf("class %d puts = %lu\n", i, put_c[i].load());
   //   // printf("class %d RB_c = %d\n", i, RB_class[i].load());
   // }
-  // printf("total puts = %ld\n", c);
+  // printf("total puts = %ld\n", puts.load());
   // printf("total gets = %ld\n", get_c.load());
   // printf("total oprs = %ld\n", get_c.load() + c);
   // printf("RB_C = %ld, RB_bytes = %ld KB (%ld MB)\n",
@@ -158,6 +158,7 @@ DB::Worker::Worker(DB *db) : db_(db) {
 }
 
 DB::Worker::~Worker() {
+  // db_->puts += puts_;
   // for(int i = 0; i < 4; i++)
   // {
   //   db_->AP_t[i] += append_t[i];
@@ -208,6 +209,7 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
 
   // sub-opr 1 : check the hotness of the key;
   int class_t = db_->hot_key_set_->Exist(key);
+  // puts_ ++;
   // int class_t = 0;
   // int class_t_ = class_t >= 0 ? class_t : 0;
   // db_->put_c[class_t+1].fetch_add(1);

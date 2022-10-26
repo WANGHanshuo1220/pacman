@@ -47,6 +47,7 @@ class DB {
     // int show_ID() {return worker_id_; };
 
     long append_t[4] = {0, 0, 0, 0};
+    uint64_t puts_ = 0;
 
 #ifdef GC_EVAL
     long check_hotcold_time = 0;
@@ -96,7 +97,7 @@ class DB {
     DISALLOW_COPY_AND_ASSIGN(Worker);
   };
 
-  DB(std::string pool_path, size_t log_size, int num_workers, int num_cleaners);
+  DB(std::string pool_path[], size_t log_size, int num_workers, int num_cleaners);
   virtual ~DB();
 
   std::unique_ptr<Worker> GetWorker() {
@@ -131,6 +132,7 @@ class DB {
   std::atomic<int> RB_class[num_class] = {0, 0, 0};
   uint32_t get_threshold(int class_) { return change_seg_threshold_class[class_]; }
   std::atomic<uint64_t> put_c[num_class+1] = {0, 0, 0, 0};
+  std::atomic<uint64_t> puts = 0;
   std::atomic<uint64_t> get_c = 0;
   void clear_put_c() 
   {

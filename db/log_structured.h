@@ -21,7 +21,7 @@ enum FreeStatus { FS_Sufficient, FS_Trigger, FS_Insufficient };
 
 class LogStructured {
  public:
-  explicit LogStructured(std::string db_path, size_t log_size, DB *db,
+  explicit LogStructured(std::string db_path[], size_t log_size, DB *db,
                          int num_workers, int num_cleaners);
   ~LogStructured();
 
@@ -66,14 +66,17 @@ class LogStructured {
  private:
   const int num_workers_;
   const int num_cleaners_;
+  char *pool_start_[2];
+  char *pool_end_[2];
   char *class_pool_start_[num_class];
+  char *class_pool_end_[num_class];
   const size_t total_log_size_;
   int num_segments_ = 0;
   std::atomic<bool> stop_flag_{false};
   // const int max_reserved_segments_;
   SpinLock class_list_lock_[num_class];
 
-  int num_class_segments_[num_class];
+  uint32_t num_class_segments_[num_class];
 
   std::vector<LogSegment *> all_segments_;
   std::vector<LogCleaner *> log_cleaners_;
@@ -83,16 +86,15 @@ class LogStructured {
 
   std::vector<std::vector<LogSegment *>> class_segments_{num_class};
 
-  const float class0_prop = 0.95;
-  const float class1_prop = 0.6 * (1 - class0_prop);
-  const float class2_prop = 1. - class0_prop - class1_prop;
-  const float class_prop[num_class] = {class0_prop, class1_prop, class2_prop};
+  const int class1_sz = 320; // MB
+  const int class2_sz = 240; // MB
+  std::vector<int> class_sz = {0, class1_sz, class2_sz};
 
   std::atomic<int> num_free_segments_{0};
   std::atomic<int> alloc_counter_{0};
   const int num_limit_free_segments_;
   volatile int clean_threshold_[num_class] = 
-    {10, 50, 60};
+    {5, 50, 60};
 
   volatile FreeStatus free_status_ = FS_Sufficient;
   std::atomic_flag FS_flag_{ATOMIC_FLAG_INIT};

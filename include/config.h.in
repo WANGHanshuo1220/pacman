@@ -4,8 +4,9 @@
 
 #include <cstddef>
 
-static constexpr char PMEM_DIR[] = "/mnt/aep0/";
+static constexpr char PMEM_DIR[2][15] = {"/mnt/aep0/", "/mnt/aep1/"};
 static constexpr size_t IDX_POOL_SIZE = 40ul << 30;
+static constexpr size_t num_channel = 2;
 
 static constexpr int USE_NUMA_NODE = 0;
 // CPU cores information

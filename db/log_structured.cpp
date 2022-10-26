@@ -11,7 +11,7 @@
 #include "log_cleaner.h"
 
 // TODO: meta region
-LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
+LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
                              int num_workers, int num_cleaners)
     : num_workers_(num_workers),
       num_cleaners_(num_cleaners),
@@ -23,53 +23,75 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
       std::string name = "free_list_class" + std::to_string(i);
       class_list_lock_[i].set_name(name);
     }
-    uint64_t sum = 0;
-    for(int i = 0; i < num_class - 1; i ++)
+    
+    uint64_t sz = 0;
+    for(int i = 1; i < num_class; i++)
     {
-      num_class_segments_[i] = (log_size * class_prop[i] / SEGMENT_SIZE[i]);
-      sum += num_class_segments_[i] * SEGMENT_SIZE[i];
+      num_class_segments_[i] = 
+        class_sz[i] * 1024 * 1024 / SEGMENT_SIZE[i];
+      if(num_class_segments_[i] % 4 != 0)
+        num_class_segments_[i] = (num_class_segments_[i] / 4 + 1) * 4;
+      sz += num_class_segments_[i] * SEGMENT_SIZE[i];
     }
-    num_class_segments_[num_class - 1] = (log_size - sum)
-                                          / SEGMENT_SIZE[num_class - 1];
+
+    num_class_segments_[0] = 
+      (total_log_size_ - sz) / SEGMENT_SIZE[0];
+
     for(int i = 0; i < num_class; i++)
     {
       num_segments_ += num_class_segments_[i];
     }
 #ifdef LOG_PERSISTENT
-  std::string log_pool_path = db_path + "/log_pool";
-  int log_pool_fd = open(log_pool_path.c_str(), O_CREAT | O_RDWR, 0644);
-  if (log_pool_fd < 0) {
-    ERROR_EXIT("open file failed");
+  std::string log_pool_path[2];
+  int log_pool_fd[2];
+  for(int i = 0; i < 2; i++)
+  {
+    log_pool_path[i] = db_path[i] + "/log_pool";
+    log_pool_fd[i] = open(log_pool_path[i].c_str(), O_CREAT | O_RDWR, 0644);
+    if (log_pool_fd[i] < 0) {
+      ERROR_EXIT("open file failed");
+    }
   }
-  if (fallocate(log_pool_fd, 0, 0, total_log_size_) != 0) {
-    ERROR_EXIT("fallocate file failed");
+
+  uint64_t ch_sz[2] = {num_class_segments_[0] * SEGMENT_SIZE[0],
+                num_class_segments_[1] * SEGMENT_SIZE[1] + 
+                num_class_segments_[2] * SEGMENT_SIZE[2]};
+
+  for(int i = 0; i < 2; i++)
+  {
+    if (fallocate(log_pool_fd[i], 0, 0, ch_sz[i]) != 0) {
+      ERROR_EXIT("fallocate file failed %d", i);
+    }
+    pool_start_[i] = (char *)mmap(NULL, ch_sz[i], PROT_READ | PROT_WRITE,
+                               MAP_SHARED, log_pool_fd[i], 0);
+    pool_end_[i] = pool_start_[i] + ch_sz[i];
+    close(log_pool_fd[i]);
+    if (pool_start_ == nullptr || pool_start_ == MAP_FAILED) {
+      ERROR_EXIT("mmap failed");
+    }
   }
-  class_pool_start_[0] = (char *)mmap(NULL, total_log_size_, PROT_READ | PROT_WRITE,
-                             MAP_SHARED, log_pool_fd, 0);
-  close(log_pool_fd);
-#else
-  class_pool_start_[0] = (char *)mmap(NULL, total_log_size_, PROT_READ | PROT_WRITE,
-                             MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-  madvise(class_pool_start_[0], total_log_size_, MADV_HUGEPAGE);
 #endif
 
-
-  if (class_pool_start_[0] == nullptr || class_pool_start_[0] == MAP_FAILED) {
+  if (pool_start_[0] == nullptr || pool_start_[0] == MAP_FAILED) {
     ERROR_EXIT("mmap failed");
   }
-  LOG("Log: pool_start %p total segments: %d  cleaners: %d\n", class_pool_start_[0],
+  LOG("Log: pool_start %p total segments: %d  cleaners: %d\n", pool_start_[0],
       num_segments_, num_cleaners_);
 
   all_segments_.resize(num_segments_, nullptr);
   log_cleaners_.resize(num_cleaners_, nullptr);
   class_segments_.resize(num_class);
 
-  char * pool_start = class_pool_start_[0];
-  for(int i = 1; i < num_class; i ++)
+  class_pool_start_[0] = pool_start_[0];
+  class_pool_start_[1] = pool_start_[1];
+  class_pool_start_[2] = pool_start_[1] + num_class_segments_[1] * SEGMENT_SIZE[1];
+  for(int i = 0; i < num_class; i++)
   {
-    class_pool_start_[i] = class_pool_start_[i-1] +
-                          num_class_segments_[i-1] * SEGMENT_SIZE[i-1];
+    class_pool_end_[i] = class_pool_start_[i] + 
+                         num_class_segments_[i] * SEGMENT_SIZE[i];
   }
+
+  char *pool_start[3] = {class_pool_start_[0], class_pool_start_[1], class_pool_start_[2]};
 
   std::vector<int> num_class_IGC;
   num_class_IGC.resize(num_class);
@@ -89,20 +111,19 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
       if(i < num_class_segments_[0] - (num_cleaners_ - num_class + 1))
       {
         all_segments_[i] =
-            new LogSegment(pool_start, SEGMENT_SIZE[0], 0, i);
+            new LogSegment(pool_start[0], SEGMENT_SIZE[0], 0, i);
         free_segments_class[0].push(all_segments_[i]);
-        pool_start += SEGMENT_SIZE[0];
+        pool_start[0] += SEGMENT_SIZE[0];
         num_free_list_class[0] ++;
       }
       else if(i < num_class_segments_[0] &&
-              i >= num_class_segments_[0] - (num_cleaners_ - num_class + 1)
-             )
+              i >= num_class_segments_[0] - (num_cleaners_ - num_class + 1))
       {
         all_segments_[i] =
-            new LogSegment(pool_start, SEGMENT_SIZE[0], 0, i);
+            new LogSegment(pool_start[0], SEGMENT_SIZE[0], 0, i);
         log_cleaners_[cleaner_c] = new LogCleaner(db, cleaner_c, this, all_segments_[i], 0);
         cleaner_c ++;
-        pool_start += SEGMENT_SIZE[0];
+        pool_start[0] += SEGMENT_SIZE[0];
         all_segments_[i]->set_reserved();
         if(i == num_class_segments_[0]-1) j++;
       }
@@ -116,27 +137,27 @@ LogStructured::LogStructured(std::string db_path, size_t log_size, DB *db,
       if(i < (num + num_class_IGC[j]) && i >= num)
       {
         all_segments_[i] =
-            new LogSegment(pool_start, SEGMENT_SIZE[j], j, i);
+            new LogSegment(pool_start[j], SEGMENT_SIZE[j], j, i);
         class_segments_[j].push_back(all_segments_[i]);
-        pool_start += SEGMENT_SIZE[j];
+        pool_start[j] += SEGMENT_SIZE[j];
         all_segments_[i]->set_touse();
       }
       else if(i < num + num_class_segments_[j] - 1 &&
               i >= (num + num_class_IGC[j]) )
       {
         all_segments_[i] =
-            new LogSegment(pool_start, SEGMENT_SIZE[j], j, i);
+            new LogSegment(pool_start[j], SEGMENT_SIZE[j], j, i);
         free_segments_class[j].push(all_segments_[i]);
-        pool_start += SEGMENT_SIZE[j];
+        pool_start[j] += SEGMENT_SIZE[j];
         num_free_list_class[j] ++;
       }
       else if(i == num + num_class_segments_[j] - 1)
       {
         all_segments_[i] =
-            new LogSegment(pool_start, SEGMENT_SIZE[j], j, i);
+            new LogSegment(pool_start[j], SEGMENT_SIZE[j], j, i);
         log_cleaners_[cleaner_c] = new LogCleaner(db, j, this, all_segments_[i], j);
         cleaner_c++;
-        pool_start += SEGMENT_SIZE[j];
+        pool_start[j] += SEGMENT_SIZE[j];
         all_segments_[i]->set_reserved();
         j++;
       }
@@ -239,7 +260,13 @@ LogStructured::~LogStructured() {
 
   LOG("num_newSegment %d new_hot %d new_cold %d", num_new_segment_.load(),
       num_new_hot_.load(), num_new_cold_.load());
-  munmap(class_pool_start_[0], total_log_size_);
+  uint64_t ch_sz[2] = {num_class_segments_[0] * SEGMENT_SIZE[0],
+                num_class_segments_[1] * SEGMENT_SIZE[1] + 
+                num_class_segments_[2] * SEGMENT_SIZE[2]};
+  for(int i = 0; i < 2; i++)
+  {
+    munmap(pool_start_[i], ch_sz[i]);
+  }
   for(int i = 0; i < num_class; i++)
   {
     class_list_lock_[i].report();
@@ -318,7 +345,8 @@ int LogStructured::GetSegmentID(const char *addr) {
 
   for(i = num_class-1; i >= 0; i--)
   {
-    if(addr > class_pool_start_[i])
+    if(addr >= class_pool_start_[i] &&
+       addr < class_pool_end_[i])
     {
       seg_id = (addr - class_pool_start_[i]) / SEGMENT_SIZE[i];
       for(j = 0; j < i; j++) seg_id += num_class_segments_[j];

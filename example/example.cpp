@@ -19,7 +19,9 @@
 
 #define prefilling_rate 0.75
 uint64_t log_size = 1ul << 30;
-std::string db_path = std::string(PMEM_DIR) + "log_kvs_IGC";
+// std::string db_path = std::string(PMEM_DIR) + "log_kvs_IGC";
+std::string db_path[2] = {std::string(PMEM_DIR[0]) + "log_kvs_IGC",
+                          std::string(PMEM_DIR[1]) + "log_kvs_IGC"};
 DB *db;
 std::random_device rd;  //Will be used to obtain a seed for the random number engine
 std::mt19937 gen(rd()); //Standard mersenne_twister_engine seeded with rd()

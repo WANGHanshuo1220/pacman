@@ -63,9 +63,13 @@ class DBFixture : public BaseFixture {
           "Init capacity utilization %d%%  threads of service / gc : %d / "
           "%d\n",
           init_util, num_threads, num_gc_threads);
-      std::string db_path = std::string(PMEM_DIR) + "log_kvs_IGC";
-      std::experimental::filesystem::remove_all(db_path);
-      std::experimental::filesystem::create_directory(db_path);
+      std::string db_path[2];
+      for(int i = 0; i < num_channel; i++)
+      {
+        db_path[i] = std::string(PMEM_DIR[i]) + "log_kvs_IGC";
+        std::experimental::filesystem::remove_all(db_path[i]);
+        std::experimental::filesystem::create_directory(db_path[i]);
+      }
 
       db_ = new DB(db_path, total_size, num_threads, num_gc_threads);
     }
@@ -114,9 +118,9 @@ BENCHMARK_DEFINE_F(DBFixture, bench)(benchmark::State &st) {
     double compaction_cpu_usage = db_->GetCompactionCPUUsage(); 
     double compaction_tp = db_->GetCompactionThroughput();
     // st.counters["CompactionCPUUsage"] = compaction_cpu_usage;
-    st.counters["CompactionThroughput"] =
-        benchmark::Counter(compaction_tp, benchmark::Counter::kDefaults,
-                           benchmark::Counter::kIs1024);
+    // st.counters["CompactionThroughput"] =
+    //     benchmark::Counter(compaction_tp, benchmark::Counter::kDefaults,
+    //                        benchmark::Counter::kIs1024);
 #ifdef MEASURE_LATENCY
     for (int i = 0; i < TypeEnumMax; i++) {
       HistogramData hist_data;
@@ -141,7 +145,7 @@ BENCHMARK_REGISTER_F(DBFixture, bench)
     ->Arg(0)
     // ->Arg(50)
     ->DenseRange(1, 90, 1)
-    ->DenseThreadRange(1, 32, 1)
+    ->DenseThreadRange(1, 40, 1)
     // ->DenseThreadRange(6, 24, 6)
     ->Iterations(1)
     ->Unit(benchmark::kMicrosecond)
