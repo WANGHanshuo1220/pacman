@@ -142,8 +142,8 @@ void HotKeySet::UpdateHotSet() {
 
   int sz = topK.size();
   int a[num_class];
-  a[2] = topK.size() * 0.05;
-  a[1] = topK.size() * 0.35;
+  a[2] = topK.size() * 0.10;
+  a[1] = topK.size() * 0.40;
   a[0] = topK.size() - a[1] - a[2];
   for(int i = 0; i < num_class; i++)
   {

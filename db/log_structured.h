@@ -94,7 +94,7 @@ class LogStructured {
   std::atomic<int> alloc_counter_{0};
   const int num_limit_free_segments_;
   volatile int clean_threshold_[num_class] = 
-    {5, 50, 60};
+    {10, 50, 60};
 
   volatile FreeStatus free_status_ = FS_Sufficient;
   std::atomic_flag FS_flag_{ATOMIC_FLAG_INIT};

@@ -42,8 +42,8 @@ void init_zipf();
 int get_random();
 void prepare_key_base();
 
-uint64_t NUM_KVS = 20000;
-uint64_t dup_rate = 5000;
+uint64_t NUM_KVS = 20000000;
+uint64_t dup_rate = 5000000;
 int num_workers = 24;
 int num_cleaners = 4;
 int kv_sz = 64;
@@ -262,7 +262,7 @@ static void BM_job3(benchmark::State& st)
 BENCHMARK(BM_job3)
   ->Iterations(1)
   // ->DenseThreadRange(6, 12, 6)
-  ->Threads(6)
+  ->Threads(12)
   ->Unit(benchmark::kMicrosecond)
   ->UseRealTime();
 

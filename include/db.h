@@ -46,9 +46,9 @@ class DB {
     bool Delete(const Slice &key);
     // int show_ID() {return worker_id_; };
 
-    long append_t[4] = {0, 0, 0, 0};
-    uint64_t puts_[4] = {0, 0, 0, 0};
-    uint64_t new_seg_t[4] = {0, 0, 0, 0};
+    // long append_t[4] = {0, 0, 0, 0};
+    // uint64_t puts_[4] = {0, 0, 0, 0};
+    // uint64_t new_seg_t[4] = {0, 0, 0, 0};
 
 #ifdef GC_EVAL
     long check_hotcold_time = 0;
@@ -105,8 +105,8 @@ class DB {
     return std::make_unique<Worker>(this);
   }
 
-  long AP_t[4] = {0, 0, 0, 0};
-  std::atomic<uint64_t> NEW_SEG_t[4] = {0, 0, 0, 0};
+  // long AP_t[4] = {0, 0, 0, 0};
+  // std::atomic<uint64_t> NEW_SEG_t[4] = {0, 0, 0, 0};
 
   // statistics
   void StartCleanStatistics();
@@ -131,18 +131,12 @@ class DB {
     }
   }
 
-  std::atomic<int> RB_class[num_class] = {0, 0, 0};
   uint32_t get_threshold(int class_) { return change_seg_threshold_class[class_]; }
-  std::atomic<uint64_t> put_c[num_class+1] = {0, 0, 0, 0};
-  std::atomic<uint64_t> puts = 0;
-  std::atomic<uint64_t> get_c = 0;
-  void clear_put_c() 
-  {
-    for(int i = 0; i < num_class; i++)
-    {
-      put_c[i] = 0;
-    }
-  }
+  // std::atomic<int> RB_class[num_class] = {0, 0, 0};
+  // std::atomic<uint64_t> put_c[num_class+1] = {0, 0, 0, 0};
+  // std::atomic<uint64_t> puts = 0;
+  // std::atomic<uint64_t> get_c = 0;
+
   std::vector<int>* get_next_class_segment(int i)
   {
     return &next_class_segment_[i];

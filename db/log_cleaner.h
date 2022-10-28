@@ -15,9 +15,10 @@ class LogCleaner {
   std::atomic<size_t> cleaner_garbage_bytes_{0};
 // #ifdef GC_EVAL
   int GC_times = 0;
+  int GC_times_help = 0;
   std::atomic<long> GC_timecost = 0; // us
   std::atomic<int> help = 0;
-  uint64_t flush_times[2] = {0, 0};
+  uint64_t flush_times = 0;
   int get_cleaner_id() { return cleaner_id_; }
   int show_GC_times() 
   { 
@@ -69,11 +70,13 @@ class LogCleaner {
 #endif
 
   LogCleaner(DB *db, int cleaner_id, LogStructured *log,
-             LogSegment *reserved_segment, int class__)
+             LogSegment *reserved_segment, int class__,
+             LogSegment *reserved_helper_segment)
       : db_(db),
         cleaner_id_(cleaner_id),
         log_(log),
         reserved_segment_(reserved_segment),
+        reserved_helper_segment_(reserved_helper_segment),
         class_(class__),
         list_lock_(std::string("gc_list_lock_") + std::to_string(cleaner_id)) 
   {
@@ -81,11 +84,16 @@ class LogCleaner {
     if (reserved_segment_) {
       reserved_segment_->StartUsing(false);
       reserved_segment_->set_reserved();
-      assert(reserved_segment_->is_segment_reserved());
+    }
+    if (reserved_helper_segment_) {
+      reserved_helper_segment_->StartUsing(false);
+      reserved_helper_segment_->set_reserved();
     }
 #ifdef BATCH_COMPACTION
     volatile_segment_ = new VirtualSegment(SEGMENT_SIZE[class_]);
     volatile_segment_->set_has_shortcut(false);
+    volatile_helper_segment_ = new VirtualSegment(SEGMENT_SIZE[0]);
+    volatile_helper_segment_->set_has_shortcut(false);
 #endif
   }
 
@@ -197,7 +205,7 @@ class LogCleaner {
     else
     {
       LockUsedList();
-      if(class_t == 0) closed_segments_.push_back(segment);
+      if(class_t == 0) closed_hot_segments_.push_back(segment);
       else closed_cold_segments_.push_back({segment, 0});
       UnlockUsedList();
     }
@@ -216,14 +224,20 @@ class LogCleaner {
   LogStructured *log_;
   std::thread gc_thread_;
   VirtualSegment *volatile_segment_ = nullptr;
+  VirtualSegment *volatile_helper_segment_ = nullptr;
   LogSegment *reserved_segment_ = nullptr;
   LogSegment *backup_segment_ = nullptr;  // prevent gc dead lock
+  LogSegment *reserved_helper_segment_ = nullptr;
+  LogSegment *backup_helper_segment_ = nullptr;
   std::vector<ValidItem> valid_items_;
+  std::vector<ValidItem> valid_helper_items_;
   std::vector<size_t> tmp_cleaner_garbage_bytes_;
   double last_update_time_ = 0.;
   std::list<LogSegment *> closed_segments_;
+  std::list<LogSegment *> closed_hot_segments_;
   std::list<SegmentInfo> closed_cold_segments_;
   std::list<LogSegment *> to_compact_segments_;
+  std::list<LogSegment *> to_compact_hot_segments_;
   std::list<SegmentInfo> to_compact_cold_segments_;
   SpinLock list_lock_;
   const uint32_t class_;
@@ -239,18 +253,18 @@ class LogCleaner {
   void UnlockUsedList() { list_lock_.unlock(); }
 
   void CleanerEntry();
-  bool NeedCleaning();
-  void BatchFlush();
-  void BatchIndexUpdate();
-  void CopyValidItemToBuffer0(LogSegment *segment, int hot);
+  bool NeedCleaning(bool help);
+  void BatchFlush(bool help);
+  void BatchIndexUpdate(bool help);
+  void CopyValidItemToBuffer0(LogSegment *segment, bool help);
   void CopyValidItemToBuffer123(LogSegment *segment);
-  void BatchCompactSegment(LogSegment *segment, int hot);
-  void CompactSegment0(LogSegment *segment);
+  void BatchCompactSegment(LogSegment *segment, bool help);
+  void CompactSegment0(LogSegment *segment, bool help);
   void CompactSegment123(LogSegment *segment);
-  void FreezeReservedAndGetNew();
+  void FreezeReservedAndGetNew(bool help);
   void MarkGarbage0(ValueType tagged_val);
   void MarkGarbage123(ValueType tagged_val);
-  void DoMemoryClean();
+  void DoMemoryClean(bool help);
   void Sort_for_worker(int worker_i,
                        int sort_begin, int i);
   void Help_sort(int i);
