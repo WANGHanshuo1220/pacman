@@ -47,7 +47,8 @@ class DB {
     // int show_ID() {return worker_id_; };
 
     long append_t[4] = {0, 0, 0, 0};
-    uint64_t puts_ = 0;
+    uint64_t puts_[4] = {0, 0, 0, 0};
+    uint64_t new_seg_t[4] = {0, 0, 0, 0};
 
 #ifdef GC_EVAL
     long check_hotcold_time = 0;
@@ -105,6 +106,7 @@ class DB {
   }
 
   long AP_t[4] = {0, 0, 0, 0};
+  std::atomic<uint64_t> NEW_SEG_t[4] = {0, 0, 0, 0};
 
   // statistics
   void StartCleanStatistics();

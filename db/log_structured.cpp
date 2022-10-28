@@ -237,13 +237,20 @@ LogStructured::~LogStructured() {
   }
 
   uint64_t c = 0;
+  uint64_t d = 0;
   for(int i = 0; i < num_cleaners_; i++)
   {
-    printf("cleaner%d flush_times = %ld\t GC_times = %d\n", 
-      i, log_cleaners_[i]->flush_times, log_cleaners_[i]->GC_times);
-    c += log_cleaners_[i]->flush_times;
+    printf("cleaner%d: cold_flush_times = %ld\thot_flush_times  = %ld\t"
+           "GC_times = %d\n", 
+      i, log_cleaners_[i]->flush_times[0], log_cleaners_[i]->flush_times[1],
+      log_cleaners_[i]->GC_times);
+    c += log_cleaners_[i]->flush_times[0];
+    c += log_cleaners_[i]->flush_times[1];
+    d += log_cleaners_[i]->GC_times /
+         (SEGMENT_SIZE[0] / SEGMENT_SIZE[log_cleaners_[i]->get_class()]);
   }
   printf("total flush_times = %ld (%.2f)\n", c, (float)c/1000000);
+  printf("total gc_times    = %.2f\n", (float)d);
 
   for (int i = 0; i < num_cleaners_; i++) {
     if (log_cleaners_[i]) {

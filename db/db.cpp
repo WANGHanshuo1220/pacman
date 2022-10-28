@@ -57,12 +57,12 @@ DB::DB(std::string db_path[], size_t log_size, int num_workers, int num_cleaners
 };
 
 DB::~DB() {
-  // printf("cold   append time = %ld ms\t, puts = %ld\t, (%ld ns/put)\n",
-  //   AP_t[0]/(num_workers_ * 1000000), put_c[0].load(), AP_t[0]/put_c[0].load());
-  // printf("hot    append time = %ld ms\t, puts = %ld\t, (%ld ns/put)\n",
-  //   AP_t[1]/(num_workers_ * 1000000), put_c[1].load(), AP_t[1]/put_c[1].load());
-  // printf("class1 append time = %ld ms\t, puts = %ld\t, (%ld ns/put)\n",
-  //   AP_t[2]/(num_workers_ * 1000000), put_c[2].load(), AP_t[2]/put_c[2].load());
+  // printf("cold   append time = %ld ms\t, puts = %ld\t, (%.2f ns/put)\n",
+  //   AP_t[0]/(num_workers_ * 1000000), put_c[0].load(), (float)AP_t[0]/put_c[0].load());
+  // printf("hot    append time = %ld ms\t, puts = %ld\t, (%.2f ns/put)\n",
+  //   AP_t[1]/(num_workers_ * 1000000), put_c[1].load(), (float)AP_t[1]/put_c[1].load());
+  // printf("class1 append time = %ld ms\t, puts = %ld\t, (%.2f ns/put)\n",
+  //   AP_t[2]/(num_workers_ * 1000000), put_c[2].load(), (float)AP_t[2]/put_c[2].load());
   // printf("class2 append time = %ld ms\t, puts = %ld\t, (%.2f ns/put)\n",
   //   AP_t[3]/(num_workers_ * 1000000), put_c[3].load(), (float)AP_t[3]/put_c[3].load());
   // printf("total append time  = %ld\n",
@@ -80,6 +80,11 @@ DB::~DB() {
   // printf("RB_C = %ld, RB_bytes = %ld KB (%ld MB)\n",
   //   roll_back_count.load(), roll_back_bytes.load()/1024,
   //   roll_back_bytes/(1024*1024));
+
+  // for(int i = 0; i < 4; i++)
+  // {
+  //   printf("new seg %d : %.2f\n", i, (float)NEW_SEG_t[i].load()/1000000);
+  // }
 
   delete log_;
   delete index_;
@@ -158,10 +163,11 @@ DB::Worker::Worker(DB *db) : db_(db) {
 }
 
 DB::Worker::~Worker() {
-  // db_->puts += puts_;
   // for(int i = 0; i < 4; i++)
   // {
+  //   db_->put_c[i] += puts_[i];
   //   db_->AP_t[i] += append_t[i];
+  //   db_->NEW_SEG_t[i] += new_seg_t[i];
   // }
 #ifdef LOG_BATCHING
   for(int i = 0; i < num_class; i++)
@@ -209,7 +215,7 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
 
   // sub-opr 1 : check the hotness of the key;
   int class_t = db_->hot_key_set_->Exist(key);
-  // puts_ ++;
+  // puts_[class_t+1] ++;
   // int class_t = 0;
   // int class_t_ = class_t >= 0 ? class_t : 0;
   // db_->put_c[class_t+1].fetch_add(1);
@@ -388,6 +394,7 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
   //     }
   //     if(ret == INVALID_VALUE)
   //     {
+  //       Timer time2(new_seg_t[a]);
   //       FreezeSegment(segment, class_t);
   //       segment = db_->log_->NewSegment(class_t);
   //       if(class_t > 0)

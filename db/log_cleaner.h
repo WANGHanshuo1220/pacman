@@ -17,7 +17,7 @@ class LogCleaner {
   int GC_times = 0;
   std::atomic<long> GC_timecost = 0; // us
   std::atomic<int> help = 0;
-  uint64_t flush_times = 0;
+  uint64_t flush_times[2] = {0, 0};
   int get_cleaner_id() { return cleaner_id_; }
   int show_GC_times() 
   { 
@@ -208,6 +208,7 @@ class LogCleaner {
   int num_worker = 0;
   int worker_range = 0;
   std::vector<uint32_t> num_class_segs;
+  int get_class() { return class_; }
 
  private:
   DB *db_;
@@ -241,9 +242,9 @@ class LogCleaner {
   bool NeedCleaning();
   void BatchFlush();
   void BatchIndexUpdate();
-  void CopyValidItemToBuffer0(LogSegment *segment);
+  void CopyValidItemToBuffer0(LogSegment *segment, int hot);
   void CopyValidItemToBuffer123(LogSegment *segment);
-  void BatchCompactSegment(LogSegment *segment);
+  void BatchCompactSegment(LogSegment *segment, int hot);
   void CompactSegment0(LogSegment *segment);
   void CompactSegment123(LogSegment *segment);
   void FreezeReservedAndGetNew();

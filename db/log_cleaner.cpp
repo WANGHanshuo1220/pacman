@@ -64,7 +64,7 @@ void LogCleaner::CleanerEntry() {
   {
     num_class_segs[i] = db_->db_num_class_segs[i];
   }
-  bool need_sort[num_class-1] = {true};
+  bool need_sort[num_class-1];
   for(int i = 1; i < num_class; i++)
   {
     int seg_per_worker = num_class_segs[i] / num_worker;
@@ -74,6 +74,7 @@ void LogCleaner::CleanerEntry() {
     }
     else
     {
+      need_sort[i] = true;
       sort_range[i] = seg_per_worker - gap[i];
       if(sort_range[i] > 10) sort_range[i] = 10;
     }
@@ -89,33 +90,33 @@ void LogCleaner::CleanerEntry() {
     }
     else 
     {
-      usleep(10);
-      // if(need_sort[num_class-1])
-      // {
-      //   uint64_t now = NowMicros();
-      //   if(now - clean_sort_us_before_ > 1000)
-      //   {
-      //     clean_sort_us_before_ = now;
-      //     if(count < 3)
-      //     { 
-      //       Help_sort(num_class-1);
-      //       count++;
-      //     }
-      //     else if(need_sort[num_class-2])
-      //     {
-      //       Help_sort(num_class-2);
-      //       count = 0;
-      //     }
-      //     else
-      //     {
-      //       count = 0;
-      //     }
-      //   }
-      // }
-      // else
-      // {
-      //   usleep(10);
-      // }
+      // usleep(10);
+      if(need_sort[num_class-1])
+      {
+        uint64_t now = NowMicros();
+        if(now - clean_sort_us_before_ > 1000)
+        {
+          clean_sort_us_before_ = now;
+          if(count < 3)
+          { 
+            Help_sort(num_class-1);
+            count++;
+          }
+          else if(need_sort[num_class-2])
+          {
+            Help_sort(num_class-2);
+            count = 0;
+          }
+          else
+          {
+            count = 0;
+          }
+        }
+      }
+      else
+      {
+        usleep(10);
+      }
     }
   }
 }
@@ -328,7 +329,7 @@ void LogCleaner::CopyValidItemToBuffer123(LogSegment *segment) {
       // copy item to buffer
       char *cur = volatile_segment_->AllocOne(sz);
       memcpy(cur, kv, sz);
-      flush_times ++;
+      flush_times[0] ++;
       uint64_t offset = cur - volatile_segment_->get_data_start();
       char *new_addr = reserved_segment_->get_data_start() + offset;
       Slice key_slice = ((KVItem *)cur)->GetKey();
@@ -345,7 +346,7 @@ void LogCleaner::CopyValidItemToBuffer123(LogSegment *segment) {
   }
 }
 
-void LogCleaner::CopyValidItemToBuffer0(LogSegment *segment) {
+void LogCleaner::CopyValidItemToBuffer0(LogSegment *segment, int hot) {
   char *p = const_cast<char *>(segment->get_data_start());
   char *tail = segment->get_tail();
 #ifdef GC_SHORTCUT
@@ -379,7 +380,7 @@ void LogCleaner::CopyValidItemToBuffer0(LogSegment *segment) {
       // copy item to buffer
       char *cur = volatile_segment_->AllocOne(sz);
       memcpy(cur, kv, sz);
-      flush_times ++;
+      flush_times[hot] ++;
       uint64_t offset = cur - volatile_segment_->get_data_start();
       char *new_addr = reserved_segment_->get_data_start() + offset;
       Slice key_slice = ((KVItem *)cur)->GetKey();
@@ -391,9 +392,9 @@ void LogCleaner::CopyValidItemToBuffer0(LogSegment *segment) {
 }
 
 // Batch Compact if defined BATCH_COMPACTION
-void LogCleaner::BatchCompactSegment(LogSegment *segment) {
+void LogCleaner::BatchCompactSegment(LogSegment *segment, int hot) {
   // copy to DRAM buffer
-  if(class_ == 0) CopyValidItemToBuffer0(segment);
+  if(class_ == 0) CopyValidItemToBuffer0(segment, hot);
   else CopyValidItemToBuffer123(segment);
   // flush reserved segment and update reference
   BatchFlush();
@@ -461,7 +462,6 @@ void LogCleaner::CompactSegment0(LogSegment *segment) {
       Slice data = kv->GetValue();
       TIMER_START_LOGGING(copy_time_);
       ValueType val = reserved_segment_->Append(key, data, kv->epoch);
-      flush_times ++;
       TIMER_STOP_LOGGING(copy_time_);
       LogEntryHelper le_helper(val);
       le_helper.old_val = TaggedPointer(p, sz, num_old, class_);
@@ -578,7 +578,6 @@ void LogCleaner::CompactSegment123(LogSegment *segment) {
       Slice data = kv->GetValue();
       TIMER_START_LOGGING(copy_time_);
       ValueType val = reserved_segment_->Append(key, data, kv->epoch);
-      flush_times ++;
       TIMER_STOP_LOGGING(copy_time_);
       LogEntryHelper le_helper(val);
       le_helper.old_val = TaggedPointer(p, sz, num_old, class_);
@@ -681,6 +680,7 @@ void LogCleaner::DoMemoryClean()
   double cold_score = 0.;
   double max_garbage_proportion = 0.;
   std::list<LogSegment *>::iterator gc_it = to_compact_segments_.end();
+  int hot = 0;
 
   if(class_ == 0)
   {
@@ -725,9 +725,11 @@ void LogCleaner::DoMemoryClean()
     }
 
     if (cold_score > max_score) {
+      hot = 0;
       segment = to_compact_cold_segments_.begin()->segment;
       to_compact_cold_segments_.erase(to_compact_cold_segments_.begin());
     } else if (gc_it != to_compact_segments_.end()) {
+      hot = 1;
       segment = *gc_it;
       to_compact_segments_.erase(gc_it);
     } else {
@@ -758,7 +760,7 @@ void LogCleaner::DoMemoryClean()
   }
 
 #ifdef BATCH_COMPACTION
-  BatchCompactSegment(segment);
+  BatchCompactSegment(segment, hot);
 #else
   if(class_ == 0) CompactSegment0(segment);
   else CompactSegment123(segment);
