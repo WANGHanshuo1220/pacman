@@ -58,12 +58,13 @@ class DBFixture : public BaseFixture {
             total_put_ops * object_size + num_threads * SEGMENT_SIZE[0] * 2;
         num_gc_threads = 0;
       }
-      // num_gc_threads = 4;
+      total_size = ((total_size / SEGMENT_SIZE[0] - num_gc_threads)
+                   / num_channel * num_channel + num_gc_threads) * SEGMENT_SIZE[0];
       printf(
           "Init capacity utilization %d%%  threads of service / gc : %d / "
           "%d\n",
           init_util, num_threads, num_gc_threads);
-      std::string db_path[2];
+      std::string db_path[num_channel];
       for(int i = 0; i < num_channel; i++)
       {
         db_path[i] = std::string(PMEM_DIR[i]) + "log_kvs_IGC";

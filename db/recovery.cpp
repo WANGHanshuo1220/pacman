@@ -6,7 +6,7 @@
 
 
 void LogCleaner::RecoverySegments() {
-  char *log_start = log_->class_pool_start_[0];
+  char *log_start = log_->pool_start_[0];
   int num_cleaners = log_->num_cleaners_;
 
   int num_free_seg = 0;
@@ -121,7 +121,7 @@ void LogCleaner::RecoveryAll() {
   reinterpret_cast<MasstreeIndex *>(db_->index_)
       ->MasstreeThreadInit(log_->num_workers_ + cleaner_id_);
 #endif
-  char *log_start = log_->class_pool_start_[0];
+  char *log_start = log_->pool_start_[0];
   int num_cleaners = log_->num_cleaners_;
 
   int num_free_seg = 0;

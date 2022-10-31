@@ -66,10 +66,11 @@ class LogStructured {
  private:
   const int num_workers_;
   const int num_cleaners_;
-  char *pool_start_[2];
-  char *pool_end_[2];
-  char *class_pool_start_[num_class];
-  char *class_pool_end_[num_class];
+  char *pool_start_[num_channel];
+  char *pool_end_[num_channel];
+  char *class_pool_start_[num_class][num_channel];
+  char *class_pool_end_[num_class][num_channel];
+  int prop[3] = {num_channel, 2, 2};
   const size_t total_log_size_;
   int num_segments_ = 0;
   std::atomic<bool> stop_flag_{false};
@@ -94,7 +95,7 @@ class LogStructured {
   std::atomic<int> alloc_counter_{0};
   const int num_limit_free_segments_;
   volatile int clean_threshold_[num_class] = 
-    {10, 50, 60};
+    {5, 50, 60};
 
   volatile FreeStatus free_status_ = FS_Sufficient;
   std::atomic_flag FS_flag_{ATOMIC_FLAG_INIT};

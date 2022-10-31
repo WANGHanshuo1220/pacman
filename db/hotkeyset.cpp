@@ -38,6 +38,7 @@ void HotKeySet::Record(const Slice &key, int worker_id, int class_t) {
     if(class_t != -1) 
     {
       record.hit_cnt ++;
+      if(class_t == 2) record.class2_hit_cnt++;
     }
     ++record.total_cnt;
     if (record.total_cnt == RECORD_BATCH_CNT) { // sampling rate
@@ -58,7 +59,16 @@ void HotKeySet::Record(const Slice &key, int worker_id, int class_t) {
           BeginUpdateHotKeySet();
         }
       }
+      else
+      {
+        c.fetch_add(1);
+        uint32_t hit_r = 100 * record.class2_hit_cnt / record.total_cnt;
+        hit_rate.fetch_add(hit_r);
+        if(hit_r > hit_rate_max) hit_rate_max = hit_r;
+        if(hit_r < hit_rate_min) hit_rate_min = hit_r;
+      }
       record.hit_cnt = record.total_cnt = 0;
+      record.class2_hit_cnt = 0;
     }
   }
 }
@@ -91,6 +101,7 @@ int HotKeySet::Exist(const Slice &key) {
 }
 
 void HotKeySet::UpdateHotSet() {
+  update++;
   // bind_core_on_numa(db_->num_workers_);
 
   std::unordered_map<uint64_t, int> count;

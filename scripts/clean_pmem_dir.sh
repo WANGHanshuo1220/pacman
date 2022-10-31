@@ -2,12 +2,18 @@
 
 PMEM_DIR0="/mnt/aep0"
 PMEM_DIR1="/mnt/aep1"
+PMEM_DIR2="/mnt/aep2"
+PMEM_DIR3="/mnt/aep3"
 
 DB_PATH=(
   "${PMEM_DIR0}"/log_kvs
   "${PMEM_DIR0}"/log_kvs_IGC
   "${PMEM_DIR1}"/log_kvs
   "${PMEM_DIR1}"/log_kvs_IGC
+  "${PMEM_DIR2}"/log_kvs
+  "${PMEM_DIR2}"/log_kvs_IGC
+  "${PMEM_DIR3}"/log_kvs
+  "${PMEM_DIR3}"/log_kvs_IGC
   # "${PMEM_DIR}"/viper
   # "${PMEM_DIR}"/chameleondb
   # "${PMEM_DIR}"/pmem_rocksdb

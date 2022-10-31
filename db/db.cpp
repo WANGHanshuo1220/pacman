@@ -57,6 +57,10 @@ DB::DB(std::string db_path[], size_t log_size, int num_workers, int num_cleaners
 };
 
 DB::~DB() {
+  // printf("update c = %ld\n", hot_key_set_->update.load());
+  // printf("avg hit rate = %ld\n", hot_key_set_->hit_rate.load()/hot_key_set_->c.load());
+  // printf("max hit rate = %ld\n", hot_key_set_->hit_rate_max.load());
+  // printf("min hit rate = %ld\n", hot_key_set_->hit_rate_min.load());
   // printf("cold   append time = %ld ms\t, puts = %ld\t, (%.2f ns/put)\n",
   //   AP_t[0]/(num_workers_ * 1000000), put_c[0].load(), (float)AP_t[0]/put_c[0].load());
   // printf("hot    append time = %ld ms\t, puts = %ld\t, (%.2f ns/put)\n",

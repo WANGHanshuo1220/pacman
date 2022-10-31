@@ -35,16 +35,16 @@ LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
     }
 
     num_class_segments_[0] = 
-      (total_log_size_ - sz) / SEGMENT_SIZE[0];
+      ((total_log_size_ - sz) / SEGMENT_SIZE[0]) / num_channel * num_channel;
 
     for(int i = 0; i < num_class; i++)
     {
       num_segments_ += num_class_segments_[i];
     }
 #ifdef LOG_PERSISTENT
-  std::string log_pool_path[2];
-  int log_pool_fd[2];
-  for(int i = 0; i < 2; i++)
+  std::string log_pool_path[num_channel];
+  int log_pool_fd[num_channel];
+  for(int i = 0; i < num_channel; i++)
   {
     log_pool_path[i] = db_path[i] + "/log_pool";
     log_pool_fd[i] = open(log_pool_path[i].c_str(), O_CREAT | O_RDWR, 0644);
@@ -53,11 +53,18 @@ LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
     }
   }
 
-  uint64_t ch_sz[2] = {num_class_segments_[0] * SEGMENT_SIZE[0],
-                num_class_segments_[1] * SEGMENT_SIZE[1] + 
-                num_class_segments_[2] * SEGMENT_SIZE[2]};
+  uint64_t ch_sz[num_channel] = {
+                num_class_segments_[0] / num_channel * SEGMENT_SIZE[0] + 
+                num_class_segments_[1] / 2 * SEGMENT_SIZE[1] + 
+                num_class_segments_[2] / 2 * SEGMENT_SIZE[2],
+                num_class_segments_[0] / num_channel * SEGMENT_SIZE[0] + 
+                num_class_segments_[1] / 2 * SEGMENT_SIZE[1] + 
+                num_class_segments_[2] / 2 * SEGMENT_SIZE[2],
+                num_class_segments_[0] / num_channel * SEGMENT_SIZE[0],
+                num_class_segments_[0] / num_channel * SEGMENT_SIZE[0]
+                };
 
-  for(int i = 0; i < 2; i++)
+  for(int i = 0; i < num_channel; i++)
   {
     if (fallocate(log_pool_fd[i], 0, 0, ch_sz[i]) != 0) {
       ERROR_EXIT("fallocate file failed %d", i);
@@ -82,16 +89,32 @@ LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
   log_cleaners_.resize(num_cleaners_, nullptr);
   class_segments_.resize(num_class);
 
-  class_pool_start_[0] = pool_start_[0];
-  class_pool_start_[1] = pool_start_[1];
-  class_pool_start_[2] = pool_start_[1] + num_class_segments_[1] * SEGMENT_SIZE[1];
-  for(int i = 0; i < num_class; i++)
+  for(int i = 0; i < num_channel; i++)
   {
-    class_pool_end_[i] = class_pool_start_[i] + 
-                         num_class_segments_[i] * SEGMENT_SIZE[i];
+    class_pool_start_[0][i] = pool_start_[i];
+    class_pool_end_[0][i] = class_pool_start_[0][i] + 
+                          num_class_segments_[0] / num_channel * SEGMENT_SIZE[0];
   }
 
-  char *pool_start[3] = {class_pool_start_[0], class_pool_start_[1], class_pool_start_[2]};
+  for(int i = 1; i < num_class; i++)
+  {
+    for(int j = 0; j < 2; j++)
+    {
+      class_pool_start_[i][j] = class_pool_end_[i-1][j];
+      class_pool_end_[i][j] = class_pool_start_[i][j] + 
+                              num_class_segments_[i] / 2 * SEGMENT_SIZE[i];
+    }
+  }
+
+  for(int i = 1; i < num_class; i++)
+  {
+    for(int j = 2; j < num_channel; j++)
+    {
+      class_pool_end_[i][j] = class_pool_start_[i][j] = class_pool_end_[0][j];
+    }
+  }
+
+  char *pool_start[4] = {pool_start_[0], pool_start_[1], pool_start_[2], pool_start_[3]};
 
   std::vector<int> num_class_IGC;
   num_class_IGC.resize(num_class);
@@ -105,6 +128,7 @@ LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
 
   std::vector<LogSegment*> reserved_helper_segments;
   int i = 0, j = 0, num = 0, cleaner_c = 0;
+  int channel = 0;
   for (i = 0, j = 0; i < num_segments_, j < num_class; i++) {
     // for class0
     if(j == 0)
@@ -112,30 +136,40 @@ LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
       if(i < num_class_segments_[0] - num_cleaners_)
       {
         all_segments_[i] =
-            new LogSegment(pool_start[0], SEGMENT_SIZE[0], 0, i);
+            new LogSegment(pool_start[channel], SEGMENT_SIZE[0], 0, i);
         free_segments_class[0].push(all_segments_[i]);
-        pool_start[0] += SEGMENT_SIZE[0];
+        pool_start[channel] += SEGMENT_SIZE[0];
         num_free_list_class[0] ++;
+        channel++;
+        channel = channel % num_channel;
       }
       else if(i < num_class_segments_[0] - (num_class - 1) &&
               i >= num_class_segments_[0] - num_cleaners_)
       {
         all_segments_[i] =
-            new LogSegment(pool_start[0], SEGMENT_SIZE[0], 0, i);
+            new LogSegment(pool_start[channel], SEGMENT_SIZE[0], 0, i);
         log_cleaners_[cleaner_c] = new LogCleaner(db, cleaner_c, this, all_segments_[i], 0, nullptr);
         cleaner_c ++;
-        pool_start[0] += SEGMENT_SIZE[0];
+        pool_start[channel] += SEGMENT_SIZE[0];
         all_segments_[i]->set_reserved();
+        channel++;
+        channel = channel % num_channel;
       }
       else if(i >= num_class_segments_[0] - (num_class-1) &&
               i < num_class_segments_[0])
       {
         all_segments_[i] =
-            new LogSegment(pool_start[0], SEGMENT_SIZE[0], 0, i);
-        pool_start[0] += SEGMENT_SIZE[0];
+            new LogSegment(pool_start[channel], SEGMENT_SIZE[0], 0, i);
+        pool_start[channel] += SEGMENT_SIZE[0];
         all_segments_[i]->set_reserved();
         reserved_helper_segments.push_back(all_segments_[i]);
-        if(i == num_class_segments_[0]-1) j++;
+        channel++;
+        channel = channel % num_channel;
+        if(i == num_class_segments_[0]-1)
+        {
+          j ++;
+          channel = 0;
+        }
       }
     }
     else
@@ -147,29 +181,34 @@ LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
       if(i < (num + num_class_IGC[j]) && i >= num)
       {
         all_segments_[i] =
-            new LogSegment(pool_start[j], SEGMENT_SIZE[j], j, i);
+            new LogSegment(pool_start[channel], SEGMENT_SIZE[j], j, i);
         class_segments_[j].push_back(all_segments_[i]);
-        pool_start[j] += SEGMENT_SIZE[j];
+        pool_start[channel] += SEGMENT_SIZE[j];
         all_segments_[i]->set_touse();
+        channel++;
+        channel = channel % 2;
       }
       else if(i < num + num_class_segments_[j] - 1 &&
               i >= (num + num_class_IGC[j]) )
       {
         all_segments_[i] =
-            new LogSegment(pool_start[j], SEGMENT_SIZE[j], j, i);
+            new LogSegment(pool_start[channel], SEGMENT_SIZE[j], j, i);
         free_segments_class[j].push(all_segments_[i]);
-        pool_start[j] += SEGMENT_SIZE[j];
+        pool_start[channel] += SEGMENT_SIZE[j];
         num_free_list_class[j] ++;
+        channel ++;
+        channel = channel % 2;
       }
       else if(i == num + num_class_segments_[j] - 1)
       {
         all_segments_[i] =
-            new LogSegment(pool_start[j], SEGMENT_SIZE[j], j, i);
+            new LogSegment(pool_start[channel], SEGMENT_SIZE[j], j, i);
         log_cleaners_[cleaner_c] = new LogCleaner(db, cleaner_c, this, all_segments_[i], j, reserved_helper_segments[j-1]);
         cleaner_c ++;
-        pool_start[j] += SEGMENT_SIZE[j];
+        pool_start[channel] += SEGMENT_SIZE[j];
         all_segments_[i]->set_reserved();
         j++;
+        channel = 0;
       }
     }
   }
@@ -184,6 +223,15 @@ LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
   printf("num_segs = %d\n", num_segments_);
   printf("workers = %d, cleaners = %d\n", num_workers, num_cleaners);
 
+  // for(int i = 0; i < num_channel; i ++)
+  // {
+  //   printf("ch %d : ", i);
+  //   for(int j = 0; j < num_class; j++)
+  //   {
+  //     printf("%p ~ %p ", class_pool_start_[j][i], class_pool_end_[j][i]);
+  //   }
+  //   printf("\n");
+  // }
 
   for(int i = 1; i < num_class; i ++) 
   {
@@ -276,10 +324,17 @@ LogStructured::~LogStructured() {
 
   LOG("num_newSegment %d new_hot %d new_cold %d", num_new_segment_.load(),
       num_new_hot_.load(), num_new_cold_.load());
-  uint64_t ch_sz[2] = {num_class_segments_[0] * SEGMENT_SIZE[0],
-                num_class_segments_[1] * SEGMENT_SIZE[1] + 
-                num_class_segments_[2] * SEGMENT_SIZE[2]};
-  for(int i = 0; i < 2; i++)
+  uint64_t ch_sz[num_channel] = {
+                num_class_segments_[0] / num_channel * SEGMENT_SIZE[0] + 
+                num_class_segments_[1] / 2 * SEGMENT_SIZE[1] + 
+                num_class_segments_[2] / 2 * SEGMENT_SIZE[2],
+                num_class_segments_[0] / num_channel * SEGMENT_SIZE[0] + 
+                num_class_segments_[1] / 2 * SEGMENT_SIZE[1] + 
+                num_class_segments_[2] / 2 * SEGMENT_SIZE[2],
+                num_class_segments_[0] / num_channel * SEGMENT_SIZE[0],
+                num_class_segments_[0] / num_channel * SEGMENT_SIZE[0]
+                };
+  for(int i = 0; i < num_channel; i++)
   {
     munmap(pool_start_[i], ch_sz[i]);
   }
@@ -356,23 +411,36 @@ LogSegment *LogStructured::GetSegment(int segment_id) {
 }
 
 int LogStructured::GetSegmentID(const char *addr) {
-  assert(addr >= class_pool_start_[0] || 
-         addr >= class_pool_start_[1] || 
-         addr >= class_pool_start_[2]);
-  int seg_id = 0, i, j;
+  int seg_id = 0, i, j, k;
 
-  for(i = num_class-1; i >= 0; i--)
+  for(i = 0; i < num_class; i++)
   {
-    if(addr >= class_pool_start_[i] &&
-       addr < class_pool_end_[i])
+    for(j = 0; j < num_channel; j++)
     {
-      seg_id = (addr - class_pool_start_[i]) / SEGMENT_SIZE[i];
-      for(j = 0; j < i; j++) seg_id += num_class_segments_[j];
-      break;
+      if(addr >= class_pool_start_[i][j] && 
+         addr < class_pool_end_[i][j])
+      {
+        seg_id = prop[i] * ((addr - class_pool_start_[i][j]) / SEGMENT_SIZE[i]) + j;
+        for(k = 0; k < i; k++)
+        {
+          seg_id += num_class_segments_[k];
+        }
+        goto out;
+      }
     }
   }
 
-  assert(seg_id < num_segments_);
+out:
+  // if(addr < GetSegment(seg_id)->get_segment_start() ||
+  //    addr > GetSegment(seg_id)->get_end())
+  // {
+  //   printf("%d\taddr  = %p\n", seg_id, addr);
+  //   printf("%d\tstart = %p\n", seg_id, GetSegment(seg_id)->get_segment_start());
+  //   printf("%d\tend   = %p\n", seg_id, GetSegment(seg_id)->get_end());
+  //   printf("%d\tid    = %ld\n", seg_id, GetSegment(seg_id)->get_seg_id());
+  //   printf("%d\tclass = %d\n", seg_id, GetSegment(seg_id)->get_class());
+  //   printf("%d\ti,j,k = %d %d %d\n", seg_id, i, j, k);
+  // }
   assert(GetSegment(seg_id)->get_segment_start() <= addr);
   assert(GetSegment(seg_id)->get_end() > addr);
   return seg_id;

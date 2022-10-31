@@ -27,6 +27,7 @@ struct RecordEntry {
 
 struct alignas(CACHE_LINE_SIZE) UpdateKeyRecord {
   int hit_cnt = 0;
+  int class2_hit_cnt = 0;
   int total_cnt = 0;
   SpinLock lock;
   std::list<std::vector<uint64_t> > records_list;
@@ -53,7 +54,11 @@ class HotKeySet {
     else
       return 0;
   }
-  uint32_t update = 0;
+  std::atomic<uint64_t> c = 0;
+  std::atomic<uint64_t> update = 0;
+  std::atomic<uint64_t> hit_rate = 0;
+  std::atomic<uint64_t> hit_rate_max = 0;
+  std::atomic<uint64_t> hit_rate_min = 100;
 
  private:
   DB *db_;

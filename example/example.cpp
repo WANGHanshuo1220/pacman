@@ -20,8 +20,10 @@
 #define prefilling_rate 0.75
 uint64_t log_size = 1ul << 30;
 // std::string db_path = std::string(PMEM_DIR) + "log_kvs_IGC";
-std::string db_path[2] = {std::string(PMEM_DIR[0]) + "log_kvs_IGC",
-                          std::string(PMEM_DIR[1]) + "log_kvs_IGC"};
+std::string db_path[4] = {std::string(PMEM_DIR[0]) + "log_kvs_IGC",
+                          std::string(PMEM_DIR[1]) + "log_kvs_IGC",
+                          std::string(PMEM_DIR[2]) + "log_kvs_IGC",
+                          std::string(PMEM_DIR[3]) + "log_kvs_IGC"};
 DB *db;
 std::random_device rd;  //Will be used to obtain a seed for the random number engine
 std::mt19937 gen(rd()); //Standard mersenne_twister_engine seeded with rd()
@@ -43,7 +45,7 @@ int get_random();
 void prepare_key_base();
 
 uint64_t NUM_KVS = 20000000;
-uint64_t dup_rate = 5000000;
+uint64_t dup_rate = 500000;
 int num_workers = 24;
 int num_cleaners = 4;
 int kv_sz = 64;
@@ -202,35 +204,59 @@ void prepare()
 
 // int main()
 // {
-//   a.resize(num_workers);
-//   printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
-//   db = new DB(db_path, log_size, num_workers, num_cleaners);
+//   // a.resize(num_workers);
+//   // printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
+//   // db = new DB(db_path, log_size, num_workers, num_cleaners);
+//   // init_zipf();
+//   // prepare();
+//   // tid = new pthread_t[num_workers];
+//   // struct timeval s, e;
+
+//   // gettimeofday(&s, NULL);
+//   // for(int i = 0; i < num_workers; i++)
+//   // {
+//   //   a[i] = i;
+//   //   int ret = pthread_create(&tid[i], NULL, &put_KVS, &a[i]); 
+//   //   if(ret != 0)
+//   //   {
+//   //     printf("prefilling thread create error\n");
+//   //     exit(0);
+//   //   }
+//   // }
+
+//   // for(int i = 0; i < num_workers; i++)
+//   // {
+//   //   pthread_join(tid[i], NULL);
+//   // }
+//   // gettimeofday(&e, NULL);
+//   // uint64_t t = TIMEDIFF(s, e);
+//   // printf("time = %ld us (%ld s)\n", t, t/1000000);
+
+//   // delete db;
+//   num_workers = 18;
 //   init_zipf();
 //   prepare();
-//   tid = new pthread_t[num_workers];
-//   struct timeval s, e;
-
-//   gettimeofday(&s, NULL);
+//   std::map<uint64_t, uint64_t> m;
 //   for(int i = 0; i < num_workers; i++)
 //   {
-//     a[i] = i;
-//     int ret = pthread_create(&tid[i], NULL, &put_KVS, &a[i]); 
-//     if(ret != 0)
+//     for(int j = 0; j < NUM_KVS; j++)
 //     {
-//       printf("prefilling thread create error\n");
-//       exit(0);
+//       m[key_base[i][j]]++;
 //     }
 //   }
-
-//   for(int i = 0; i < num_workers; i++)
+  
+//   int i = 0;
+//   for(auto it = m.begin(); i < 10000; it++, i++)
 //   {
-//     pthread_join(tid[i], NULL);
+//     printf("%ld ", it->second);
 //   }
-//   gettimeofday(&e, NULL);
-//   uint64_t t = TIMEDIFF(s, e);
-//   printf("time = %ld us (%ld s)\n", t, t/1000000);
-
-//   delete db;
+//   printf("\n###################\n");
+//   i = 0;
+//   for(auto it = m.rbegin(); i < 10000; it++, i++)
+//   {
+//     printf("%ld ", it->second);
+//   }
+//   printf("\n");
 //   return 0;
 // }
 
