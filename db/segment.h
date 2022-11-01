@@ -133,8 +133,10 @@ class BaseSegment {
 
 class LogSegment : public BaseSegment {
  public:
-  LogSegment(char *start_addr, uint64_t size, int class__, int id)
-      : BaseSegment(start_addr, size), garbage_bytes_(0), class_(class__) {
+  LogSegment(char *start_addr, uint64_t size,
+             int class__, int id, int channel)
+      : BaseSegment(start_addr, size), garbage_bytes_(0),
+        class_(class__), channel_(channel) {
     // assert(((uint64_t)header_ & (HEADER_ALIGN_SIZE - 1)) == 0);
     assert(((uint64_t)segment_start_ & (HEADER_ALIGN_SIZE - 1)) == 0);
     seg_id = id;
@@ -158,6 +160,7 @@ class LogSegment : public BaseSegment {
   void set_RB() { header_->status = StatusRB; }
   uint8_t  get_status() { return header_->status; }
   void set_status(uint8_t s) { header_->status = s; }
+  int get_channel() { return channel_; }
   float get_util() const { return (float)get_offset()/get_data_space(); }
 
   uint32_t num_kvs = 0;
@@ -455,6 +458,7 @@ class LogSegment : public BaseSegment {
 
   std::atomic<int> garbage_bytes_ = 0;
   const int class_ = 0;
+  const int channel_ = 0;
   uint64_t SEGMENT_SIZE_ = 0;
 
 #ifdef GC_SHORTCUT

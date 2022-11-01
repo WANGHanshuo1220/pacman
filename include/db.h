@@ -151,7 +151,7 @@ class DB {
   LogStructured *log_;
   const int num_workers_;
   const int num_cleaners_;
-  std::atomic<int> cur_num_workers_{0};
+  std::atomic<int> cur_num_workers_ = 0;
   HotKeySet *hot_key_set_ = nullptr;
   ThreadStatus thread_status_;
   std::vector<std::vector<int>> next_class_segment_;

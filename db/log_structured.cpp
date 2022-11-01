@@ -136,8 +136,8 @@ LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
       if(i < num_class_segments_[0] - num_cleaners_)
       {
         all_segments_[i] =
-            new LogSegment(pool_start[channel], SEGMENT_SIZE[0], 0, i);
-        free_segments_class[0].push(all_segments_[i]);
+            new LogSegment(pool_start[channel], SEGMENT_SIZE[0], 0, i, channel);
+        free_segments_class[0].push_back(all_segments_[i]);
         pool_start[channel] += SEGMENT_SIZE[0];
         num_free_list_class[0] ++;
         channel++;
@@ -147,7 +147,7 @@ LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
               i >= num_class_segments_[0] - num_cleaners_)
       {
         all_segments_[i] =
-            new LogSegment(pool_start[channel], SEGMENT_SIZE[0], 0, i);
+            new LogSegment(pool_start[channel], SEGMENT_SIZE[0], 0, i, channel);
         log_cleaners_[cleaner_c] = new LogCleaner(db, cleaner_c, this, all_segments_[i], 0, nullptr);
         cleaner_c ++;
         pool_start[channel] += SEGMENT_SIZE[0];
@@ -159,7 +159,7 @@ LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
               i < num_class_segments_[0])
       {
         all_segments_[i] =
-            new LogSegment(pool_start[channel], SEGMENT_SIZE[0], 0, i);
+            new LogSegment(pool_start[channel], SEGMENT_SIZE[0], 0, i, channel);
         pool_start[channel] += SEGMENT_SIZE[0];
         all_segments_[i]->set_reserved();
         reserved_helper_segments.push_back(all_segments_[i]);
@@ -181,7 +181,7 @@ LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
       if(i < (num + num_class_IGC[j]) && i >= num)
       {
         all_segments_[i] =
-            new LogSegment(pool_start[channel], SEGMENT_SIZE[j], j, i);
+            new LogSegment(pool_start[channel], SEGMENT_SIZE[j], j, i, channel);
         class_segments_[j].push_back(all_segments_[i]);
         pool_start[channel] += SEGMENT_SIZE[j];
         all_segments_[i]->set_touse();
@@ -192,8 +192,8 @@ LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
               i >= (num + num_class_IGC[j]) )
       {
         all_segments_[i] =
-            new LogSegment(pool_start[channel], SEGMENT_SIZE[j], j, i);
-        free_segments_class[j].push(all_segments_[i]);
+            new LogSegment(pool_start[channel], SEGMENT_SIZE[j], j, i, channel);
+        free_segments_class[j].push_back(all_segments_[i]);
         pool_start[channel] += SEGMENT_SIZE[j];
         num_free_list_class[j] ++;
         channel ++;
@@ -202,7 +202,7 @@ LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
       else if(i == num + num_class_segments_[j] - 1)
       {
         all_segments_[i] =
-            new LogSegment(pool_start[channel], SEGMENT_SIZE[j], j, i);
+            new LogSegment(pool_start[channel], SEGMENT_SIZE[j], j, i, channel);
         log_cleaners_[cleaner_c] = new LogCleaner(db, cleaner_c, this, all_segments_[i], j, reserved_helper_segments[j-1]);
         cleaner_c ++;
         pool_start[channel] += SEGMENT_SIZE[j];
@@ -362,15 +362,33 @@ LogSegment *LogStructured::NewSegment(int class_t) {
   LogSegment *ret = nullptr;
   // uint64_t waiting_time = 0;
   // TIMER_START(waiting_time);
-  int class_t_ = class_t;
-  if(class_t_ == -1) class_t_ = 0;
+  int class_t_ = (class_t >= 0) ? class_t : 0;
   while (true) {
     if (num_free_list_class[class_t_] > 0) {
       std::lock_guard<SpinLock> guard(class_list_lock_[class_t_]);
-      if (!free_segments_class[class_t_].empty()) {
-        ret = free_segments_class[class_t_].front();
-        free_segments_class[class_t_].pop();
-        --num_free_list_class[class_t_];
+      if(class_t == 0)
+      {
+        if(!free_segments_class[0].empty())
+        {
+          for(int i = free_segments_class[0].size()-1; i >=0; i--)
+          {
+            if(free_segments_class[0].at(i)->get_channel() < num_channel/2)
+            {
+              ret = free_segments_class[0].at(i);
+              auto it = free_segments_class[0].begin();
+              free_segments_class[0].erase(it+i);
+              --num_free_list_class[0];
+            }
+          }
+        }
+      }
+      else
+      {
+        if (!free_segments_class[class_t_].empty()) {
+          ret = free_segments_class[class_t_].front();
+          free_segments_class[class_t_].pop_front();
+          --num_free_list_class[class_t_];
+        }
       }
     } else {
       if (num_cleaners_ == 0) {
