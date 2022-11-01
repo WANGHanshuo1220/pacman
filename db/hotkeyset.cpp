@@ -59,14 +59,14 @@ void HotKeySet::Record(const Slice &key, int worker_id, int class_t) {
           BeginUpdateHotKeySet();
         }
       }
-      // else
-      // {
-      //   c.fetch_add(1);
-      //   uint32_t hit_r = 100 * record.hit_cnt / record.total_cnt;
-      //   hit_rate.fetch_add(hit_r);
-      //   if(hit_r > hit_rate_max) hit_rate_max = hit_r;
-      //   if(hit_r < hit_rate_min) hit_rate_min = hit_r;
-      // }
+      else
+      {
+        c.fetch_add(1);
+        uint32_t hit_r = 100 * record.class2_hit_cnt / record.total_cnt;
+        hit_rate.fetch_add(hit_r);
+        if(hit_r > hit_rate_max) hit_rate_max = hit_r;
+        if(hit_r < hit_rate_min) hit_rate_min = hit_r;
+      }
       record.hit_cnt = record.total_cnt = 0;
       record.class2_hit_cnt = 0;
     }
@@ -86,7 +86,7 @@ int HotKeySet::Exist(const Slice &key) {
   uint64_t i_key = *(uint64_t *)key.data();
   if(current_set_class[0] == nullptr)
   {
-    return -2;
+    return -1;
   }
   else
   {

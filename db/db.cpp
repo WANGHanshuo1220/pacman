@@ -58,7 +58,6 @@ DB::DB(std::string db_path[], size_t log_size, int num_workers, int num_cleaners
 
 DB::~DB() {
   // printf("update c = %ld\n", hot_key_set_->update.load());
-  // printf("c = %ld\n", hot_key_set_->c.load());
   // printf("avg hit rate = %ld\n", hot_key_set_->hit_rate.load()/hot_key_set_->c.load());
   // printf("max hit rate = %ld\n", hot_key_set_->hit_rate_max.load());
   // printf("min hit rate = %ld\n", hot_key_set_->hit_rate_min.load());
@@ -148,14 +147,14 @@ DB::Worker::Worker(DB *db) : db_(db) {
   worker_id_ = db_->cur_num_workers_.fetch_add(1);
   tmp_cleaner_garbage_bytes_.resize(db_->num_cleaners_, 0);
 
-  // log_head_class[0] = db_->log_->NewSegment(0);
-  // log_head_cold_class0_ = db_->log_->NewSegment(0);
+  log_head_class[0] = db_->log_->NewSegment(0);
+  log_head_cold_class0_ = db_->log_->NewSegment(0);
 
-  // for(int i = 1; i < num_class; i++)
-  // {
-  //   db_->get_class_segment(i, worker_id_,
-  //                          &log_head_class[i], &class_seg_working_on[i]);
-  // }
+  for(int i = 1; i < num_class; i++)
+  {
+    db_->get_class_segment(i, worker_id_,
+                           &log_head_class[i], &class_seg_working_on[i]);
+  }
 
 #ifdef LOG_BATCHING
   buffer_queue_.resize(num_class);
@@ -339,7 +338,7 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
   {
     segment = log_head_class[0];
   }
-  else if(class_t < 0)
+  else if(class_t == -1)
   {
     segment = log_head_cold_class0_;
   }
@@ -372,7 +371,7 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
       accumulative_sz_class[class_t] = sz;
       db_->log_->set_class_segment_(class_t, class_seg_working_on[class_t], segment);
     }
-    if(class_t < 0) log_head_cold_class0_ = segment;
+    if(class_t == -1) log_head_cold_class0_ = segment;
     else  log_head_class[class_t] = segment;
   }
 
@@ -508,6 +507,6 @@ void DB::Worker::Roll_Back(LogSegment *segment)
 
 void DB::Worker::FreezeSegment(LogSegment *segment, int class_t) {
   db_->log_->FreezeSegment(segment, class_t);
-  if(class_t <= 0) 
+  if(class_t == 0 || class_t == -1) 
     db_->log_->SyncCleanerGarbageBytes(tmp_cleaner_garbage_bytes_);
 }

@@ -446,7 +446,7 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment, bool help) {
     backup_segment->set_reserved();
   } else {
     std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_t]);
-    log_->free_segments_class[class_t].push_back(segment);
+    log_->free_segments_class[class_t].push(segment);
     ++log_->num_free_list_class[class_t];
   }
   ++clean_seg_count_;
@@ -569,7 +569,7 @@ void LogCleaner::CompactSegment0(LogSegment *segment, bool help) {
     backup_segment->set_reserved();
   } else {
     std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_t]);
-    log_->free_segments_class[class_t].push_back(segment);
+    log_->free_segments_class[class_t].push(segment);
     ++log_->num_free_list_class[class_t];
   }
 }
@@ -689,7 +689,7 @@ void LogCleaner::CompactSegment123(LogSegment *segment) {
     backup_segment_->set_reserved();
   } else {
     std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_]);
-    log_->free_segments_class[class_].push_back(segment);
+    log_->free_segments_class[class_].push(segment);
     ++log_->num_free_list_class[class_];
   }
 }
@@ -738,7 +738,6 @@ void LogCleaner::DoMemoryClean(bool help)
       double cur_score = 1000. * cur_garbage_proportion /
                          (1 - cur_garbage_proportion) *
                          (cur_time - (*it)->get_close_time());
-                        //  (100 - (*it)->get_channel());
       if (cur_score > max_score) {
         max_score = cur_score;
         max_garbage_proportion = cur_garbage_proportion;
@@ -759,7 +758,6 @@ void LogCleaner::DoMemoryClean(bool help)
         it->compaction_score = 1000. * garbage_proportion /
                                (1 - garbage_proportion) *
                                (cur_time - it->segment->get_close_time());
-                              //  (100 - it->segment->get_channel());
       }
       if (!to_compact_cold_segments_.empty()) {
         to_compact_cold_segments_.sort();

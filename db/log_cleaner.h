@@ -156,7 +156,7 @@ class LogCleaner {
     }
     if (backup_segment_) {
       std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_]);
-      log_->free_segments_class[class_].push_back(backup_segment_);
+      log_->free_segments_class[class_].push(backup_segment_);
       ++log_->num_free_list_class[class_];
     }
 

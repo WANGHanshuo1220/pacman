@@ -44,7 +44,7 @@ void init_zipf();
 int get_random();
 void prepare_key_base();
 
-uint64_t NUM_KVS = 20000000;
+uint64_t NUM_KVS = 2000000;
 uint64_t dup_rate = 500000;
 int num_workers = 24;
 int num_cleaners = 4;
