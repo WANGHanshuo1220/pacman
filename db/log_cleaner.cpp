@@ -420,12 +420,7 @@ void LogCleaner::CopyValidItemToBuffer0(LogSegment *segment, bool help) {
 void LogCleaner::BatchCompactSegment(LogSegment *segment, bool help) {
   // copy to DRAM buffer
   if(class_ == 0 || help) CopyValidItemToBuffer0(segment, help);
-  else
-  {
-    assert(class_ > 0);
-    assert(!help);
-    CopyValidItemToBuffer123(segment);
-  }
+  else CopyValidItemToBuffer123(segment);
   // flush reserved segment and update reference
   BatchFlush(help);
   BatchIndexUpdate(help);
@@ -446,7 +441,7 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment, bool help) {
     backup_segment->set_reserved();
   } else {
     std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_t]);
-    log_->free_segments_class[class_t].push(segment);
+    log_->free_segments_class[class_t].push_back(segment);
     ++log_->num_free_list_class[class_t];
   }
   ++clean_seg_count_;
@@ -569,7 +564,7 @@ void LogCleaner::CompactSegment0(LogSegment *segment, bool help) {
     backup_segment->set_reserved();
   } else {
     std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_t]);
-    log_->free_segments_class[class_t].push(segment);
+    log_->free_segments_class[class_t].push_back(segment);
     ++log_->num_free_list_class[class_t];
   }
 }
@@ -689,7 +684,7 @@ void LogCleaner::CompactSegment123(LogSegment *segment) {
     backup_segment_->set_reserved();
   } else {
     std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_]);
-    log_->free_segments_class[class_].push(segment);
+    log_->free_segments_class[class_].push_back(segment);
     ++log_->num_free_list_class[class_];
   }
 }

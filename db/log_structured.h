@@ -83,12 +83,12 @@ class LogStructured {
   std::vector<LogCleaner *> log_cleaners_;
 
   std::atomic<int> num_free_list_class[num_class] = {0, 0, 0};
-  std::vector<std::queue<LogSegment *>> free_segments_class{num_class};
+  std::vector<std::deque<LogSegment *>> free_segments_class{num_class};
 
   std::vector<std::vector<LogSegment *>> class_segments_{num_class};
 
-  const int class1_sz = 320; // MB
-  const int class2_sz = 240; // MB
+  const int class1_sz = 320/4; // MB
+  const int class2_sz = 240/4; // MB
   std::vector<int> class_sz = {0, class1_sz, class2_sz};
 
   std::atomic<int> num_free_segments_{0};
