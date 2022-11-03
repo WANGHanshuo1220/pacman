@@ -201,7 +201,7 @@ RETRY:
         target->_[loc].key = key;
         idx_clwb_fence((char *)&target->_[loc], sizeof(Pair));
         /* release segment exclusive lock */
-        num_key.fetch_add(1);
+        // num_key.fetch_add(1);
         target->unlock();
         return;
       }

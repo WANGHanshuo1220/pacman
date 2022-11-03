@@ -87,8 +87,8 @@ class LogStructured {
 
   std::vector<std::vector<LogSegment *>> class_segments_{num_class};
 
-  const int class1_sz = 320/4; // MB
-  const int class2_sz = 240/4; // MB
+  const int class1_sz = 320/2; // MB
+  const int class2_sz = 240/2; // MB
   std::vector<int> class_sz = {0, class1_sz, class2_sz};
 
   std::atomic<int> num_free_segments_{0};

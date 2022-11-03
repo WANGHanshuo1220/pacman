@@ -180,7 +180,8 @@ bool LogCleaner::NeedCleaning(bool help) {
   double threshold;
 
   if(class_ == 0 || help) 
-  {
+  { 
+    // int pro = help ? 2 : 1;
     threshold = (double)log_->clean_threshold_[0] / 100;
 
     Free = (uint64_t)log_->num_free_list_class[0].load(std::memory_order_relaxed)

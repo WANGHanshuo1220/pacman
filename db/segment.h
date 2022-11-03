@@ -223,7 +223,7 @@ class LogSegment : public BaseSegment {
     }
     if (has_shortcut_) {
       shortcut_buffer_ = new std::vector<Shortcut>();
-      shortcut_buffer_->reserve(SEGMENT_DATA_SIZE / 8);
+      shortcut_buffer_->reserve(SEGMENT_SIZE_ / 8);
     }
 #endif
   }

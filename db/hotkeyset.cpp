@@ -55,7 +55,7 @@ void HotKeySet::Record(const Slice &key, int worker_id, int class_t) {
         if (!update_schedule_flag_.test_and_set()) {
           uint64_t total_num_key = db_->index_->get_num_key();
           // HOT_NUM = total_num_key * 0.01;
-          HOT_NUM = 128 * 1024;
+          HOT_NUM = 256 * 1024;
           BeginUpdateHotKeySet();
         }
       }
@@ -153,8 +153,8 @@ void HotKeySet::UpdateHotSet() {
 
   int sz = topK.size();
   int a[num_class];
-  a[2] = topK.size() * 0.025;
-  a[1] = topK.size() * 0.10;
+  a[2] = topK.size() * 0.05;
+  a[1] = topK.size() * 0.175;
   a[0] = topK.size() - a[1] - a[2];
   for(int i = 0; i < num_class; i++)
   {

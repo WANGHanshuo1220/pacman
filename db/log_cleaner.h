@@ -211,7 +211,7 @@ class LogCleaner {
     }
   }
 
-  int gap[num_class] = {-1, 2, 4};
+  int gap[num_class] = {-1, 10, 20};
   int sort_range[num_class];
   int num_worker = 0;
   int worker_range = 0;
