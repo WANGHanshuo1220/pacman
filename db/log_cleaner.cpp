@@ -200,7 +200,6 @@ bool LogCleaner::NeedCleaning(bool help) {
            * SEGMENT_SIZE[class_];
     Total = (log_->num_class_segments_[class_] - log_->class_segments_[class_].size() - 1)
              * SEGMENT_SIZE[class_];
-    // printf("NeedCleaning %.2f\n", (double)Free/Total);
   }
   
   // free < 10% of total storage and cleanr_garbage_btyes > free
@@ -359,6 +358,7 @@ void LogCleaner::CopyValidItemToBuffer123(LogSegment *segment) {
       Slice key_slice = ((KVItem *)cur)->GetKey();
       valid_items_.emplace_back(key_slice, TaggedPointer((char *)kv, sz, num_old, class_),
                                 TaggedPointer(new_addr, sz, num_new, class_), sz, sc);
+      reserved_segment_->roll_back_map[num_new].kv_sz = (uint16_t)(sz/kv_align);
       num_new ++;
     }
     p += sz;
@@ -419,7 +419,6 @@ void LogCleaner::CopyValidItemToBuffer0(LogSegment *segment, bool help) {
 
 // Batch Compact if defined BATCH_COMPACTION
 void LogCleaner::BatchCompactSegment(LogSegment *segment, bool help) {
-  static int c = 0;
   // copy to DRAM buffer
   if(class_ == 0 || help) CopyValidItemToBuffer0(segment, help);
   else CopyValidItemToBuffer123(segment);
@@ -441,9 +440,7 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment, bool help) {
   if (backup_segment == nullptr) {
     backup_segment = segment;
     backup_segment->set_reserved();
-    if(class_t == 2) printf("backup %d %ld\n", c++, log_->free_segments_class[class_t].size());
   } else {
-    if(class_t == 2) printf("add to free list %d %ld\n", c++, log_->free_segments_class[class_t].size());
     std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_t]);
     log_->free_segments_class[class_t].push_back(segment);
     ++log_->num_free_list_class[class_t];
@@ -654,10 +651,6 @@ void LogCleaner::CompactSegment123(LogSegment *segment) {
       COUNTER_ADD_LOGGING(fast_path_, le_helper.fast_path);
 #endif  // end of #IF LOG_BATCHING
     }
-    else
-    {
-      segment->roll_back_map[num_old].is_garbage = 0;
-    }
     p += sz;
 #ifdef INTERLEAVED
     num_old ++;
@@ -733,7 +726,6 @@ void LogCleaner::DoMemoryClean(bool help)
     uint64_t cur_time = NowMicros();
     for (auto it = to_compact_hot_segments_.begin();
          it != to_compact_hot_segments_.end(); it++) {
-      assert(*it);
       double cur_garbage_proportion = (*it)->GetGarbageProportion();
       double cur_score = 1000. * cur_garbage_proportion /
                          (1 - cur_garbage_proportion) *
@@ -790,28 +782,36 @@ void LogCleaner::DoMemoryClean(bool help)
 
     for (auto it = to_compact_segments_.begin();
          it != to_compact_segments_.end(); it++) {
-      assert(*it);
       double cur_garbage_proportion = (*it)->GetGarbageProportion();
-      double cur_score = 1000. * cur_garbage_proportion /
-                         (1.1 - cur_garbage_proportion);
-      // if(cleaner_id_ == 3) 
-      //   printf("%d cur_score = %.2f, max_score = %.2f, cur_db_prop = %.2f"
-      //          ", db_b = %d, seg_offset %ld\n",
-      //     c++, cur_score, max_score, cur_garbage_proportion,
-      //     (*it)->get_gb_b(), (*it)->get_offset());
-      if (cur_score > max_score) {
-        max_score = cur_score;
-        max_garbage_proportion = cur_garbage_proportion;
-        gc_it = it;
+      if(cur_garbage_proportion >= 1)
+      {
+        quick_c ++;
+        segment = *it;
+        to_compact_segments_.erase(it);
+        segment->Clear();
+
+        {
+          std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_]);
+          log_->free_segments_class[class_].push_back(segment);
+          ++log_->num_free_list_class[class_];
+        }
+      }
+      else
+      {
+        double cur_score = 1000. * cur_garbage_proportion /
+                           (1 - cur_garbage_proportion);
+        if (cur_score > max_score) {
+          max_score = cur_score;
+          max_garbage_proportion = cur_garbage_proportion;
+          gc_it = it;
+        }
       }
     }
 
     if (gc_it != to_compact_segments_.end()) {
       segment = *gc_it;
       to_compact_segments_.erase(gc_it);
-      // if(cleaner_id_ == 3) printf("find %d (%ld)\n", c++, to_compact_segments_.size());
     } else {
-      // if(cleaner_id_ == 3) printf("return %d (%ld)\n", c++, to_compact_segments_.size());
       return;
     }
   }

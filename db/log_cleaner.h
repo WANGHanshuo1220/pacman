@@ -16,6 +16,7 @@ class LogCleaner {
 // #ifdef GC_EVAL
   int GC_times = 0;
   int GC_times_help = 0;
+  int quick_c = 0;
   std::atomic<long> GC_timecost = 0; // us
   std::atomic<int> help = 0;
   uint64_t flush_times = 0;

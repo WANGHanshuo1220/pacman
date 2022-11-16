@@ -298,9 +298,9 @@ LogStructured::~LogStructured() {
   uint64_t d = 0;
   for(int i = 0; i < num_cleaners_; i++)
   {
-    printf("cleaner%d: flush_times = %ld\tGC_times = %d\tGC_help_times = %d\n", 
-      i, log_cleaners_[i]->flush_times, log_cleaners_[i]->GC_times,
-      log_cleaners_[i]->GC_times_help);
+    // printf("cleaner%d: flush_times = %ld\tGC_times = %d\tGC_help_times = %d, quick_c = %d\n", 
+    //   i, log_cleaners_[i]->flush_times, log_cleaners_[i]->GC_times,
+    //   log_cleaners_[i]->GC_times_help, log_cleaners_[i]->quick_c);
     c += log_cleaners_[i]->flush_times;
     d += log_cleaners_[i]->GC_times /
          (SEGMENT_SIZE[0] / SEGMENT_SIZE[log_cleaners_[i]->get_class()]);

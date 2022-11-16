@@ -164,7 +164,6 @@ class LogSegment : public BaseSegment {
   int get_channel() { return channel_; }
 
   uint32_t num_kvs = 0;
-  uint32_t gc_c = 0;
   std::atomic_flag RB_flag{ATOMIC_FLAG_INIT};
   std::vector<record_info> roll_back_map;
 
