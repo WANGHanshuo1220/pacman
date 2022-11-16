@@ -200,6 +200,7 @@ bool LogCleaner::NeedCleaning(bool help) {
            * SEGMENT_SIZE[class_];
     Total = (log_->num_class_segments_[class_] - log_->class_segments_[class_].size() - 1)
              * SEGMENT_SIZE[class_];
+    // printf("NeedCleaning %.2f\n", (double)Free/Total);
   }
   
   // free < 10% of total storage and cleanr_garbage_btyes > free
@@ -256,6 +257,9 @@ void LogCleaner::BatchIndexUpdate(bool help) {
       LogEntryHelper le_helper(new_val);
       le_helper.old_val = valid_items[j].old_val;
       le_helper.shortcut = valid_items[j].shortcut;
+#ifdef HOT_SC
+      if(class_ > 0 && !help) le_helper.is_hot_sc = true;
+#endif
       if (!le_helper.shortcut.None()) {
         COUNTER_ADD_LOGGING(shortcut_cnt_, 1);
       }
@@ -357,10 +361,6 @@ void LogCleaner::CopyValidItemToBuffer123(LogSegment *segment) {
                                 TaggedPointer(new_addr, sz, num_new, class_), sz, sc);
       num_new ++;
     }
-    else
-    {
-      segment->roll_back_map[num_old].is_garbage = 0;
-    }
     p += sz;
     num_old ++;
   }
@@ -419,6 +419,7 @@ void LogCleaner::CopyValidItemToBuffer0(LogSegment *segment, bool help) {
 
 // Batch Compact if defined BATCH_COMPACTION
 void LogCleaner::BatchCompactSegment(LogSegment *segment, bool help) {
+  static int c = 0;
   // copy to DRAM buffer
   if(class_ == 0 || help) CopyValidItemToBuffer0(segment, help);
   else CopyValidItemToBuffer123(segment);
@@ -440,7 +441,9 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment, bool help) {
   if (backup_segment == nullptr) {
     backup_segment = segment;
     backup_segment->set_reserved();
+    if(class_t == 2) printf("backup %d %ld\n", c++, log_->free_segments_class[class_t].size());
   } else {
+    if(class_t == 2) printf("add to free list %d %ld\n", c++, log_->free_segments_class[class_t].size());
     std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_t]);
     log_->free_segments_class[class_t].push_back(segment);
     ++log_->num_free_list_class[class_t];
@@ -713,6 +716,7 @@ void LogCleaner::FreezeReservedAndGetNew(bool help) {
 
 void LogCleaner::DoMemoryClean(bool help)
 {
+  static int c = 0;
   LogSegment *segment = nullptr;
   double max_score = 0.;
   double cold_score = 0.;
@@ -789,7 +793,12 @@ void LogCleaner::DoMemoryClean(bool help)
       assert(*it);
       double cur_garbage_proportion = (*it)->GetGarbageProportion();
       double cur_score = 1000. * cur_garbage_proportion /
-                         (1 - cur_garbage_proportion);
+                         (1.1 - cur_garbage_proportion);
+      // if(cleaner_id_ == 3) 
+      //   printf("%d cur_score = %.2f, max_score = %.2f, cur_db_prop = %.2f"
+      //          ", db_b = %d, seg_offset %ld\n",
+      //     c++, cur_score, max_score, cur_garbage_proportion,
+      //     (*it)->get_gb_b(), (*it)->get_offset());
       if (cur_score > max_score) {
         max_score = cur_score;
         max_garbage_proportion = cur_garbage_proportion;
@@ -800,7 +809,9 @@ void LogCleaner::DoMemoryClean(bool help)
     if (gc_it != to_compact_segments_.end()) {
       segment = *gc_it;
       to_compact_segments_.erase(gc_it);
+      // if(cleaner_id_ == 3) printf("find %d (%ld)\n", c++, to_compact_segments_.size());
     } else {
+      // if(cleaner_id_ == 3) printf("return %d (%ld)\n", c++, to_compact_segments_.size());
       return;
     }
   }

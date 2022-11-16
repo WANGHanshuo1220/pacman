@@ -36,13 +36,7 @@ if (PACMAN)
   endif()
 endif()
 
-# if (INTERLEAVED)
-#   set(HOT_COLD_SEPARATE ON)
-# endif()
-
-# if (GC_EVAL)
-#   set(GC_EVAL ON)
-# endif()
+set(HOT_SC OFF)
 
 message(STATUS "SET USE_NUMA_NODE ${USE_NUMA_NODE}")
 message(STATUS "SET INDEX_TYPE ${INDEX_TYPE}")
@@ -54,6 +48,7 @@ message(STATUS "SET GC_SHORTCUT ${GC_SHORTCUT}")
 message(STATUS "SET BATCH_COMPACTION ${BATCH_COMPACTION}")
 message(STATUS "SET INTERLEAVED ${INTERLEAVED}")
 message(STATUS "SET GC_EVAL ${GC_EVAL}")
+message(STATUS "SET HOT_SC ${HOT_SC}")
 
 configure_file(
   "${PROJECT_SOURCE_DIR}/include/config.h.in"

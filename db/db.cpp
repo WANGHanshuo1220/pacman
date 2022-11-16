@@ -29,7 +29,7 @@ DB::DB(std::string db_path[], size_t log_size, int num_workers, int num_cleaners
 #endif
 
 #if INDEX_TYPE <= 1
-  index_ = new CCEHIndex();
+  index_ = new CCEHIndex(this);
   printf("DB index type: CCEH\n");
 #elif INDEX_TYPE == 2
   index_ = new FastFairIndex();
@@ -84,11 +84,8 @@ DB::~DB() {
   // printf("RB_C = %ld, RB_bytes = %ld KB (%ld MB)\n",
   //   roll_back_count.load(), roll_back_bytes.load()/1024,
   //   roll_back_bytes/(1024*1024));
-
-  // for(int i = 0; i < 4; i++)
-  // {
-  //   printf("new seg %d : %.2f\n", i, (float)NEW_SEG_t[i].load()/1000000);
-  // }
+  // printf("t_get_time = %ld ns, %ld ns/opr\n", t_get_time.load(), t_get_time.load()/t_get_c.load());
+  // printf("t_put_time = %ld ns, %ld ns/opr\n", t_put_time.load(), t_put_time.load()/t_put_c.load());
 
   delete log_;
   delete index_;
@@ -101,7 +98,86 @@ DB::~DB() {
   delete hot_key_set_;
   hot_key_set_ = nullptr;
 #endif
+#ifdef HOT_SC
+  uint64_t t = 0;
+  for(auto it = hot_sc.begin();
+      it != hot_sc.end(); it++)
+  {
+    t += it->second->lock.get_contendedTime();
+    delete it->second;
+  }
+  printf("total contendedTime = %ld\n", t);
+#endif
 }
+
+#ifdef HOT_SC
+bool DB::has_hot_set()
+{
+  if(hot_key_set_ == nullptr) return false;
+  else return hot_key_set_->has_hot_set();
+}
+
+bool DB::has_key_in_sc(KeyType key, std::string *value)
+{
+  bool ret = false;
+  if(has_hot_set())
+  {
+    if(hot_sc.find(key) != hot_sc.end())
+    {
+      if(hot_sc[key]->addr != INVALID_VALUE)
+      {
+        *value = hot_sc[key]->value;
+        ret = true;
+      }
+    }
+  }
+  return ret;
+}
+
+void DB::GetValue(KeyType key, std::string *value)
+{
+  *value = hot_sc[key]->value;
+}
+
+void DB::update_hot_sc(const Slice &key, LogEntryHelper &le_helper, const Slice &value)
+{
+  KeyType k = *(KeyType *)key.data();
+  ValueType tagged_addr = le_helper.new_val;
+  ValueType old_val = 0;
+  {
+    std::lock_guard<SpinLock> lock(hot_sc[k]->lock);
+    if(hot_sc[k]->first)
+    {
+      hot_sc[k]->first = false;
+      old_val = index_->Get(key);
+    }
+    else
+    {
+      old_val = hot_sc[k]->addr;
+    }
+    hot_sc[k]->addr   = tagged_addr;
+    hot_sc[k]->value  = value.data();
+  }
+  le_helper.old_val = old_val;
+}
+
+void DB::check_val_addr(const Slice key, ValueType addr)
+{
+  TaggedPointer tp(addr);
+  KeyType old_key = *(KeyType *)(tp.GetKVItem()->GetKey().data());
+  KeyType key_ = *(KeyType *)(key.data());
+  if(key_ != old_key)
+  {
+    TaggedPointer tp(addr);
+    int segment_id = log_->GetSegmentID(tp.GetAddr());
+    LogSegment *segment = log_->GetSegment(segment_id);
+    printf("seg.st = %d\n", segment->get_status());
+    printf("tp.key = %ld\n", old_key);
+    printf("key    = %ld\n", key_);
+  }
+  assert(old_key == key_);
+}
+#endif
 
 void DB::StartCleanStatistics() { log_->StartCleanStatistics(); }
 
@@ -135,7 +211,7 @@ void DB::NewIndexForRecoveryTest() {
   g_index_allocator->Initialize();
 
 #if INDEX_TYPE <= 1
-  index_ = new CCEHIndex();
+  index_ = new CCEHIndex(this);
 #elif INDEX_TYPE == 2
   index_ = new FastFairIndex();
 #elif INDEX_TYPE == 3
@@ -167,12 +243,10 @@ DB::Worker::Worker(DB *db) : db_(db) {
 }
 
 DB::Worker::~Worker() {
-  // for(int i = 0; i < 4; i++)
-  // {
-  //   db_->put_c[i] += puts_[i];
-  //   db_->AP_t[i] += append_t[i];
-  //   db_->NEW_SEG_t[i] += new_seg_t[i];
-  // }
+  // db_->t_get_time += get_time;
+  // db_->t_put_time += put_time;
+  // db_->t_get_c += get_c;
+  // db_->t_put_c += put_c;
 #ifdef LOG_BATCHING
   for(int i = 0; i < num_class; i++)
   {
@@ -199,16 +273,37 @@ DB::Worker::~Worker() {
 
 bool DB::Worker::Get(const Slice &key, std::string *value) {
   // db_->get_c.fetch_add(1);
+  // get_c++;
+  // Timer time(get_time);
+  bool ret = false;
+#ifdef HOT_SC
+  KeyType k = *(KeyType *)key.data();
+  if((ret = db_->has_key_in_sc(k, value)))
+  {
+    return ret;
+  }
+  else
+  {
+    db_->thread_status_.rcu_progress(worker_id_);
+    ValueType val = db_->index_->Get(key);
+    if (val != INVALID_VALUE) {
+      TaggedPointer(val).GetKVItem()->GetValue(*value);
+      ret = true;
+    }
+    db_->thread_status_.rcu_exit(worker_id_);
+  }
+#else
   db_->thread_status_.rcu_progress(worker_id_);
   ValueType val = db_->index_->Get(key);
-  bool ret = false;
   if (val != INVALID_VALUE) {
     TaggedPointer(val).GetKVItem()->GetValue(*value);
     ret = true;
   }
   db_->thread_status_.rcu_exit(worker_id_);
+#endif
   return ret;
 }
+
 /*
 * Put opr has three sub-oprs:
 *    1. check the hotness of the key;
@@ -216,20 +311,18 @@ bool DB::Worker::Get(const Slice &key, std::string *value) {
 *    3. update index
 */
 void DB::Worker::Put(const Slice &key, const Slice &value) {
+  // put_c++;
+  // Timer time(put_time);
 
   // sub-opr 1 : check the hotness of the key;
   int class_t = db_->hot_key_set_->Exist(key);
-  // puts_[class_t+1] ++;
-  // int class_t = 0;
-  // int class_t_ = class_t >= 0 ? class_t : 0;
-  // db_->put_c[class_t+1].fetch_add(1);
 
   // sub-opr 2 : make a new kv item, append it at the end of the segment;
-  ValueType val = MakeKVItem(key, value, class_t);
+  ValueType tagged_addr = MakeKVItem(key, value, class_t);
 
   // sub-opr 3 : update index;
 #ifndef LOG_BATCHING
-  UpdateIndex(key, val, class_t);
+  UpdateIndex(key, tagged_addr, value, class_t);
 #endif
 }
 
@@ -418,15 +511,26 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 }
 #endif
 
-void DB::Worker::UpdateIndex(const Slice &key, ValueType val, int class_t) {
-  LogEntryHelper le_helper(val);
+void DB::Worker::UpdateIndex(const Slice &key, ValueType tagged_addr, 
+                 const Slice &value, int class_t) {
+  LogEntryHelper le_helper(tagged_addr);
+#ifdef HOT_SC
+  if(class_t > 0)
+  {
+    le_helper.is_hot_sc = true;
+    db_->update_hot_sc(key, le_helper, value);
+  }
+  else db_->index_->Put(key, le_helper);
+#else
   db_->index_->Put(key, le_helper);
+#endif
+
 #ifdef GC_SHORTCUT
 #ifdef HOT_COLD_SEPARATE
-  if (hot) {
-    log_head_->AddShortcut(le_helper.shortcut);
+  if (class_t >= 0) {
+    log_head_class[class_t]->AddShortcut(le_helper.shortcut);
   } else {
-    cold_log_head_->AddShortcut(le_helper.shortcut);
+    log_head_cold_class0_->AddShortcut(le_helper.shortcut);
   }
 #else
   log_head_->AddShortcut(le_helper.shortcut);
@@ -507,6 +611,6 @@ void DB::Worker::Roll_Back(LogSegment *segment)
 
 void DB::Worker::FreezeSegment(LogSegment *segment, int class_t) {
   db_->log_->FreezeSegment(segment, class_t);
-  if(class_t == 0 || class_t == -1) 
+  if(class_t <= 0) 
     db_->log_->SyncCleanerGarbageBytes(tmp_cleaner_garbage_bytes_);
 }

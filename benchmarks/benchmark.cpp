@@ -71,7 +71,7 @@ class DBFixture : public BaseFixture {
         std::experimental::filesystem::remove_all(db_path[i]);
         std::experimental::filesystem::create_directory(db_path[i]);
       }
-
+      num_gc_threads = 4;
       db_ = new DB(db_path, total_size, num_threads, num_gc_threads);
     }
 
@@ -146,6 +146,7 @@ BENCHMARK_REGISTER_F(DBFixture, bench)
     ->Arg(0)
     // ->Arg(50)
     ->DenseRange(1, 90, 1)
+    // ->Threads(6)
     ->DenseThreadRange(1, 40, 1)
     // ->DenseThreadRange(6, 24, 6)
     ->Iterations(1)

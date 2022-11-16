@@ -22,6 +22,7 @@ static constexpr int CPU_BIND_BEGIN_CORE = USE_NUMA_NODE * CORES_PER_SOCKET;
 #cmakedefine USE_PMDK
 #cmakedefine GC_EVAL
 #cmakedefine INTERLEAVED
+#cmakedefine HOT_SC
 
 #define INDEX_TYPE @INDEX_TYPE@
 

@@ -27,7 +27,6 @@ class Index {
   }
   virtual void GCMove(const Slice &key, LogEntryHelper &le_helper) = 0;
   virtual void PrefetchEntry(const Shortcut &sc) {}
-  virtual uint64_t get_num_key() {}
 };
 
 class LogSegment;
@@ -44,11 +43,11 @@ class DB {
     void Put(const Slice &key, const Slice &value);
     size_t Scan(const Slice &key, int cnt);
     bool Delete(const Slice &key);
-    // int show_ID() {return worker_id_; };
 
-    // long append_t[4] = {0, 0, 0, 0};
-    // uint64_t puts_[4] = {0, 0, 0, 0};
-    // uint64_t new_seg_t[4] = {0, 0, 0, 0};
+    uint64_t get_time = 0;
+    uint64_t put_time = 0;
+    uint64_t get_c = 0;
+    uint64_t put_c = 0;
 
 #ifdef GC_EVAL
     long check_hotcold_time = 0;
@@ -84,7 +83,7 @@ class DB {
     std::vector<size_t> tmp_cleaner_garbage_bytes_;
 
     ValueType MakeKVItem(const Slice &key, const Slice &value, int class_);
-    void UpdateIndex(const Slice &key, ValueType val, int class_);
+    void UpdateIndex(const Slice &key, ValueType val, const Slice &value, int class_);
     void MarkGarbage(ValueType tagged_val);
     void Roll_Back(LogSegment *segment);
     void FreezeSegment(LogSegment *segment, int class_);
@@ -105,8 +104,10 @@ class DB {
     return std::make_unique<Worker>(this);
   }
 
-  // long AP_t[4] = {0, 0, 0, 0};
-  // std::atomic<uint64_t> NEW_SEG_t[4] = {0, 0, 0, 0};
+  std::atomic<uint64_t> t_get_time = 0;
+  std::atomic<uint64_t> t_put_time = 0;
+  std::atomic<uint64_t> t_get_c = 0;
+  std::atomic<uint64_t> t_put_c = 0;
 
   // statistics
   void StartCleanStatistics();
@@ -145,6 +146,18 @@ class DB {
   uint32_t change_seg_threshold_class[num_class];
   uint32_t db_num_class_segs[num_class] = {0};
   int get_num_workers() { return num_workers_; }
+
+  // shortcut in DRAM
+#ifdef HOT_SC
+  std::unordered_map<KeyType, struct hash_sc*> hot_sc;
+  bool has_hot_set();
+  bool has_key_in_sc(KeyType key, std::string *value);
+  void GetValue(KeyType key, std::string *value);
+  void update_hot_sc(const Slice &Key, LogEntryHelper &le_helper,
+                     const Slice &value);
+  void GC_update_hot_sc(const KeyType &key, ValueType tagged_addr);
+  void check_val_addr(const Slice key, ValueType addr);
+#endif
 
  private:
   Index *index_;

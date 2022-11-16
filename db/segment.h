@@ -164,11 +164,13 @@ class LogSegment : public BaseSegment {
   int get_channel() { return channel_; }
 
   uint32_t num_kvs = 0;
+  uint32_t gc_c = 0;
   std::atomic_flag RB_flag{ATOMIC_FLAG_INIT};
   std::vector<record_info> roll_back_map;
 
   void init_RB_map()
   {
+    roll_back_map.clear();
     roll_back_map.resize(SEGMENT_SIZE_/48);
     clear_num_kvs();
   }
@@ -189,9 +191,9 @@ class LogSegment : public BaseSegment {
     if(class_ == 0) InitBitmap();
     else init_RB_map();
     garbage_bytes_ = 0;
-    // header_->offset = 0;
-    // header_->objects_tail_offset = 0;
-    // header_->Flush();
+    header_->offset = 0;
+    header_->objects_tail_offset = 0;
+    header_->Flush();
 #ifdef LOG_BATCHING
     flush_tail_ = data_start_;
 #endif
@@ -245,8 +247,8 @@ class LogSegment : public BaseSegment {
 
   void StartUsing(bool has_shortcut = false) {
     header_->status = StatusUsing;
-    // header_->has_shortcut = has_shortcut;
-    // header_->Flush();
+    header_->has_shortcut = has_shortcut;
+    header_->Flush();
     // is_hot_ = is_hot;
 #ifdef GC_SHORTCUT
     has_shortcut_ = has_shortcut;
@@ -272,21 +274,20 @@ class LogSegment : public BaseSegment {
       shortcut_buffer_ = nullptr;
     }
 #endif
-    // header_->offset = get_offset();
-    // header_->objects_tail_offset = get_offset();
-    // header_->has_shortcut = has_shortcut_;
-    // header_->Flush();
-    // printf("after close tail pointer = %p (data_start = %p)\n", tail_, data_start_);
+    header_->offset = get_offset();
+    header_->objects_tail_offset = get_offset();
+    header_->has_shortcut = has_shortcut_;
+    header_->Flush();
   }
 
   void Clear() {
+    if(class_ > 0) init_RB_map();
     tail_ = data_start_;
     garbage_bytes_ = 0;
     header_->status = StatusAvailable;
-    clear_num_kvs();
-    // header_->objects_tail_offset = 0;
-    // header_->has_shortcut = false;
-    // header_->Flush();
+    header_->objects_tail_offset = 0;
+    header_->has_shortcut = false;
+    header_->Flush();
 #ifdef GC_EVAL
     make_new_kv_time = 0;
 #endif
@@ -378,6 +379,7 @@ class LogSegment : public BaseSegment {
 
 #ifdef GC_SHORTCUT
   void AddShortcut(Shortcut sc) {
+    assert(shortcut_buffer_);
     if (shortcut_buffer_) {
       shortcut_buffer_->push_back(sc);
     }
@@ -385,12 +387,8 @@ class LogSegment : public BaseSegment {
 #endif
 
   double GetGarbageProportion() {
-    double re = 100.0;
-    if(get_offset())
-    {
-      re = (double)(garbage_bytes_.load(std::memory_order_relaxed)) /
+    double re = (double)(garbage_bytes_.load(std::memory_order_relaxed)) /
            get_offset();
-    }
     return re;
   }
 
@@ -448,6 +446,7 @@ class LogSegment : public BaseSegment {
     assert(garbage_bytes_ >= 0);
   }
   int get_class() { return class_; }
+  int get_gb_b() { return garbage_bytes_.load(); }
   
  private:
   uint64_t close_time_ = 0;
@@ -457,6 +456,7 @@ class LogSegment : public BaseSegment {
 #endif
 
   std::atomic<int> garbage_bytes_ = 0;
+  bool is_hot_ = false;
   const int class_ = 0;
   const int channel_ = 0;
   uint64_t SEGMENT_SIZE_ = 0;

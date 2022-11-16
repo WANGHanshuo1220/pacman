@@ -5,7 +5,7 @@
 
 class CCEHIndex : public Index {
  public:
-  CCEHIndex() { table_ = new CCEH_NAMESPACE::CCEH(128 * 1024); }
+  CCEHIndex(DB *db):db_(db) { table_ = new CCEH_NAMESPACE::CCEH(128 * 1024); }
 
   virtual ~CCEHIndex() override { delete table_; }
 
@@ -18,13 +18,30 @@ class CCEHIndex : public Index {
   }
 
   virtual void GCMove(const Slice &key, LogEntryHelper &le_helper) override {
+    KeyType k = *(KeyType *)key.data();
 #ifdef GC_SHORTCUT
     if (le_helper.shortcut.None() ||
-        !table_->TryGCUpdate(*(KeyType *)key.data(), le_helper)) {
-      table_->Insert(*(KeyType *)key.data(), le_helper);
+        !table_->TryGCUpdate(k, le_helper)) {
+      table_->Insert(k, le_helper);
     }
 #else
-    table_->Insert(*(KeyType *)key.data(), le_helper);
+#ifdef HOT_SC
+    if(le_helper.is_hot_sc)
+    {
+      ValueType old_val = le_helper.old_val;
+      ValueType new_val = le_helper.new_val;
+      if(!CAS(&db_->hot_sc[k]->addr, &old_val, new_val))
+      {
+        le_helper.old_val = le_helper.new_val;
+      }
+    }
+    else
+    {
+      table_->Insert(k, le_helper);
+    }
+#else
+    table_->Insert(k, le_helper);
+#endif
 #endif
   }
 
@@ -37,10 +54,9 @@ class CCEHIndex : public Index {
     __builtin_prefetch(&s->sema);
   }
 
-  virtual uint64_t get_num_key() { return table_->get_num_key(); }
-
  private:
   CCEH_NAMESPACE::CCEH *table_;
+  DB *db_;
 
   DISALLOW_COPY_AND_ASSIGN(CCEHIndex);
 };

@@ -54,11 +54,9 @@ class HotKeySet {
     else
       return 0;
   }
-  std::atomic<uint64_t> c = 0;
-  std::atomic<uint64_t> update = 0;
-  std::atomic<uint64_t> hit_rate = 0;
-  std::atomic<uint64_t> hit_rate_max = 0;
-  std::atomic<uint64_t> hit_rate_min = 100;
+#ifdef HOT_SC
+  bool has_hot_set() { return has_hot_set_.load(); }
+#endif
 
  private:
   DB *db_;
@@ -69,6 +67,9 @@ class HotKeySet {
   volatile bool need_record_ = false;
   volatile bool need_count_hit_ = true;
   std::atomic_bool stop_flag_{false};
+#ifdef HOT_SC
+  std::atomic_bool has_hot_set_{false};
+#endif
 
   void UpdateHotSet();
 };

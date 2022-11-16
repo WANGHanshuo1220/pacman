@@ -44,8 +44,8 @@ void init_zipf();
 int get_random();
 void prepare_key_base();
 
-uint64_t NUM_KVS = 2000000;
-uint64_t dup_rate = 500000;
+uint64_t NUM_KVS = 20000000;
+uint64_t dup_rate = 5000000;
 int num_workers = 24;
 int num_cleaners = 4;
 int kv_sz = 64;
@@ -264,6 +264,11 @@ static void BM_job3(benchmark::State& st)
 {
   if(st.thread_index() == 0)
   {
+    for(int i = 0; i < 4; i ++)
+    {
+      std::experimental::filesystem::remove_all(db_path[i]);
+      std::experimental::filesystem::create_directory(db_path[i]);
+    }
     num_workers = st.threads();
     a.resize(num_workers);
     printf("NUM_KVS = %ld, dup_rate = %ld, zipf distribute (alpha = 0.99)\n", NUM_KVS, dup_rate);
@@ -288,7 +293,7 @@ static void BM_job3(benchmark::State& st)
 BENCHMARK(BM_job3)
   ->Iterations(1)
   // ->DenseThreadRange(6, 12, 6)
-  ->Threads(12)
+  ->Threads(5)
   ->Unit(benchmark::kMicrosecond)
   ->UseRealTime();
 

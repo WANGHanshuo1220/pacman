@@ -162,6 +162,7 @@ struct LogEntryHelper {
   Shortcut shortcut;
   char *index_entry = nullptr;
   bool fast_path = false;
+  bool is_hot_sc = false;
 
   LogEntryHelper(ValueType _new_val) : new_val(_new_val) {}
 };
@@ -198,5 +199,14 @@ struct record_info
       uint16_t is_garbage : 1;
     };
   };
+};
+
+enum hash_sc_status {Unused, Using};
+struct hash_sc
+{
+  SpinLock lock;
+  volatile bool first = true;
+  uint64_t addr = INVALID_VALUE;
+  std::string value = "default";
 };
 

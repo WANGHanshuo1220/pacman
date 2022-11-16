@@ -359,6 +359,7 @@ std::pair<int, long> *LogStructured::get_cleaners_info()
 #endif
 
 LogSegment *LogStructured::NewSegment(int class_t) {
+  static int c = 0;
   LogSegment *ret = nullptr;
   // uint64_t waiting_time = 0;
   // TIMER_START(waiting_time);
@@ -385,8 +386,10 @@ LogSegment *LogStructured::NewSegment(int class_t) {
         ret = free_segments_class[class_t_].front();
         free_segments_class[class_t_].pop_front();
         --num_free_list_class[class_t_];
+        // if(class_t == 2) printf("new success\n");
       }
     } else {
+      // if(class_t == 2) printf("new failed %d, %ld\n", c++, free_segments_class[class_t_].size());
       if (num_cleaners_ == 0) {
         ERROR_EXIT("No free segments and no cleaners");
       }
@@ -399,7 +402,8 @@ LogSegment *LogStructured::NewSegment(int class_t) {
 
 // out:
   // not store shortcuts for hot segment
-  ret->StartUsing(true);
+  bool has_sc = (class_t_ > 0) ? false : true;
+  ret->StartUsing(has_sc);
 
   UpdateCleanThreshold(class_t_);
   return ret;

@@ -1,6 +1,7 @@
 # example
 set(benchmark /home/wanghanshuo/pacman/benchmarks)
 find_package(benchmark)
+link_libraries(stdc++fs)
 add_executable(example ${DB_FILES} example.cpp)
 target_link_libraries(example benchmark::benchmark ${PMEM} ${PMEMOBJ})
 if (INDEX_TYPE EQUAL 1)

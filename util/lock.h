@@ -46,6 +46,8 @@ class SpinLock {
         name.c_str(), contendedAcquisitions, contendedTime);
   }
 
+  uint64_t get_contendedTime() { return contendedTime; }
+
  private:
   std::atomic_bool mutex;
   std::string name;
