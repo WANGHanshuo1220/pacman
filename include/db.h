@@ -27,6 +27,7 @@ class Index {
   }
   virtual void GCMove(const Slice &key, LogEntryHelper &le_helper) = 0;
   virtual void PrefetchEntry(const Shortcut &sc) {}
+  virtual void update_idx(KeyType key, ValueType addr) {}
 };
 
 class LogSegment;
@@ -48,6 +49,11 @@ class DB {
     uint64_t put_time = 0;
     uint64_t get_c = 0;
     uint64_t put_c = 0;
+
+    uint64_t MKI_t = 0;
+    uint64_t UDI_t = 0;
+    uint64_t PID_t = 0;
+    uint64_t MKG_t = 0;
 
 #ifdef GC_EVAL
     long check_hotcold_time = 0;
@@ -82,8 +88,8 @@ class DB {
     // lazily update garbage bytes for cleaner, avoid too many FAAs
     std::vector<size_t> tmp_cleaner_garbage_bytes_;
 
-    ValueType MakeKVItem(const Slice &key, const Slice &value, int class_);
-    void UpdateIndex(const Slice &key, ValueType val, const Slice &value, int class_);
+    ValueType MakeKVItem(const Slice &key, const Slice &value, int class_, uint32_t *version);
+    void UpdateIndex(const Slice &key, ValueType val, const Slice &value, int class_, uint32_t version);
     void MarkGarbage(ValueType tagged_val);
     void Roll_Back(LogSegment *segment);
     void FreezeSegment(LogSegment *segment, int class_);
@@ -108,6 +114,11 @@ class DB {
   std::atomic<uint64_t> t_put_time = 0;
   std::atomic<uint64_t> t_get_c = 0;
   std::atomic<uint64_t> t_put_c = 0;
+  
+  std::atomic<uint64_t> MKI_T = 0;
+  std::atomic<uint64_t> UDI_T = 0;
+  std::atomic<uint64_t> PID_T = 0;
+  std::atomic<uint64_t> MKG_T = 0;
 
   // statistics
   void StartCleanStatistics();
@@ -149,12 +160,15 @@ class DB {
 
   // shortcut in DRAM
 #ifdef HOT_SC
-  std::unordered_map<KeyType, struct hash_sc*> hot_sc;
+  std::unordered_map<KeyType, struct hash_sc*> *hot_sc;
   bool has_hot_set();
+  bool not_changing();
+  bool is_changing();
+  bool mark_invalide(const Slice key, LogEntryHelper &le_helper);
   bool has_key_in_sc(KeyType key, std::string *value);
   void GetValue(KeyType key, std::string *value);
   void update_hot_sc(const Slice &Key, LogEntryHelper &le_helper,
-                     const Slice &value);
+                     const Slice &value, uint32_t version);
   void GC_update_hot_sc(const KeyType &key, ValueType tagged_addr);
   void check_val_addr(const Slice key, ValueType addr);
 #endif
@@ -167,6 +181,9 @@ class DB {
   std::atomic<int> cur_num_workers_{0};
   HotKeySet *hot_key_set_ = nullptr;
   ThreadStatus thread_status_;
+#ifdef HOT_SC
+  ThreadStatus hot_set_status_;
+#endif
   std::vector<std::vector<int>> next_class_segment_;
   std::atomic<uint64_t> roll_back_count = 0;
   std::atomic<uint64_t> roll_back_bytes = 0;

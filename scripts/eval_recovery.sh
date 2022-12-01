@@ -36,11 +36,11 @@ NUMA_AFFINITY=0
 
 NUM=200000000
 NUM_OPS=100000000
-INIT_UTIL=80
-VALUE_SIZE=256
+INIT_UTIL=50
+VALUE_SIZE=44
 
 SERVICE_THREADS=24  # number of workload threads
-GC_THREADS=8        # number of compaction threads and recovery threads
+GC_THREADS=4        # number of compaction threads and recovery threads
 
 mkdir -p ../results
 mkdir -p ../build
@@ -55,11 +55,11 @@ cmake -DCMAKE_BUILD_TYPE=Release -DUSE_NUMA_NODE=$NUMA_AFFINITY \
 make recovery_test -j
 
 # disable cpu scaling
-sudo cpupower frequency-set --governor performance > /dev/null
+# sudo cpupower frequency-set --governor performance > /dev/null
 # clean cache
-sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
+# sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
 
 numactl --membind=$NUMA_AFFINITY --cpunodebind=$NUMA_AFFINITY \
 ./benchmarks/recovery_test --num=$NUM --num_ops=$NUM_OPS --threads=$SERVICE_THREADS --gc_threads=$GC_THREADS --value_size=$VALUE_SIZE --init_util=$INIT_UTIL
 
-sudo cpupower frequency-set --governor powersave > /dev/null
+# sudo cpupower frequency-set --governor powersave > /dev/null

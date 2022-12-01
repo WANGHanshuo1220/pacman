@@ -181,6 +181,7 @@ class CCEH {
   double Utilization(void);
   size_t Capacity(void);
   bool Recovery(void);
+  void update_idx(KeyType key, ValueType addr);
   uint64_t get_num_key() { return num_key.load(); }
 
 //  private:

@@ -356,6 +356,30 @@ DIR_RETRY:
   goto RETRY;
 }
 
+void CCEH::update_idx(KeyType key, ValueType addr)
+{
+  auto f_hash = hash_funcs[0](&key, sizeof(Key_t), f_seed);
+  auto f_idx = (f_hash & kMask) * kNumPairPerCacheLine;
+  auto x = (f_hash >> (8 * sizeof(f_hash) - dir->depth));
+  auto target = dir->_[x];
+
+  for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
+    auto loc = (f_idx + i) % Segment::kNumSlot;
+    if (target->_[loc].key == key) {
+      Pair *entry = &target->_[loc];
+
+      // client update
+      Value_t old_val = entry->value;
+      if (CAS(&entry->value, &old_val, addr)) {
+        idx_clwb_fence(entry, sizeof(Pair));
+      } else {
+        ERROR_EXIT("hot_sc changing update error\n");
+      }
+      return;
+    }
+  }
+}
+
 bool CCEH::TryGCUpdate(const Key_t &key, LogEntryHelper &le_helper) {
   auto f_hash = hash_funcs[0](&key, sizeof(Key_t), f_seed);
   auto f_idx = (f_hash & kMask) * kNumPairPerCacheLine;

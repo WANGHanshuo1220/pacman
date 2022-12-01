@@ -47,7 +47,7 @@ if [[ $2 == 1 ]]; then
   PACMAN_OPT="-DPACMAN=ON"
 fi
 
-FILTER="--benchmark_filter=/(80)/.*/threads:(12)$"
+FILTER="--benchmark_filter=/(50)/.*/threads:(30)$"
 SKEW="true" # true (Zipfian), false (uniform)
 
 NUMA_AFFINITY=0
@@ -66,11 +66,11 @@ cat /dev/null > ${OUTPUT_FILE}
 
 WORKLOAD_TYPE=(
   YCSB_W0
-  YCSB_W20
-  YCSB_W40
-  YCSB_W60
-  YCSB_W80
-  YCSB_W100
+  # YCSB_W20
+  # YCSB_W40
+  # YCSB_W60
+  # YCSB_W80
+  # YCSB_W100
 )
 
 # it may take long to get third-party dependencies, so don't delete _deps
@@ -81,7 +81,7 @@ for workload in "${WORKLOAD_TYPE[@]}"; do
   # build
   cmake -DCMAKE_BUILD_TYPE=Release -DUSE_NUMA_NODE=${NUMA_AFFINITY} \
     ${WITH_OTHERS} -DINDEX_TYPE=${INDEX_TYPE} ${IDX_PERSISTENT} ${PACMAN_OPT} \
-    -DNUM_KEYS=200000000 -DNUM_OPS_PER_THREAD=25000000 -DVALUE_SIZE=44\
+    -DNUM_KEYS=200000000 -DNUM_OPS_PER_THREAD=25000000 -DVALUE_SIZE=44 \
     -DNUM_WARMUP_OPS_PER_THREAD=25000000 -DNUM_GC_THREADS=4 \
     -DYCSB_TYPE=${workload} -DSKEW=${SKEW} ..
 
@@ -92,10 +92,10 @@ for workload in "${WORKLOAD_TYPE[@]}"; do
   numactl --membind=${NUMA_AFFINITY} --cpunodebind=${NUMA_AFFINITY} \
     ${TARGET_CMD} --benchmark_repetitions=1 ${FILTER} \
     --benchmark_out=${TMP_OUTPUT} --benchmark_out_format=json
-  cat ${TMP_OUTPUT} >> ${OUTPUT_FILE}
+  # cat ${TMP_OUTPUT} >> ${OUTPUT_FILE}
 
   sleep 5s
 done
-rm ${TMP_OUTPUT}
+# rm ${TMP_OUTPUT}
 
 # sudo cpupower frequency-set --governor powersave > /dev/null

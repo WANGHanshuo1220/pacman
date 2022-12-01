@@ -117,6 +117,10 @@ void LogCleaner::CleanerEntry() {
       //       count = 0;
       //     }
       //   }
+      //   else
+      //   {
+      //     usleep(10);
+      //   }
       // }
       // else
       // {
@@ -439,7 +443,6 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment, bool help) {
 
   if (backup_segment == nullptr) {
     backup_segment = segment;
-    backup_segment->set_reserved();
   } else {
     std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_t]);
     log_->free_segments_class[class_t].push_back(segment);
@@ -562,7 +565,6 @@ void LogCleaner::CompactSegment0(LogSegment *segment, bool help) {
 
   if (backup_segment == nullptr) {
     backup_segment = segment;
-    backup_segment->set_reserved();
   } else {
     std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_t]);
     log_->free_segments_class[class_t].push_back(segment);
@@ -678,7 +680,6 @@ void LogCleaner::CompactSegment123(LogSegment *segment) {
   segment->Clear();
   if (backup_segment_ == nullptr) {
     backup_segment_ = segment;
-    backup_segment_->set_reserved();
   } else {
     std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_]);
     log_->free_segments_class[class_].push_back(segment);
@@ -703,7 +704,6 @@ void LogCleaner::FreezeReservedAndGetNew(bool help) {
   }
   reserved_segment = backup_segment;
   reserved_segment->StartUsing(false);
-  reserved_segment->set_reserved();
   backup_segment = nullptr;
 }
 
@@ -781,13 +781,14 @@ void LogCleaner::DoMemoryClean(bool help)
     std::list<LogSegment *>::iterator gc_it = to_compact_segments_.end();
 
     for (auto it = to_compact_segments_.begin();
-         it != to_compact_segments_.end(); it++) {
+         it != to_compact_segments_.end();) {
+      assert(*it);
       double cur_garbage_proportion = (*it)->GetGarbageProportion();
       if(cur_garbage_proportion >= 1)
       {
         quick_c ++;
         segment = *it;
-        to_compact_segments_.erase(it);
+        it = to_compact_segments_.erase(it);
         segment->Clear();
 
         {
@@ -805,6 +806,7 @@ void LogCleaner::DoMemoryClean(bool help)
           max_garbage_proportion = cur_garbage_proportion;
           gc_it = it;
         }
+        it++;
       }
     }
 

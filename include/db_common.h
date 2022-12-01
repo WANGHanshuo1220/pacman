@@ -205,7 +205,8 @@ enum hash_sc_status {Unused, Using};
 struct hash_sc
 {
   SpinLock lock;
-  volatile bool first = true;
+  std::atomic_bool first = true;
+  std::atomic_bool valide = true;
   uint64_t addr = INVALID_VALUE;
   std::string value = "default";
 };

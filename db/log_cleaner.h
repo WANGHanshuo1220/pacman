@@ -84,11 +84,9 @@ class LogCleaner {
     tmp_cleaner_garbage_bytes_.resize(db->num_cleaners_, 0);
     if (reserved_segment_) {
       reserved_segment_->StartUsing(false);
-      reserved_segment_->set_reserved();
     }
     if (reserved_helper_segment_) {
       reserved_helper_segment_->StartUsing(false);
-      reserved_helper_segment_->set_reserved();
     }
 #ifdef BATCH_COMPACTION
     volatile_segment_ = new VirtualSegment(SEGMENT_SIZE[class_]);
@@ -212,7 +210,7 @@ class LogCleaner {
     }
   }
 
-  int gap[num_class] = {-1, 10, 20};
+  int gap[num_class] = {-1, 20, 40};
   int sort_range[num_class];
   int num_worker = 0;
   int worker_range = 0;

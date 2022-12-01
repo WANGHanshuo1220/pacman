@@ -28,7 +28,7 @@ static constexpr int HEADER_ALIGN_SIZE = 256;
  * tail pointer (offset): 4 bytes
  * status: free, in-used, close
  */
-enum SegmentStatus { StatusAvailable, StatusUsing, StatusClosed, StatusCleaning, StatusReserved, StatusRB, StatusToUse };
+enum SegmentStatus { StatusAvailable, StatusUsing, StatusClosed};
 class BaseSegment {
  public:
 
@@ -40,16 +40,15 @@ class BaseSegment {
 
     void Flush() {
 #ifdef LOG_PERSISTENT
-      // clflushopt_fence(this, sizeof(Header));
+      clflushopt_fence(this, sizeof(Header));
 #endif
     }
   };
 
-  // static constexpr uint32_t HEADERS_SIZE = sizeof(Header);
-  // static constexpr uint32_t SEGMENT_DATA_SIZE = (SEGMENT_SIZE - HEADERS_SIZE);
+  static constexpr uint32_t HEADERS_SIZE = sizeof(Header);
   static constexpr uint32_t BYTES_PER_BIT = 32;
   static constexpr uint32_t BITMAP_SIZE =
-      (SEGMENT_SIZE[0] / BYTES_PER_BIT + 7) / 8;
+      ((SEGMENT_SIZE[0] - HEADERS_SIZE) / BYTES_PER_BIT + 7) / 8;
 
   int cur_cnt_ = 0;
 #ifdef GC_EVAL
@@ -63,7 +62,7 @@ class BaseSegment {
 
   BaseSegment(char *start_addr, size_t size)
       : segment_start_(start_addr),
-        data_start_(start_addr),
+        data_start_(start_addr + HEADERS_SIZE),
         end_(start_addr + size) {}
 
   virtual ~BaseSegment() {}
@@ -120,8 +119,11 @@ class BaseSegment {
   void set_has_shortcut(bool has_shortcut) { has_shortcut_ = has_shortcut; }
 
  protected:
-  char *const segment_start_; // const
-  Header *header_;
+  union
+  {
+    char *const segment_start_; // const
+    Header *header_;
+  };
   char *const data_start_;
   char *const end_; // const
   char *tail_;
@@ -134,37 +136,28 @@ class BaseSegment {
 class LogSegment : public BaseSegment {
  public:
   LogSegment(char *start_addr, uint64_t size,
-             int class__, int id, int channel)
-      : BaseSegment(start_addr, size), garbage_bytes_(0),
-        class_(class__), channel_(channel) {
-    // assert(((uint64_t)header_ & (HEADER_ALIGN_SIZE - 1)) == 0);
-    assert(((uint64_t)segment_start_ & (HEADER_ALIGN_SIZE - 1)) == 0);
-    seg_id = id;
-    Init();
+             int class__, int id, int channel, bool init = true)
+      : BaseSegment(start_addr, size), garbage_bytes_(0), seg_id(id),
+        class_(class__), channel_(channel), SEGMENT_SIZE_(size) {
+    assert(((uint64_t)header_ & (HEADER_ALIGN_SIZE - 1)) == 0);
+    if(init)
+    {
+      Init();
+    }
   }
 
   uint64_t get_seg_id() { return seg_id; }
-  void set_seg_id(uint64_t a) { seg_id = a; }
   void set_using() { header_->status = StatusUsing; }
-  void set_touse() { header_->status = StatusToUse; }
   void set_available() { header_->status = StatusAvailable; }
   bool is_segment_available() { return header_->status == StatusAvailable; }
   bool is_segment_closed() { return header_->status == StatusClosed; }
   bool is_segment_using() { return header_->status == StatusUsing; }
-  bool is_segment_touse() { return header_->status == StatusToUse; }
-  bool is_segment_cleaning() { return header_->status == StatusCleaning; }
-  bool is_segment_reserved() { return header_->status == StatusReserved; }
-  bool is_segment_RB() { return header_->status == StatusRB; }
-  void set_cleaning() { header_->status = StatusCleaning; }
-  void set_reserved() { header_->status = StatusReserved; }
-  void set_RB() { header_->status = StatusRB; }
   uint8_t  get_status() { return header_->status; }
   void set_status(uint8_t s) { header_->status = s; }
   float get_util() const { return (float)get_offset()/get_data_space(); }
   int get_channel() { return channel_; }
 
   uint32_t num_kvs = 0;
-  std::atomic_flag RB_flag{ATOMIC_FLAG_INIT};
   std::vector<record_info> roll_back_map;
 
   void init_RB_map()
@@ -179,14 +172,14 @@ class LogSegment : public BaseSegment {
     num_kvs -= a;
   }
 
+  void Flush_Header() { header_->Flush(); }
+
   uint16_t get_num_kvs() { return num_kvs; }
   void clear_num_kvs() { num_kvs = 0; }
 
   void Init() {
-    header_ = new Header;
     tail_ = data_start_;
     header_->status = StatusAvailable;
-    SEGMENT_SIZE_ = SEGMENT_SIZE[class_];
     if(class_ == 0) InitBitmap();
     else init_RB_map();
     garbage_bytes_ = 0;
@@ -230,7 +223,6 @@ class LogSegment : public BaseSegment {
   }
 
   virtual ~LogSegment() {
-    if(header_) delete header_;
 #ifdef REDUCE_PM_ACCESS
     if (volatile_tombstone_) {
       free(volatile_tombstone_);
@@ -244,11 +236,11 @@ class LogSegment : public BaseSegment {
 #endif
   }
 
-  void StartUsing(bool has_shortcut = false) {
+  void StartUsing(bool is_hot, bool has_shortcut = false) {
     header_->status = StatusUsing;
     header_->has_shortcut = has_shortcut;
     header_->Flush();
-    // is_hot_ = is_hot;
+    is_hot_ = is_hot;
 #ifdef GC_SHORTCUT
     has_shortcut_ = has_shortcut;
     InitShortcutBuffer();
@@ -273,6 +265,7 @@ class LogSegment : public BaseSegment {
       shortcut_buffer_ = nullptr;
     }
 #endif
+    is_hot_ = false;
     header_->offset = get_offset();
     header_->objects_tail_offset = get_offset();
     header_->has_shortcut = has_shortcut_;
@@ -449,7 +442,7 @@ class LogSegment : public BaseSegment {
   
  private:
   uint64_t close_time_ = 0;
-  uint64_t seg_id = 0;
+  const uint64_t seg_id = 0;
 #ifdef REDUCE_PM_ACCESS
   uint8_t *volatile_tombstone_ = nullptr;
 #endif
@@ -458,7 +451,7 @@ class LogSegment : public BaseSegment {
   bool is_hot_ = false;
   const int class_ = 0;
   const int channel_ = 0;
-  uint64_t SEGMENT_SIZE_ = 0;
+  const uint64_t SEGMENT_SIZE_ = 0;
 
 #ifdef GC_SHORTCUT
   std::vector<Shortcut> *shortcut_buffer_ = nullptr;

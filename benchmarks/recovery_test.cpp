@@ -253,25 +253,29 @@ int main(int argc, char **argv) {
     double init_size = (double)FLAGS_num * object_size;
     uint64_t total_size = init_size * 100. / FLAGS_init_utilization;
     FLAGS_log_size =
-        (total_size + SEGMENT_SIZE - 1) / SEGMENT_SIZE * SEGMENT_SIZE;
-    if (FLAGS_log_size < init_size + FLAGS_threads * SEGMENT_SIZE * 2) {
+        (total_size + SEGMENT_SIZE[0] - 1) / SEGMENT_SIZE[0] * SEGMENT_SIZE[0];
+    if (FLAGS_log_size < init_size + FLAGS_threads * SEGMENT_SIZE[0] * 2) {
       printf("Warning: not enough space for free segment per thread\n");
-      FLAGS_log_size = init_size + FLAGS_threads * SEGMENT_SIZE;
+      FLAGS_log_size = init_size + FLAGS_threads * SEGMENT_SIZE[0];
     }
     printf("object size %d Log size %lu num of segments %lu\n", object_size,
-           FLAGS_log_size, FLAGS_log_size / SEGMENT_SIZE);
+           FLAGS_log_size, FLAGS_log_size / SEGMENT_SIZE[0]);
   } else {
     // infinity log space <=> no gc
     uint64_t total_put_ops = FLAGS_num + (uint64_t)FLAGS_num_ops *
                                              (YCSB_Put_Ratio[ycsb_type] + 10) /
                                              100 * FLAGS_threads;
-    FLAGS_log_size = total_put_ops * object_size + FLAGS_threads * SEGMENT_SIZE;
+    FLAGS_log_size = total_put_ops * object_size + FLAGS_threads * SEGMENT_SIZE[0];
     FLAGS_gc_threads = 0;
   }
   DB *db = nullptr;
-  std::string db_path = std::string(PMEM_DIR) + "log_kvs";
-  std::experimental::filesystem::remove_all(db_path);
-  std::experimental::filesystem::create_directory(db_path);
+  std::string db_path[num_channel];
+  for(int i = 0; i < num_channel; i++)
+  {
+    db_path[i] = std::string(PMEM_DIR[i]) + "log_kvs_IGC";
+    std::experimental::filesystem::remove_all(db_path[i]);
+    std::experimental::filesystem::create_directory(db_path[i]);
+  }
   db = new DB(db_path, FLAGS_log_size, FLAGS_threads, FLAGS_gc_threads);
   // initialize
   std::vector<KeyType> keys;

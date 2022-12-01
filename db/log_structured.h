@@ -91,7 +91,6 @@ class LogStructured {
   const int class2_sz = 240/2; // MB
   std::vector<int> class_sz = {0, class1_sz, class2_sz};
 
-  std::atomic<int> num_free_segments_{0};
   std::atomic<int> alloc_counter_{0};
   const int num_limit_free_segments_;
   volatile int clean_threshold_[num_class] = 

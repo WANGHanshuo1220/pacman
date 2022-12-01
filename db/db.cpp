@@ -21,6 +21,9 @@ static_assert(false, "error index kind");
 DB::DB(std::string db_path[], size_t log_size, int num_workers, int num_cleaners)
     : num_workers_(num_workers),
       num_cleaners_(num_cleaners),
+#ifdef HOT_SC
+      hot_set_status_(num_workers),
+#endif
       thread_status_(num_workers) {
 #if defined(USE_PMDK) && defined(IDX_PERSISTENT)
   g_index_allocator = new PMDKAllocator(db_path[0] + "/idx_pool", IDX_POOL_SIZE);
@@ -57,35 +60,13 @@ DB::DB(std::string db_path[], size_t log_size, int num_workers, int num_cleaners
 };
 
 DB::~DB() {
-  // printf("update c = %ld\n", hot_key_set_->update.load());
-  // printf("avg hit rate = %ld\n", hot_key_set_->hit_rate.load()/hot_key_set_->c.load());
-  // printf("max hit rate = %ld\n", hot_key_set_->hit_rate_max.load());
-  // printf("min hit rate = %ld\n", hot_key_set_->hit_rate_min.load());
-  // printf("cold   append time = %ld ms\t, puts = %ld\t, (%.2f ns/put)\n",
-  //   AP_t[0]/(num_workers_ * 1000000), put_c[0].load(), (float)AP_t[0]/put_c[0].load());
-  // printf("hot    append time = %ld ms\t, puts = %ld\t, (%.2f ns/put)\n",
-  //   AP_t[1]/(num_workers_ * 1000000), put_c[1].load(), (float)AP_t[1]/put_c[1].load());
-  // printf("class1 append time = %ld ms\t, puts = %ld\t, (%.2f ns/put)\n",
-  //   AP_t[2]/(num_workers_ * 1000000), put_c[2].load(), (float)AP_t[2]/put_c[2].load());
-  // printf("class2 append time = %ld ms\t, puts = %ld\t, (%.2f ns/put)\n",
-  //   AP_t[3]/(num_workers_ * 1000000), put_c[3].load(), (float)AP_t[3]/put_c[3].load());
-  // printf("total append time  = %ld\n",
-  //   (AP_t[0] + AP_t[1] + AP_t[2] + AP_t[3])/(num_workers_ * 1000000));
-  // uint64_t c = 0;
-  // for(int i = 0; i < num_class; i++)
-  // {
-  //   // c += put_c[i].load();
-  //   printf("class %d puts = %lu\n", i, put_c[i].load());
-  //   // printf("class %d RB_c = %d\n", i, RB_class[i].load());
-  // }
-  // printf("total puts = %ld\n", puts.load());
-  // printf("total gets = %ld\n", get_c.load());
-  // printf("total oprs = %ld\n", get_c.load() + c);
-  // printf("RB_C = %ld, RB_bytes = %ld KB (%ld MB)\n",
-  //   roll_back_count.load(), roll_back_bytes.load()/1024,
-  //   roll_back_bytes/(1024*1024));
-  // printf("t_get_time = %ld ns, %ld ns/opr\n", t_get_time.load(), t_get_time.load()/t_get_c.load());
-  // printf("t_put_time = %ld ns, %ld ns/opr\n", t_put_time.load(), t_put_time.load()/t_put_c.load());
+  // printf("avg MKI_T = %.2f us\n", (double)MKI_T.load()/t_put_c);
+  // printf("avg UDI_T = %.2f us\n", (double)UDI_T.load()/t_put_c);
+  // printf("avg PID_T = %.2f us\n", (double)PID_T.load()/t_put_c);
+  // printf("avg MKG_T = %.2f us\n", (double)MKG_T.load()/t_put_c);
+  // printf("read_c = %ld, read_t = %ld ns ( %.2f ns )\n",
+  //   t_get_c.load(), t_get_time.load(), 
+  //   (float)t_get_time.load()/t_get_c.load());
 
   delete log_;
   delete index_;
@@ -99,14 +80,18 @@ DB::~DB() {
   hot_key_set_ = nullptr;
 #endif
 #ifdef HOT_SC
-  uint64_t t = 0;
-  for(auto it = hot_sc.begin();
-      it != hot_sc.end(); it++)
+  if(has_hot_set())
   {
-    t += it->second->lock.get_contendedTime();
-    delete it->second;
+    uint64_t t = 0;
+    for(auto it = hot_sc->begin();
+        it != hot_sc->end(); it++)
+    {
+      t += it->second->lock.get_contendedTime();
+      delete it->second;
+    }
+    delete hot_sc;
+    printf("total contendedTime = %ld\n", t);
   }
-  printf("total contendedTime = %ld\n", t);
 #endif
 }
 
@@ -117,16 +102,26 @@ bool DB::has_hot_set()
   else return hot_key_set_->has_hot_set();
 }
 
+bool DB::not_changing()
+{
+  return hot_key_set_->not_changing();
+}
+
+bool DB::is_changing()
+{
+  return hot_key_set_->is_changing();
+}
+
 bool DB::has_key_in_sc(KeyType key, std::string *value)
 {
   bool ret = false;
-  if(has_hot_set())
+  if(has_hot_set() && not_changing())
   {
-    if(hot_sc.find(key) != hot_sc.end())
+    if(hot_sc->find(key) != hot_sc->end())
     {
-      if(hot_sc[key]->addr != INVALID_VALUE)
+      if((*hot_sc)[key]->value != "default")
       {
-        *value = hot_sc[key]->value;
+        *value = (*hot_sc)[key]->value;
         ret = true;
       }
     }
@@ -136,29 +131,53 @@ bool DB::has_key_in_sc(KeyType key, std::string *value)
 
 void DB::GetValue(KeyType key, std::string *value)
 {
-  *value = hot_sc[key]->value;
+  *value = (*hot_sc)[key]->value;
 }
 
-void DB::update_hot_sc(const Slice &key, LogEntryHelper &le_helper, const Slice &value)
+void DB::update_hot_sc(const Slice &key, LogEntryHelper &le_helper,
+                       const Slice &value, uint32_t version)
 {
   KeyType k = *(KeyType *)key.data();
   ValueType tagged_addr = le_helper.new_val;
   ValueType old_val = 0;
+  assert(hot_sc);
+  assert(hot_sc->find(k) != hot_sc->end());
   {
-    std::lock_guard<SpinLock> lock(hot_sc[k]->lock);
-    if(hot_sc[k]->first)
+    std::lock_guard<SpinLock> lock((*hot_sc)[k]->lock);
+    if((*hot_sc)[k]->first == true)
     {
-      hot_sc[k]->first = false;
+      (*hot_sc)[k]->first = false;
       old_val = index_->Get(key);
     }
     else
     {
-      old_val = hot_sc[k]->addr;
+      old_val = (*hot_sc)[k]->addr;
     }
-    hot_sc[k]->addr   = tagged_addr;
-    hot_sc[k]->value  = value.data();
+    (*hot_sc)[k]->addr   = tagged_addr;
+    (*hot_sc)[k]->value  = value.data();
   }
   le_helper.old_val = old_val;
+}
+
+bool DB::mark_invalide(const Slice key, LogEntryHelper &le_helper)
+{
+  bool ret = true;
+  KeyType k = *(KeyType *)key.data();
+  if(hot_sc->find(k) != hot_sc->end())
+  {
+    std::lock_guard<SpinLock> lock((*hot_sc)[k]->lock);
+    index_->Put(key, le_helper);
+    if((*hot_sc)[k]->valide == true)
+    {
+      (*hot_sc)[k]->valide = false;
+      le_helper.old_val = (*hot_sc)[k]->addr;
+    }
+  }
+  else
+  {
+    ret = false;
+  }
+  return ret;
 }
 
 void DB::check_val_addr(const Slice key, ValueType addr)
@@ -247,6 +266,10 @@ DB::Worker::~Worker() {
   // db_->t_put_time += put_time;
   // db_->t_get_c += get_c;
   // db_->t_put_c += put_c;
+  // db_->MKI_T += MKI_t;
+  // db_->UDI_T += UDI_t;
+  // db_->PID_T += PID_t;
+  // db_->MKG_T += MKG_t;
 #ifdef LOG_BATCHING
   for(int i = 0; i < num_class; i++)
   {
@@ -272,13 +295,15 @@ DB::Worker::~Worker() {
 }
 
 bool DB::Worker::Get(const Slice &key, std::string *value) {
-  // db_->get_c.fetch_add(1);
   // get_c++;
-  // Timer time(get_time);
   bool ret = false;
+  ValueType val;
 #ifdef HOT_SC
   KeyType k = *(KeyType *)key.data();
-  if((ret = db_->has_key_in_sc(k, value)))
+  db_->hot_set_status_.rcu_progress(worker_id_);
+  ret = db_->has_key_in_sc(k, value);
+  db_->hot_set_status_.rcu_progress(worker_id_);
+  if(ret)
   {
     return ret;
   }
@@ -294,7 +319,10 @@ bool DB::Worker::Get(const Slice &key, std::string *value) {
   }
 #else
   db_->thread_status_.rcu_progress(worker_id_);
-  ValueType val = db_->index_->Get(key);
+  {
+    // Timer time(get_time);
+    val = db_->index_->Get(key);
+  }
   if (val != INVALID_VALUE) {
     TaggedPointer(val).GetKVItem()->GetValue(*value);
     ret = true;
@@ -318,12 +346,20 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
   int class_t = db_->hot_key_set_->Exist(key);
 
   // sub-opr 2 : make a new kv item, append it at the end of the segment;
-  ValueType tagged_addr = MakeKVItem(key, value, class_t);
+  ValueType tagged_addr;
+  uint32_t version;
+  {
+    // Timer time1(MKI_t);
+    tagged_addr = MakeKVItem(key, value, class_t, &version);
+  }
 
   // sub-opr 3 : update index;
+  // {
+    // Timer time2(UDI_t);
 #ifndef LOG_BATCHING
-  UpdateIndex(key, tagged_addr, value, class_t);
+  UpdateIndex(key, tagged_addr, value, class_t, version);
 #endif
+  // }
 }
 
 size_t DB::Worker::Scan(const Slice &key, int cnt) {
@@ -419,10 +455,11 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 }
 #else
 ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
-                                 int class_t) {
+                                 int class_t, uint32_t *version) {
   ValueType ret = INVALID_VALUE;
   uint64_t i_key = *(uint64_t *)key.data();
   uint32_t epoch = db_->GetKeyEpoch(i_key);
+  *version = epoch;
 
   uint32_t sz = sizeof(KVItem) + key.size() + value.size();
   LogSegment *segment = nullptr;
@@ -440,6 +477,7 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     accumulative_sz_class[class_t] += sz;
     if(accumulative_sz_class[class_t] > db_->get_threshold(class_t))
     {
+      // log_head_class[class_t]->Flush_Header();
       db_->get_class_segment(class_t, worker_id_, 
                              &log_head_class[class_t], &class_seg_working_on[class_t]);
       accumulative_sz_class[class_t] = sz;
@@ -512,18 +550,30 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 #endif
 
 void DB::Worker::UpdateIndex(const Slice &key, ValueType tagged_addr, 
-                 const Slice &value, int class_t) {
+                 const Slice &value, int class_t, uint32_t version) {
   LogEntryHelper le_helper(tagged_addr);
+  // {
+    // Timer time1(PID_t);
 #ifdef HOT_SC
   if(class_t > 0)
   {
     le_helper.is_hot_sc = true;
-    db_->update_hot_sc(key, le_helper, value);
+    db_->update_hot_sc(key, le_helper, value, version);
+  }
+  else if(db_->is_changing())
+  {
+    db_->hot_set_status_.rcu_progress(worker_id_);
+    if(!db_->mark_invalide(key, le_helper))
+    {
+      db_->index_->Put(key, le_helper);
+    }
+    db_->hot_set_status_.rcu_exit(worker_id_);
   }
   else db_->index_->Put(key, le_helper);
 #else
   db_->index_->Put(key, le_helper);
 #endif
+  // }
 
 #ifdef GC_SHORTCUT
 #ifdef HOT_COLD_SEPARATE
@@ -538,6 +588,8 @@ void DB::Worker::UpdateIndex(const Slice &key, ValueType tagged_addr,
 #endif
 
   // mark old garbage
+  // {
+    // Timer time2(MKG_t);
   if (le_helper.old_val != INVALID_VALUE) {
 #ifdef HOT_COLD_SEPARATE
     db_->thread_status_.rcu_progress(worker_id_);
@@ -547,6 +599,7 @@ void DB::Worker::UpdateIndex(const Slice &key, ValueType tagged_addr,
 
     MarkGarbage(le_helper.old_val);
   }
+  // }
 }
 
 void DB::Worker::MarkGarbage(ValueType tagged_val) {
@@ -579,6 +632,7 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
 
     uint32_t sz = segment->roll_back_map[num_].kv_sz * kv_align;
     segment->add_garbage_bytes(sz);
+    assert(segment->roll_back_map[num_].is_garbage == 0);
     segment->roll_back_map[num_].is_garbage = 1;
   }
 }

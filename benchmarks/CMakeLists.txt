@@ -19,6 +19,7 @@ set(BENCHMARK_FILES
 add_executable(pacman_bench ${BENCHMARK_FILES} ${DB_FILES})
 # target_link_libraries(pacman_bench benchmark::benchmark ${PMEM} ${PMEMOBJ} jemalloc)
 target_link_libraries(pacman_bench benchmark::benchmark ${PMEM} ${PMEMOBJ} /home/wanghanshuo/jemalloc_build/lib/libjemalloc.so)
+# target_link_libraries(pacman_bench benchmark::benchmark /home/wanghanshuo/pmdk_install/lib /home/wanghanshuo/jemalloc_build/lib/libjemalloc.so)
 if (INDEX_TYPE EQUAL 1)
   target_link_libraries(pacman_bench cceh)
 elseif (INDEX_TYPE EQUAL 2)

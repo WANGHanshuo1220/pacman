@@ -22,6 +22,24 @@ HotKeySet::~HotKeySet() {
       delete current_set_class[i];
     }
   }
+#ifdef HOT_SC
+  if(new_hot_sc)
+  {
+    for(auto it = new_hot_sc->begin(); it != new_hot_sc->end(); it++)
+    {
+      delete it->second;
+    }
+    delete new_hot_sc;
+  }
+  if(old_hot_sc)
+  {
+    for(auto it = old_hot_sc->begin(); it != old_hot_sc->end(); it++)
+    {
+      delete it->second;
+    }
+    delete old_hot_sc;
+  }
+#endif
 }
 
 void HotKeySet::Record(const Slice &key, int worker_id, int class_t) {
@@ -71,7 +89,11 @@ void HotKeySet::BeginUpdateHotKeySet() {
 
 int HotKeySet::Exist(const Slice &key) {
   uint64_t i_key = *(uint64_t *)key.data();
+#ifdef HOT_SC
+  if(current_set_class[0] == nullptr || !not_changing())
+#else
   if(current_set_class[0] == nullptr)
+#endif
   {
     return -1;
   }
@@ -88,6 +110,14 @@ int HotKeySet::Exist(const Slice &key) {
 }
 
 void HotKeySet::UpdateHotSet() {
+#ifdef HOT_SC
+  if(has_hot_set())
+  {
+    printf("hot set changing\n");
+    old_hot_sc = db_->hot_sc;
+    changing_status = Changing;
+  }
+#endif
   // bind_core_on_numa(db_->num_workers_);
 
   std::unordered_map<uint64_t, int> count;
@@ -160,21 +190,58 @@ void HotKeySet::UpdateHotSet() {
   }
 
 #ifdef HOT_SC
+  // db_->hot_sc = new std::unorder_map<KeyType, struct hash_sc*>;
+  new_hot_sc = new Map();
   for(int i = 1; i < new_set_class.size(); i++)
   {
     for(auto it = new_set_class[i]->begin(); 
         it != new_set_class[i]->end(); it++)
     {
-      db_->hot_sc[*it] = new hash_sc;
+      (*new_hot_sc)[*it] = new hash_sc;
     }
   }
-  has_hot_set_.store(true);
-#endif
 
+  if(is_changing())
+  {
+    for(auto it = old_hot_sc->begin(); it != old_hot_sc->end(); it++)
+    {
+      {
+        std::lock_guard<SpinLock> lock(it->second->lock);
+        if(it->second->valide == true)
+        {
+          it->second->valide = false;
+          db_->index_->update_idx(it->first, it->second->addr);
+        }
+      }
+    }
+
+    changing_status = ChangingDone;
+    db_->hot_set_status_.rcu_barrier();
+    db_->hot_sc = new_hot_sc;
+    new_hot_sc = nullptr;
+    for(int i = 0; i < num_class; i++)
+    {
+      current_set_class[i] = new_set_class[i];
+    }
+    changing_status = NotChanging;
+    printf("hot set changing done...\n");
+  }
+  else
+  {
+    db_->hot_sc = new_hot_sc;
+    new_hot_sc = nullptr;
+    for(int i = 0; i < num_class; i++)
+    {
+      current_set_class[i] = new_set_class[i];
+    }
+    has_hot_set_.store(true);
+  }
+#else
   for(int i = 0; i < num_class; i++)
   {
     current_set_class[i] = new_set_class[i];
   }
+#endif
   db_->thread_status_.rcu_barrier();
   for (int i = 0; i < db_->num_workers_; i++) {
     // need_record_ is false, other threads cannot operate on records
@@ -189,6 +256,18 @@ void HotKeySet::UpdateHotSet() {
       delete old_set_class[i];
     }
   }
+
+#ifdef HOT_SC
+  if(old_hot_sc)
+  {
+    for(auto it = old_hot_sc->begin(); it != old_hot_sc->end(); it++)
+    {
+      delete it->second;
+    }
+    delete old_hot_sc;
+    old_hot_sc = nullptr;
+  }
+#endif
 
   update_schedule_flag_.clear(std::memory_order_relaxed);
   need_count_hit_ = true;

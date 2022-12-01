@@ -12,6 +12,9 @@
 #include "util/lock.h"
 #include "db_common.h"
 
+typedef std::unordered_map<KeyType, struct hash_sc*> Map;
+enum {NotChanging, Changing, ChangingDone};
+
 static size_t HOT_NUM = 256 * 1024;
 static constexpr int RECORD_BATCH_CNT = 4096;
 static constexpr size_t RECORD_BUFFER_SIZE = 16 * 1024;
@@ -55,7 +58,12 @@ class HotKeySet {
       return 0;
   }
 #ifdef HOT_SC
+  Map *old_hot_sc = nullptr;
+  Map *new_hot_sc = nullptr;
   bool has_hot_set() { return has_hot_set_.load(); }
+  bool is_changing() { return changing_status.load() == Changing; }
+  bool not_changing() { return changing_status.load() == NotChanging; }
+  bool changing_done() { return changing_status.load() == ChangingDone; }
 #endif
 
  private:
@@ -69,6 +77,7 @@ class HotKeySet {
   std::atomic_bool stop_flag_{false};
 #ifdef HOT_SC
   std::atomic_bool has_hot_set_{false};
+  std::atomic<int> changing_status = NotChanging;
 #endif
 
   void UpdateHotSet();
