@@ -137,8 +137,8 @@ LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
       {
         all_segments_[i] =
             new LogSegment(pool_start[channel], SEGMENT_SIZE[0], 0, i, channel);
-        free_segments_class[0].push_back(all_segments_[i]);
-        // free_segments_class0[channel].push_back(all_segments_[i]);
+        // free_segments_class[0].push_back(all_segments_[i]);
+        free_segments_class0[channel].push_back(all_segments_[i]);
         pool_start[channel] += SEGMENT_SIZE[0];
         num_free_list_class[0] ++;
         channel++;
@@ -366,43 +366,43 @@ LogSegment *LogStructured::NewSegment(int class_t) {
   while (true) {
     if (num_free_list_class[class_t_] > 0) {
       std::lock_guard<SpinLock> guard(class_list_lock_[class_t_]);
-//       if(class_t_ == 0)
-//       {
-// here:
-//         for(int i = 0; i < num_channel; i ++)
-//         {
-//           if (!free_segments_class0[cur_channel].empty())
-//           {
-//             ret = free_segments_class0[cur_channel].front();
-//             free_segments_class0[cur_channel].pop_front();
-//             --num_free_list_class[0];
-//             cur_channel ++;
-//             cur_channel = cur_channel % num_channel;
-//             goto out;
-//           }
-//           cur_channel ++;
-//           cur_channel = cur_channel % num_channel;
-//         }
-//       }
-//       // else if(class_t == 0)
-//       // {
-//       //   for(int i = 0; i < num_channel/2; i ++)
-//       //   {
-//       //     if (!free_segments_class0[cur_channel0].empty())
-//       //     {
-//       //       ret = free_segments_class0[cur_channel0].front();
-//       //       free_segments_class0[cur_channel0].pop_front();
-//       //       --num_free_list_class[0];
-//       //       cur_channel0 ++;
-//       //       cur_channel0 = cur_channel0 % (num_channel/2);
-//       //       goto out;
-//       //     }
-//       //     cur_channel0 ++;
-//       //     cur_channel0 = cur_channel0 % (num_channel/2);
-//       //   }
-//       //   goto here;
-//       // }
-//       else
+      if(class_t_ == 0)
+      {
+here:
+        for(int i = 0; i < num_channel; i ++)
+        {
+          if (!free_segments_class0[cur_channel].empty())
+          {
+            ret = free_segments_class0[cur_channel].front();
+            free_segments_class0[cur_channel].pop_front();
+            --num_free_list_class[0];
+            cur_channel ++;
+            cur_channel = cur_channel % num_channel;
+            goto out;
+          }
+          cur_channel ++;
+          cur_channel = cur_channel % num_channel;
+        }
+      }
+      // else if(class_t == 0)
+      // {
+      //   for(int i = 0; i < num_channel/2; i ++)
+      //   {
+      //     if (!free_segments_class0[cur_channel0].empty())
+      //     {
+      //       ret = free_segments_class0[cur_channel0].front();
+      //       free_segments_class0[cur_channel0].pop_front();
+      //       --num_free_list_class[0];
+      //       cur_channel0 ++;
+      //       cur_channel0 = cur_channel0 % (num_channel/2);
+      //       goto out;
+      //     }
+      //     cur_channel0 ++;
+      //     cur_channel0 = cur_channel0 % (num_channel/2);
+      //   }
+      //   goto here;
+      // }
+      else
       {
         if (!free_segments_class[class_t_].empty()) {
           ret = free_segments_class[class_t_].front();

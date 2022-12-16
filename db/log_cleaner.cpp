@@ -336,7 +336,7 @@ void LogCleaner::CopyValidItemToBuffer123(LogSegment *segment) {
     }
 #endif
     KVItem *kv = reinterpret_cast<KVItem *>(p);
-    uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
+    uint32_t sz = sizeof(KVItem) + (kv->key_size + kv->val_size) * kv_align;
     if (sz == sizeof(KVItem)) {
       break;
     }
@@ -392,7 +392,7 @@ void LogCleaner::CopyValidItemToBuffer0(LogSegment *segment, bool help) {
     }
 #endif
     KVItem *kv = reinterpret_cast<KVItem *>(p);
-    uint32_t sz = sizeof(KVItem) + kv->key_size + kv->val_size;
+    uint32_t sz = sizeof(KVItem) + (kv->key_size + kv->val_size) * kv_align;
     // if (sz == sizeof(KVItem)) {
     //   break;
     // }
@@ -436,6 +436,7 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment, bool help) {
 
   // free this segment
   segment->Clear();
+  // segment->gc_c++;
 
   LogSegment *&backup_segment = 
     help ? backup_helper_segment_ : backup_segment_;
@@ -446,11 +447,11 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment, bool help) {
     backup_segment = segment;
   } else {
     std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_t]);
-    // if(class_t == 0)
-    // {
-    //   log_->free_segments_class0[channel].push_back(segment);
-    // }
-    // else
+    if(class_t == 0)
+    {
+      log_->free_segments_class0[channel].push_back(segment);
+    }
+    else
     {
       log_->free_segments_class[class_t].push_back(segment);
     }

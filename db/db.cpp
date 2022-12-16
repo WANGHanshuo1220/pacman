@@ -612,13 +612,13 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
   LogSegment *segment = db_->log_->GetSegment(segment_id);
   int class_t = segment->get_class();
 
-  if(class_t == 0 || class_t == -1)
+  if(class_t == 0)
   {
     uint32_t sz = tp.size_or_num;
     if (sz == 0) {
       ERROR_EXIT("size == 0");
       KVItem *kv = tp.GetKVItem();
-      sz = sizeof(KVItem) + kv->key_size + kv->val_size;
+      sz = sizeof(KVItem) + (kv->key_size + kv->val_size) * kv_align;
     }
     segment->MarkGarbage(tp.GetAddr(), sz);
     int cleaner_id = db_->log_->GetSegmentCleanerID(tp.GetAddr());
@@ -635,7 +635,16 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
 
     uint32_t sz = segment->roll_back_map[num_].kv_sz * kv_align;
     segment->add_garbage_bytes(sz);
-    assert(segment->roll_back_map[num_].is_garbage == 0);
+    // if(segment->roll_back_map[num_].is_garbage != 0)
+    // {
+    //   printf("rb_c = %d\n", segment->rb_c);
+    //   printf("gc_c = %d\n", segment->gc_c);
+    //   printf("seg_id = %ld\n", segment->get_seg_id());
+    //   printf("seg_c = %d\n", segment->get_class());
+    //   printf("num_ = %d\n", num_);
+    //   printf("num_kv = %d\n", segment->num_kvs);
+    // }
+    // assert(segment->roll_back_map[num_].is_garbage == 0);
     segment->roll_back_map[num_].is_garbage = 1;
   }
 }
@@ -644,6 +653,7 @@ void DB::Worker::Roll_Back(LogSegment *segment)
 {
   // int class_t = segment->get_class();
   // db_->RB_class[class_t].fetch_add(1);
+  // segment->rb_c++;
   uint32_t n = segment->num_kvs;
   int roll_back_sz = 0;
   uint32_t RB_count = 0;

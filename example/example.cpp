@@ -293,7 +293,7 @@ static void BM_job3(benchmark::State& st)
 BENCHMARK(BM_job3)
   ->Iterations(1)
   // ->DenseThreadRange(6, 12, 6)
-  ->Threads(24)
+  ->Threads(12)
   ->Unit(benchmark::kMicrosecond)
   ->UseRealTime();
 

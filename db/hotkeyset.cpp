@@ -90,9 +90,9 @@ void HotKeySet::BeginUpdateHotKeySet() {
 int HotKeySet::Exist(const Slice &key) {
   uint64_t i_key = *(uint64_t *)key.data();
 #ifdef HOT_SC
-  if(!has_hot_set() || !not_changing())
+  if(current_set_class[num_class-1] == nullptr || !not_changing())
 #else
-  if(!has_hot_set())
+  if(current_set_class[num_class-1] == nullptr)
 #endif
   {
     return -1;

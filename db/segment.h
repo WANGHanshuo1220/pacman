@@ -160,6 +160,9 @@ class LogSegment : public BaseSegment {
   uint32_t num_kvs = 0;
   std::vector<record_info> roll_back_map;
 
+  // int rb_c = 0;
+  // int gc_c = 0;
+
   void init_RB_map()
   {
     roll_back_map.clear();
@@ -314,7 +317,6 @@ class LogSegment : public BaseSegment {
     tail_ += sz;
     ++cur_cnt_;
 
-    assert(sz%4 == 0);
     return TaggedPointer((char *)kv, sz, cur_num, class_);
   }
 
