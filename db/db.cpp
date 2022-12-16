@@ -245,14 +245,14 @@ DB::Worker::Worker(DB *db) : db_(db) {
   worker_id_ = db_->cur_num_workers_.fetch_add(1);
   tmp_cleaner_garbage_bytes_.resize(db_->num_cleaners_, 0);
 
-  // log_head_class[0] = db_->log_->NewSegment(0);
-  // log_head_cold_class0_ = db_->log_->NewSegment(0);
+  log_head_class[0] = db_->log_->NewSegment(0);
+  log_head_cold_class0_ = db_->log_->NewSegment(0);
 
-  // for(int i = 1; i < num_class; i++)
-  // {
-  //   db_->get_class_segment(i, worker_id_,
-  //                          &log_head_class[i], &class_seg_working_on[i]);
-  // }
+  for(int i = 1; i < num_class; i++)
+  {
+    db_->get_class_segment(i, worker_id_,
+                           &log_head_class[i], &class_seg_working_on[i]);
+  }
 
 #ifdef LOG_BATCHING
   buffer_queue_.resize(num_class);
