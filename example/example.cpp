@@ -44,7 +44,7 @@ void init_zipf();
 int get_random();
 void prepare_key_base();
 
-uint64_t NUM_KVS = 2000000;
+uint64_t NUM_KVS = 20000000;
 uint64_t dup_rate = 5000000;
 int num_workers = 24;
 int num_cleaners = 4;
@@ -180,12 +180,12 @@ void *prefilling()
     worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
   }
 
-  for(uint64_t i = 0; i <  prefilling_rate * log_size / kv_sz - dup_rate; i++)
-  {
-    key = zipf();
-    // key = uniform();
-    worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
-  }
+  // for(uint64_t i = 0; i <  prefilling_rate * log_size / kv_sz - dup_rate; i++)
+  // {
+  //   key = zipf();
+  //   // key = uniform();
+  //   worker->Put(Slice((const char *)&key, sizeof(uint64_t)), Slice(value));
+  // }
   worker.reset();
 }
 
@@ -293,7 +293,7 @@ static void BM_job3(benchmark::State& st)
 BENCHMARK(BM_job3)
   ->Iterations(1)
   // ->DenseThreadRange(6, 12, 6)
-  ->Threads(12)
+  ->Threads(24)
   ->Unit(benchmark::kMicrosecond)
   ->UseRealTime();
 

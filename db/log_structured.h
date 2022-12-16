@@ -84,6 +84,9 @@ class LogStructured {
 
   std::atomic<int> num_free_list_class[num_class] = {0, 0, 0};
   std::vector<std::deque<LogSegment *>> free_segments_class{num_class};
+  std::vector<std::deque<LogSegment *>> free_segments_class0{num_channel};
+  std::atomic<int> cur_channel = 0;
+  std::atomic<int> cur_channel0 = 0;
 
   std::vector<std::vector<LogSegment *>> class_segments_{num_class};
 

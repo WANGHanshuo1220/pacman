@@ -71,7 +71,8 @@ struct alignas(kv_align) KVItem {
 
   KVItem(const Slice &_key, const Slice &_val, uint32_t _epoch, uint32_t _num)
       : key_size(_key.size()), val_size(_val.size()), epoch(_epoch), num(_num) {
-    assert(val_size >= 8);
+    assert(key_size % 4 == 0);
+    assert(val_size % 4 == 0);
     memcpy(kv_pair, _key.data(), key_size);
     memcpy(kv_pair + key_size, _val.data(), val_size);
     // CalcChecksum();

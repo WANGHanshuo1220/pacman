@@ -57,10 +57,10 @@ class HotKeySet {
     else
       return 0;
   }
+  bool has_hot_set() { return has_hot_set_.load(); }
 #ifdef HOT_SC
   Map *old_hot_sc = nullptr;
   Map *new_hot_sc = nullptr;
-  bool has_hot_set() { return has_hot_set_.load(); }
   bool is_changing() { return changing_status.load() == Changing; }
   bool not_changing() { return changing_status.load() == NotChanging; }
   bool changing_done() { return changing_status.load() == ChangingDone; }
@@ -75,8 +75,8 @@ class HotKeySet {
   volatile bool need_record_ = false;
   volatile bool need_count_hit_ = true;
   std::atomic_bool stop_flag_{false};
-#ifdef HOT_SC
   std::atomic_bool has_hot_set_{false};
+#ifdef HOT_SC
   std::atomic<int> changing_status = NotChanging;
 #endif
 

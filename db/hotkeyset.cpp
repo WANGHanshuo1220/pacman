@@ -90,9 +90,9 @@ void HotKeySet::BeginUpdateHotKeySet() {
 int HotKeySet::Exist(const Slice &key) {
   uint64_t i_key = *(uint64_t *)key.data();
 #ifdef HOT_SC
-  if(current_set_class[0] == nullptr || !not_changing())
+  if(!has_hot_set() || !not_changing())
 #else
-  if(current_set_class[0] == nullptr)
+  if(!has_hot_set())
 #endif
   {
     return -1;
@@ -206,17 +206,22 @@ void HotKeySet::UpdateHotSet() {
     for(auto it = old_hot_sc->begin(); it != old_hot_sc->end(); it++)
     {
       {
-        std::lock_guard<SpinLock> lock(it->second->lock);
-        if(it->second->valide == true)
+        // std::lock_guard<SpinLock> lock(it->second->lock);
+        if(it->second->lock.try_lock())
         {
-          it->second->valide = false;
-          db_->index_->update_idx(it->first, it->second->addr);
+          if(it->second->valide == true)
+          {
+            it->second->valide = false;
+            if(it->second->addr != INVALID_VALUE) 
+              db_->index_->update_idx(it->first, it->second->addr);
+          }
         }
       }
     }
 
     changing_status = ChangingDone;
     db_->hot_set_status_.rcu_barrier();
+    printf("hot set half...\n");
     db_->hot_sc = new_hot_sc;
     new_hot_sc = nullptr;
     for(int i = 0; i < num_class; i++)

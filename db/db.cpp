@@ -165,12 +165,15 @@ bool DB::mark_invalide(const Slice key, LogEntryHelper &le_helper)
   KeyType k = *(KeyType *)key.data();
   if(hot_sc->find(k) != hot_sc->end())
   {
-    std::lock_guard<SpinLock> lock((*hot_sc)[k]->lock);
-    index_->Put(key, le_helper);
-    if((*hot_sc)[k]->valide == true)
+    // std::lock_guard<SpinLock> lock((*hot_sc)[k]->lock);
+    if((*hot_sc)[k]->lock.try_lock())
     {
-      (*hot_sc)[k]->valide = false;
-      le_helper.old_val = (*hot_sc)[k]->addr;
+      if((*hot_sc)[k]->valide == true)
+      {
+        (*hot_sc)[k]->valide = false;
+        if((*hot_sc)[k]->addr != INVALID_VALUE) 
+          le_helper.old_val = (*hot_sc)[k]->addr;
+      }
     }
   }
   else
@@ -242,14 +245,14 @@ DB::Worker::Worker(DB *db) : db_(db) {
   worker_id_ = db_->cur_num_workers_.fetch_add(1);
   tmp_cleaner_garbage_bytes_.resize(db_->num_cleaners_, 0);
 
-  log_head_class[0] = db_->log_->NewSegment(0);
-  log_head_cold_class0_ = db_->log_->NewSegment(0);
+  // log_head_class[0] = db_->log_->NewSegment(0);
+  // log_head_cold_class0_ = db_->log_->NewSegment(0);
 
-  for(int i = 1; i < num_class; i++)
-  {
-    db_->get_class_segment(i, worker_id_,
-                           &log_head_class[i], &class_seg_working_on[i]);
-  }
+  // for(int i = 1; i < num_class; i++)
+  // {
+  //   db_->get_class_segment(i, worker_id_,
+  //                          &log_head_class[i], &class_seg_working_on[i]);
+  // }
 
 #ifdef LOG_BATCHING
   buffer_queue_.resize(num_class);
@@ -560,16 +563,16 @@ void DB::Worker::UpdateIndex(const Slice &key, ValueType tagged_addr,
     le_helper.is_hot_sc = true;
     db_->update_hot_sc(key, le_helper, value, version);
   }
-  else if(db_->is_changing())
+  else 
   {
-    db_->hot_set_status_.rcu_progress(worker_id_);
-    if(!db_->mark_invalide(key, le_helper))
+    db_->index_->Put(key, le_helper);
+    if(db_->is_changing())
     {
-      db_->index_->Put(key, le_helper);
+      db_->hot_set_status_.rcu_progress(worker_id_);
+      db_->mark_invalide(key, le_helper);
+      db_->hot_set_status_.rcu_exit(worker_id_);
     }
-    db_->hot_set_status_.rcu_exit(worker_id_);
   }
-  else db_->index_->Put(key, le_helper);
 #else
   db_->index_->Put(key, le_helper);
 #endif

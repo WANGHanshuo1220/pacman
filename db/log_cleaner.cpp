@@ -440,12 +440,20 @@ void LogCleaner::BatchCompactSegment(LogSegment *segment, bool help) {
   LogSegment *&backup_segment = 
     help ? backup_helper_segment_ : backup_segment_;
   int class_t = help ? 0 : class_;
+  int channel = segment->get_channel();
 
   if (backup_segment == nullptr) {
     backup_segment = segment;
   } else {
     std::lock_guard<SpinLock> guard(log_->class_list_lock_[class_t]);
-    log_->free_segments_class[class_t].push_back(segment);
+    // if(class_t == 0)
+    // {
+    //   log_->free_segments_class0[channel].push_back(segment);
+    // }
+    // else
+    {
+      log_->free_segments_class[class_t].push_back(segment);
+    }
     ++log_->num_free_list_class[class_t];
   }
   ++clean_seg_count_;
@@ -738,6 +746,7 @@ void LogCleaner::DoMemoryClean(bool help)
     }
 
     if (max_garbage_proportion < 0.99 && cur_time - last_update_time_ > 1e6) {
+    // if (max_garbage_proportion < 0.90) {
       // update cold segment list
       LockUsedList();
       to_compact_cold_segments_.splice(to_compact_cold_segments_.end(),

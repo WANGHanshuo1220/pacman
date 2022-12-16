@@ -305,7 +305,7 @@ class LogSegment : public BaseSegment {
     }
     uint32_t cur_num = num_kvs;
     KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
-    if(class_ != 0)
+    if(class_ > 0)
     {
       roll_back_map[cur_num].kv_sz = (uint16_t)(sz/kv_align);
       num_kvs++;
@@ -314,6 +314,7 @@ class LogSegment : public BaseSegment {
     tail_ += sz;
     ++cur_cnt_;
 
+    assert(sz%4 == 0);
     return TaggedPointer((char *)kv, sz, cur_num, class_);
   }
 
