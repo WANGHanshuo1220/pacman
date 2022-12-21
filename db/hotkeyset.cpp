@@ -123,7 +123,7 @@ void HotKeySet::UpdateHotSet() {
   std::unordered_map<uint64_t, int> count;
   uint64_t update_cnt = 0;
   while (!stop_flag_.load(std::memory_order_relaxed)) {
-    if (count.size() > HOT_NUM * 4 || update_cnt > HOT_NUM * 16) {
+    if (count.size() > HOT_NUM * 8 || update_cnt > HOT_NUM * 32) {
       break;
     }
     std::list<std::vector<uint64_t>> list;
@@ -190,7 +190,6 @@ void HotKeySet::UpdateHotSet() {
   }
 
 #ifdef HOT_SC
-  // db_->hot_sc = new std::unorder_map<KeyType, struct hash_sc*>;
   new_hot_sc = new Map();
   for(int i = 1; i < new_set_class.size(); i++)
   {

@@ -14,73 +14,12 @@
   #define TEST_CPU_TIME 1 // 1 for cpu time, 0 for real time
 #endif
 
-typedef struct
-{
-  bool operator ()(const LogSegment *a, const LogSegment *b)
-  {
-    bool re = false;
-    float a_util = 0.0, b_util = 0.0;
-
-    a_util = a->get_util();
-    b_util = b->get_util();
-
-    if(a_util <= 0.5 || b_util <= 0.5)
-    {
-      re = (a_util <= b_util);
-    }
-    else
-    {
-      int a_num_kvs = 0, a_top = -1, b_num_kvs = 0, b_top = -1;
-      a_num_kvs = a->num_kvs;
-      if(a_num_kvs) a_top = a->roll_back_map[a_num_kvs-1].is_garbage;
-
-      b_num_kvs = b->num_kvs;
-      if(b_num_kvs) b_top = b->roll_back_map[b_num_kvs-1].is_garbage;
-
-      if((a_top == 1) && (b_top == 1))
-      {
-        re = (a_util <= b_util);
-      }
-      else
-      {
-        re = (a_top <= b_top);
-      }
-    }
-
-    return re;
-  }
-}Compare_seg_offset;
-
-
 void LogCleaner::CleanerEntry() {
   // bind_core_on_numa(log_->num_workers_ + cleaner_id_);
 #if INDEX_TYPE == 3
   reinterpret_cast<MasstreeIndex *>(db_->index_)
       ->MasstreeThreadInit(log_->num_workers_ + cleaner_id_);
 #endif
-  num_worker = db_->get_num_workers();
-  num_class_segs.resize(num_class);
-  for(int i = 1; i < num_class_segs.size(); i++)
-  {
-    num_class_segs[i] = db_->db_num_class_segs[i];
-  }
-  bool need_sort[num_class];
-  for(int i = 1; i < num_class; i++)
-  {
-    int seg_per_worker = num_class_segs[i] / num_worker;
-    if(seg_per_worker < gap[i] + 3 ) 
-    {
-      need_sort[i] = false;
-    }
-    else
-    {
-      need_sort[i] = true;
-      sort_range[i] = seg_per_worker - gap[i];
-      if(sort_range[i] > 10) sort_range[i] = 10;
-    }
-  }
-  worker_range = num_worker / num_class;
-  int count = 0;
 
   while (!log_->stop_flag_.load(std::memory_order_relaxed)) {
     if (NeedCleaning(false)) {
@@ -96,85 +35,7 @@ void LogCleaner::CleanerEntry() {
     else
     {
       usleep(10);
-      // if(need_sort[num_class-1])
-      // {
-      //   uint64_t now = NowMicros();
-      //   if(now - clean_sort_us_before_ > 1000)
-      //   {
-      //     clean_sort_us_before_ = now;
-      //     if(count < 3)
-      //     { 
-      //       Help_sort(num_class-1);
-      //       count++;
-      //     }
-      //     else if(need_sort[num_class-2])
-      //     {
-      //       Help_sort(num_class-2);
-      //       count = 0;
-      //     }
-      //     else
-      //     {
-      //       count = 0;
-      //     }
-      //   }
-      //   else
-      //   {
-      //     usleep(10);
-      //   }
-      // }
-      // else
-      // {
-      //   usleep(10);
-      // }
     }
-  }
-}
-
-void LogCleaner::Help_sort(int id)
-{
-  // Timer time(clean_sort_ns_time_);
-  std::vector<int> &next_class_segment = 
-    *(db_->get_next_class_segment(id));
-
-  for(int worker_i = cleaner_id_ * worker_range;
-      worker_i < (cleaner_id_+1) * worker_range && worker_i < num_worker;
-      worker_i ++)
-  {
-    int seg_working_on = next_class_segment[worker_i];
-    int sort_begin = seg_working_on + num_worker * gap[id];
-    if(sort_begin >= num_class_segs[id])
-    {
-      sort_begin = 
-        (gap[id] -
-        (num_class_segs[id] - seg_working_on) / num_worker) * 
-        num_worker + worker_i;
-    }
-
-    Sort_for_worker(worker_i, sort_begin, id);
-  }
-}
-
-void LogCleaner::Sort_for_worker(int worker_i, 
-                                 int sort_begin, int id)
-{
-  std::vector<LogSegment *> &class_segemnts = 
-    *(log_->get_class_segments(id));
-  std::multiset<LogSegment *, Compare_seg_offset> s;
-  int idx = sort_begin;
-
-  for(int i = 0; i < sort_range[id]; i ++)
-  {
-    s.insert(class_segemnts[idx]);
-    idx += num_worker;
-    if(idx >= num_class_segs[id]) idx = worker_i;
-  }
-
-  idx = sort_begin;
-  for (auto it = s.begin(); it != s.end(); it++)
-  {
-    class_segemnts[idx] = *it;
-    idx += num_worker;
-    if(idx >= num_class_segs[id]) idx = worker_i;
   }
 }
 
@@ -185,7 +46,6 @@ bool LogCleaner::NeedCleaning(bool help) {
 
   if(class_ == 0 || help) 
   { 
-    // int pro = help ? 2 : 1;
     threshold = (double)log_->clean_threshold_[0] / 100;
 
     Free = (uint64_t)log_->num_free_list_class[0].load(std::memory_order_relaxed)
@@ -319,6 +179,7 @@ void LogCleaner::BatchIndexUpdate(bool help) {
 }
 
 void LogCleaner::CopyValidItemToBuffer123(LogSegment *segment) {
+  int tier = (segment->get_channel() < num_channel/2) ? 0 : 1;
   char *p = const_cast<char *>(segment->get_data_start());
   char *tail = segment->get_tail();
 #ifdef GC_SHORTCUT
@@ -337,9 +198,7 @@ void LogCleaner::CopyValidItemToBuffer123(LogSegment *segment) {
 #endif
     KVItem *kv = reinterpret_cast<KVItem *>(p);
     uint32_t sz = sizeof(KVItem) + (kv->key_size + kv->val_size) * kv_align;
-    if (sz == sizeof(KVItem)) {
-      break;
-    }
+    read_times[tier] ++;
     if (!volatile_segment_->HasSpaceFor(sz)) {
       // flush reserved segment
       BatchFlush(false);
@@ -356,7 +215,7 @@ void LogCleaner::CopyValidItemToBuffer123(LogSegment *segment) {
       // copy item to buffer
       char *cur = volatile_segment_->AllocOne(sz);
       memcpy(cur, kv, sz);
-      flush_times ++;
+      flush_times[tier] ++;
       uint64_t offset = cur - volatile_segment_->get_data_start();
       char *new_addr = reserved_segment_->get_data_start() + offset;
       Slice key_slice = ((KVItem *)cur)->GetKey();
@@ -371,6 +230,7 @@ void LogCleaner::CopyValidItemToBuffer123(LogSegment *segment) {
 }
 
 void LogCleaner::CopyValidItemToBuffer0(LogSegment *segment, bool help) {
+  int tier = (segment->get_channel() < num_channel/2) ? 0 : 1;
   char *p = const_cast<char *>(segment->get_data_start());
   char *tail = segment->get_tail();
   VirtualSegment *&volatile_segment = 
@@ -393,9 +253,7 @@ void LogCleaner::CopyValidItemToBuffer0(LogSegment *segment, bool help) {
 #endif
     KVItem *kv = reinterpret_cast<KVItem *>(p);
     uint32_t sz = sizeof(KVItem) + (kv->key_size + kv->val_size) * kv_align;
-    // if (sz == sizeof(KVItem)) {
-    //   break;
-    // }
+    read_times[tier] ++;
     if (!volatile_segment->HasSpaceFor(sz)) {
       // flush reserved segment
       BatchFlush(help);
@@ -410,7 +268,7 @@ void LogCleaner::CopyValidItemToBuffer0(LogSegment *segment, bool help) {
       // copy item to buffer
       char *cur = volatile_segment->AllocOne(sz);
       memcpy(cur, kv, sz);
-      flush_times ++;
+      flush_times[tier] ++;
       uint64_t offset = cur - volatile_segment->get_data_start();
       char *new_addr = reserved_segment->get_data_start() + offset;
       Slice key_slice = ((KVItem *)cur)->GetKey();
@@ -552,7 +410,7 @@ void LogCleaner::CompactSegment0(LogSegment *segment, bool help) {
   TIMER_START_LOGGING(copy_time_);
   reserved_segment->FlushRemain();
   TIMER_STOP_LOGGING(copy_time_);
-  BatchIndexUpdate();
+  BatchIndexUpdate(help);
 #else
 #if defined(BATCH_FLUSH_INDEX_ENTRY) && defined(IDX_PERSISTENT)
   for (int i = 0; i < flush_addr.size(); i++) {
@@ -672,7 +530,7 @@ void LogCleaner::CompactSegment123(LogSegment *segment) {
   TIMER_START_LOGGING(copy_time_);
   reserved_segment_->FlushRemain();
   TIMER_STOP_LOGGING(copy_time_);
-  BatchIndexUpdate();
+  BatchIndexUpdate(help);
 #else
 #if defined(BATCH_FLUSH_INDEX_ENTRY) && defined(IDX_PERSISTENT)
   for (int i = 0; i < flush_addr.size(); i++) {

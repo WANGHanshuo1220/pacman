@@ -135,13 +135,11 @@ void DB::GetValue(KeyType key, std::string *value)
 }
 
 void DB::update_hot_sc(const Slice &key, LogEntryHelper &le_helper,
-                       const Slice &value, uint32_t version)
+                       const Slice &value)
 {
   KeyType k = *(KeyType *)key.data();
   ValueType tagged_addr = le_helper.new_val;
   ValueType old_val = 0;
-  assert(hot_sc);
-  assert(hot_sc->find(k) != hot_sc->end());
   {
     std::lock_guard<SpinLock> lock((*hot_sc)[k]->lock);
     if((*hot_sc)[k]->first == true)
@@ -165,7 +163,6 @@ bool DB::mark_invalide(const Slice key, LogEntryHelper &le_helper)
   KeyType k = *(KeyType *)key.data();
   if(hot_sc->find(k) != hot_sc->end())
   {
-    // std::lock_guard<SpinLock> lock((*hot_sc)[k]->lock);
     if((*hot_sc)[k]->lock.try_lock())
     {
       if((*hot_sc)[k]->valide == true)
@@ -255,7 +252,7 @@ DB::Worker::Worker(DB *db) : db_(db) {
   }
 
 #ifdef LOG_BATCHING
-  buffer_queue_.resize(num_class);
+  buffer_queue_.resize(num_class+1);
 #endif
 
 #if INDEX_TYPE == 3
@@ -274,16 +271,12 @@ DB::Worker::~Worker() {
   // db_->PID_T += PID_t;
   // db_->MKG_T += MKG_t;
 #ifdef LOG_BATCHING
-  for(int i = 0; i < num_class; i++)
+  for(int i = 0; i < num_class + 1; i++)
   {
-    BatchIndexInsert(buffer_queue_[i].size(), i);
+    BatchIndexInsert(buffer_queue_[i].size(), i-1);
   }
 #endif
   db_->log_->SyncCleanerGarbageBytes(tmp_cleaner_garbage_bytes_);
-  // for(int i = 1; i < num_class; i++)
-  // {
-  //   if(log_head_class[i]) log_head_class[i]->set_touse();
-  // }
   if(log_head_class[0]) 
   {
     FreezeSegment(log_head_class[0], 0);
@@ -313,7 +306,7 @@ bool DB::Worker::Get(const Slice &key, std::string *value) {
   else
   {
     db_->thread_status_.rcu_progress(worker_id_);
-    ValueType val = db_->index_->Get(key);
+    val = db_->index_->Get(key);
     if (val != INVALID_VALUE) {
       TaggedPointer(val).GetKVItem()->GetValue(*value);
       ret = true;
@@ -350,17 +343,16 @@ void DB::Worker::Put(const Slice &key, const Slice &value) {
 
   // sub-opr 2 : make a new kv item, append it at the end of the segment;
   ValueType tagged_addr;
-  uint32_t version;
   {
     // Timer time1(MKI_t);
-    tagged_addr = MakeKVItem(key, value, class_t, &version);
+    tagged_addr = MakeKVItem(key, value, class_t);
   }
 
   // sub-opr 3 : update index;
   // {
     // Timer time2(UDI_t);
 #ifndef LOG_BATCHING
-  UpdateIndex(key, tagged_addr, value, class_t, version);
+  UpdateIndex(key, tagged_addr, value, class_t);
 #endif
   // }
 }
@@ -382,75 +374,85 @@ bool DB::Worker::Delete(const Slice &key) { ERROR_EXIT("not implemented yet"); }
 
 #ifdef LOG_BATCHING
 void DB::Worker::BatchIndexInsert(int cnt, int class_) {
-  std::queue<std::pair<KeyType, ValueType>> &queue =
-    buffer_queue_[class_];
+  assert(cnt >= 0);
+  std::queue<std::pair<std::pair<KeyType, ValueType>, const char*>> &queue =
+    buffer_queue_[class_+1];
   while (cnt--) {
-    std::pair<KeyType, ValueType> kv_pair = queue.front();
-    UpdateIndex(Slice((const char *)&kv_pair.first, sizeof(KeyType)),
-                kv_pair.second, class_);
+    std::pair<std::pair<KeyType, ValueType>, const char*>kv_pair = queue.front();
+    UpdateIndex(Slice((const char *)&kv_pair.first.first, sizeof(KeyType)),
+                kv_pair.first.second, Slice(kv_pair.second), class_);
     queue.pop();
   }
 }
 
 ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
-                                 int class_) {
+                                 int class_t) {
   ValueType ret = INVALID_VALUE;
   uint64_t i_key = *(uint64_t *)key.data();
   uint32_t epoch = db_->GetKeyEpoch(i_key);
   uint32_t sz = sizeof(KVItem) + key.size() + value.size();
   int persist_cnt = 0;
+  LogSegment *segment = nullptr;
 
-  std::queue<std::pair<KeyType, ValueType>> &queue =
-    buffer_queue_[class_];
+  std::queue<std::pair<std::pair<KeyType, ValueType>, const char*>> &queue =
+    buffer_queue_[class_t+1];
 
-  if(class_ != 0)
+  if(class_t == 0)
   {
-    accumulative_sz_class[class_] += sz;
-    if(accumulative_sz_class[class_] > db_->get_threshold(class_))
+    segment = log_head_class[0];
+  }
+  else if(class_t == -1)
+  {
+    segment = log_head_cold_class0_;
+  }
+  else
+  {
+    accumulative_sz_class[class_t] += sz;
+    if(accumulative_sz_class[class_t] > db_->get_threshold(class_t))
     {
-      persist_cnt = log_head_class[class_]->FlushRemain();
-      BatchIndexInsert(persist_cnt, class_);
-      assert(queue.size() == 0);
-
-      log_head_class[class_]->set_touse();
-      std::pair<uint32_t, LogSegment **> p = db_->get_class_segment(class_, worker_id_);
-      log_head_class[class_] = *p.second;
-      class_seg_working_on[class_] = p.first;
-      accumulative_sz_class[class_] = sz;
-      assert(log_head_class[class_]->is_segment_using());
-      uint32_t n = log_head_class[class_]->num_kvs;
+      // log_head_class[class_t]->Flush_Header();
+      persist_cnt = log_head_class[class_t]->FlushRemain();
+      if (persist_cnt > 0) {
+        BatchIndexInsert(persist_cnt, class_t);
+      }
+      db_->get_class_segment(class_t, worker_id_, 
+                             &log_head_class[class_t], &class_seg_working_on[class_t]);
+      accumulative_sz_class[class_t] = sz;
+      int n = log_head_class[class_t]->num_kvs;
       if(n)
       {
-        if(log_head_class[class_]->roll_back_map[n-1].is_garbage) 
+        if(log_head_class[class_t]->roll_back_map[n-1].is_garbage == 1)
         {
-          Roll_Back2(log_head_class[class_]);
+          Roll_Back(log_head_class[class_t]);
         }
       }
     }
+    segment = log_head_class[class_t];
   }
-  LogSegment *&segment = log_head_class[class_];
 
   persist_cnt = 0;
   while (segment == nullptr ||
-         (ret = segment->AppendBatchFlush(key, value, epoch, &persist_cnt)) ==
-             INVALID_VALUE) {
+        (ret = segment->AppendBatchFlush(key, value, epoch, &persist_cnt)) ==
+            INVALID_VALUE) {
     if (segment) {
       persist_cnt = segment->FlushRemain();
-      BatchIndexInsert(persist_cnt, class_);
+      BatchIndexInsert(persist_cnt, class_t);
       assert(queue.size() == 0);
-      FreezeSegment(segment, class_);
+      FreezeSegment(segment, class_t);
     }
-    segment = db_->log_->NewSegment(class_);
-    if(class_ != 0)
+    segment = db_->log_->NewSegment(class_t);
+    if(class_t > 0)
     {
-      accumulative_sz_class[class_] = sz;
-      db_->log_->set_class_segment_(class_, class_seg_working_on[class_], segment);
+      accumulative_sz_class[class_t] = sz;
+      db_->log_->set_class_segment_(class_t, class_seg_working_on[class_t], segment);
     }
+    if(class_t == -1) log_head_cold_class0_ = segment;
+    else  log_head_class[class_t] = segment;
   }
 
-  queue.push({i_key, ret});
+  queue.push({{i_key, ret}, value.data()});
   if (persist_cnt > 0) {
-  BatchIndexInsert(persist_cnt, class_);
+    BatchIndexInsert(persist_cnt, class_t);
   }
 
   assert(ret);
@@ -458,11 +460,10 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 }
 #else
 ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
-                                 int class_t, uint32_t *version) {
+                                 int class_t) {
   ValueType ret = INVALID_VALUE;
   uint64_t i_key = *(uint64_t *)key.data();
   uint32_t epoch = db_->GetKeyEpoch(i_key);
-  *version = epoch;
 
   uint32_t sz = sizeof(KVItem) + key.size() + value.size();
   LogSegment *segment = nullptr;
@@ -553,7 +554,7 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 #endif
 
 void DB::Worker::UpdateIndex(const Slice &key, ValueType tagged_addr, 
-                 const Slice &value, int class_t, uint32_t version) {
+                 const Slice &value, int class_t) {
   LogEntryHelper le_helper(tagged_addr);
   // {
     // Timer time1(PID_t);
@@ -561,7 +562,7 @@ void DB::Worker::UpdateIndex(const Slice &key, ValueType tagged_addr,
   if(class_t > 0)
   {
     le_helper.is_hot_sc = true;
-    db_->update_hot_sc(key, le_helper, value, version);
+    db_->update_hot_sc(key, le_helper, value);
   }
   else 
   {
@@ -651,9 +652,6 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
 
 void DB::Worker::Roll_Back(LogSegment *segment)
 {
-  // int class_t = segment->get_class();
-  // db_->RB_class[class_t].fetch_add(1);
-  // segment->rb_c++;
   uint32_t n = segment->num_kvs;
   int roll_back_sz = 0;
   uint32_t RB_count = 0;
@@ -669,8 +667,6 @@ void DB::Worker::Roll_Back(LogSegment *segment)
       break;
     }
   }
-  // db_->roll_back_count.fetch_add(1);
-  // db_->roll_back_bytes.fetch_add(roll_back_sz);
   segment->roll_back_tail(roll_back_sz);
   segment->reduce_garbage_bytes(roll_back_sz);
   segment->RB_num_kvs(RB_count);

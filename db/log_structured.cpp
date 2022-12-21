@@ -67,7 +67,7 @@ LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
   for(int i = 0; i < num_channel; i++)
   {
     if (fallocate(log_pool_fd[i], 0, 0, ch_sz[i]) != 0) {
-      ERROR_EXIT("fallocate file failed %d", i);
+      ERROR_EXIT("fallocate file failed %d, %ld", i, ch_sz[i]);
     }
     pool_start_[i] = (char *)mmap(NULL, ch_sz[i], PROT_READ | PROT_WRITE,
                                MAP_SHARED, log_pool_fd[i], 0);
@@ -292,20 +292,34 @@ LogStructured::~LogStructured() {
     }
   }
 
-  uint64_t c = 0;
+  uint64_t extra_read = 0;
+  uint64_t extra_write = 0;
+  uint64_t extra_T0_accesses = 0;
+  uint64_t extra_T1_accesses = 0;
   uint64_t d = 0;
   for(int i = 0; i < num_cleaners_; i++)
   {
-    printf("cleaner%d: flush_times = %ld\tGC_times = %d\tGC_help_times = %d, quick_c = %d\n", 
-      i, log_cleaners_[i]->flush_times, log_cleaners_[i]->GC_times,
-      log_cleaners_[i]->GC_times_help, log_cleaners_[i]->quick_c);
-    c += log_cleaners_[i]->flush_times;
+    // printf("cleaner%d: flush_times = %lu\tGC_times = %d\tGC_help_times = %d, quick_c = %d\n", 
+    //   i, log_cleaners_[i]->flush_times[0] + log_cleaners_[i]->flush_times[1], 
+    //   log_cleaners_[i]->GC_times,
+    //   log_cleaners_[i]->GC_times_help, log_cleaners_[i]->quick_c);
+    extra_read += log_cleaners_[i]->read_times[0];
+    extra_read += log_cleaners_[i]->read_times[1];
+    extra_write += log_cleaners_[i]->flush_times[0];
+    extra_write += log_cleaners_[i]->flush_times[1];
+    extra_T0_accesses += log_cleaners_[i]->read_times[0];
+    extra_T0_accesses += log_cleaners_[i]->flush_times[0];
+    extra_T1_accesses += log_cleaners_[i]->read_times[1];
+    extra_T1_accesses += log_cleaners_[i]->flush_times[1];
     d += log_cleaners_[i]->GC_times /
          (SEGMENT_SIZE[0] / SEGMENT_SIZE[log_cleaners_[i]->get_class()]);
     d += log_cleaners_[i]->GC_times_help;
   }
-  printf("total flush_times = %ld (%.2f)\n", c, (float)c/1000000);
-  printf("total gc_times    = %.2f\n", (float)d);
+  printf("total extra accesses_times = %.2fM (R:%.2fM, W:%.2fM | T0:%.2fM, T1:%.2fM)\n", 
+        (float)extra_read/1000000 + (float)extra_write/1000000,
+        (float)extra_read/1000000, (float)extra_write/1000000,
+        (float)extra_T0_accesses/1000000, (float)extra_T1_accesses/1000000);
+  printf("total gc_times = %.2f\n", (float)d);
 
   for (int i = 0; i < num_cleaners_; i++) {
     if (log_cleaners_[i]) {
@@ -366,7 +380,7 @@ LogSegment *LogStructured::NewSegment(int class_t) {
   while (true) {
     if (num_free_list_class[class_t_] > 0) {
       std::lock_guard<SpinLock> guard(class_list_lock_[class_t_]);
-      if(class_t_ == 0)
+      if(class_t == -1)
       {
 here:
         for(int i = 0; i < num_channel; i ++)
@@ -384,35 +398,33 @@ here:
           cur_channel = cur_channel % num_channel;
         }
       }
-      // else if(class_t == 0)
-      // {
-      //   for(int i = 0; i < num_channel/2; i ++)
-      //   {
-      //     if (!free_segments_class0[cur_channel0].empty())
-      //     {
-      //       ret = free_segments_class0[cur_channel0].front();
-      //       free_segments_class0[cur_channel0].pop_front();
-      //       --num_free_list_class[0];
-      //       cur_channel0 ++;
-      //       cur_channel0 = cur_channel0 % (num_channel/2);
-      //       goto out;
-      //     }
-      //     cur_channel0 ++;
-      //     cur_channel0 = cur_channel0 % (num_channel/2);
-      //   }
-      //   goto here;
-      // }
+      else if(class_t == 0)
+      {
+        for(int i = 0; i < num_channel/2; i ++)
+        {
+          if (!free_segments_class0[cur_channel0].empty())
+          {
+            ret = free_segments_class0[cur_channel0].front();
+            free_segments_class0[cur_channel0].pop_front();
+            --num_free_list_class[0];
+            cur_channel0 ++;
+            cur_channel0 = cur_channel0 % (num_channel/2);
+            goto out;
+          }
+          cur_channel0 ++;
+          cur_channel0 = cur_channel0 % (num_channel/2);
+        }
+        goto here;
+      }
       else
       {
         if (!free_segments_class[class_t_].empty()) {
           ret = free_segments_class[class_t_].front();
           free_segments_class[class_t_].pop_front();
           --num_free_list_class[class_t_];
-          // if(class_t == 2) printf("new success\n");
         }
       }
     } else {
-      // if(class_t == 2) printf("new failed %d, %ld\n", c++, free_segments_class[class_t_].size());
       if (num_cleaners_ == 0) {
         ERROR_EXIT("No free segments and no cleaners");
       }
@@ -475,18 +487,18 @@ int LogStructured::GetSegmentID(const char *addr) {
   }
 
 out:
-  if(addr < GetSegment(seg_id)->get_segment_start() ||
-     addr > GetSegment(seg_id)->get_end())
-  {
-    printf("%d\taddr  = %p\n", seg_id, addr);
-    printf("%d\tstart = %p\n", seg_id, GetSegment(seg_id)->get_segment_start());
-    printf("%d\tend   = %p\n", seg_id, GetSegment(seg_id)->get_end());
-    printf("%d\tid    = %ld\n", seg_id, GetSegment(seg_id)->get_seg_id());
-    printf("%d\tclass = %d\n", seg_id, GetSegment(seg_id)->get_class());
-    printf("%d\ti,j,k = %d %d %d\n", seg_id, i, j, k);
-  }
-  assert(GetSegment(seg_id)->get_segment_start() <= addr);
-  assert(GetSegment(seg_id)->get_end() > addr);
+  // if(addr < GetSegment(seg_id)->get_segment_start() ||
+  //    addr > GetSegment(seg_id)->get_end())
+  // {
+  //   printf("%d\taddr  = %p\n", seg_id, addr);
+  //   printf("%d\tstart = %p\n", seg_id, GetSegment(seg_id)->get_segment_start());
+  //   printf("%d\tend   = %p\n", seg_id, GetSegment(seg_id)->get_end());
+  //   printf("%d\tid    = %ld\n", seg_id, GetSegment(seg_id)->get_seg_id());
+  //   printf("%d\tclass = %d\n", seg_id, GetSegment(seg_id)->get_class());
+  //   printf("%d\ti,j,k = %d %d %d\n", seg_id, i, j, k);
+  // }
+  // assert(GetSegment(seg_id)->get_segment_start() <= addr);
+  // assert(GetSegment(seg_id)->get_end() > addr);
   return seg_id;
 }
 

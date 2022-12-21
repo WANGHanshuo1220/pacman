@@ -19,7 +19,7 @@ static constexpr uint64_t num_class     = 3;
 static constexpr uint64_t kv_align      = 4;
 static constexpr uint64_t SEGMENT_SIZE[num_class] = 
     {4ul << 20, 1ul << 19, 1ul << 17};
-    // {4ul << 20, 1ul << 16, 1ul << 14};
+    // {4ul << 20, 1ul << 21, 1ul << 20};
 
 // shortcut
 class __attribute__((__packed__)) Shortcut {

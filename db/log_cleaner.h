@@ -19,7 +19,8 @@ class LogCleaner {
   int quick_c = 0;
   std::atomic<long> GC_timecost = 0; // us
   std::atomic<int> help = 0;
-  uint64_t flush_times = 0;
+  uint64_t flush_times[2] = {0, 0};
+  uint64_t read_times[2] = {0, 0};
   int get_cleaner_id() { return cleaner_id_; }
   int show_GC_times() 
   { 
@@ -264,9 +265,6 @@ class LogCleaner {
   void MarkGarbage0(ValueType tagged_val);
   void MarkGarbage123(ValueType tagged_val);
   void DoMemoryClean(bool help);
-  void Sort_for_worker(int worker_i,
-                       int sort_begin, int i);
-  void Help_sort(int i);
 
   void RecoverySegments();
   void RecoveryInfo();

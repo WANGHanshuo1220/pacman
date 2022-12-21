@@ -160,9 +160,6 @@ class LogSegment : public BaseSegment {
   uint32_t num_kvs = 0;
   std::vector<record_info> roll_back_map;
 
-  // int rb_c = 0;
-  // int gc_c = 0;
-
   void init_RB_map()
   {
     roll_back_map.clear();
@@ -172,7 +169,11 @@ class LogSegment : public BaseSegment {
 
   void RB_num_kvs(uint32_t a)
   {
-    num_kvs -= a;
+    num_kvs -= a; 
+#ifdef LOG_BATCHING
+    if(a >= not_flushed_cnt_) not_flushed_cnt_ = 0;
+    else not_flushed_cnt_ -= a;
+#endif
   }
 
   void Flush_Header() { header_->Flush(); }
@@ -209,7 +210,8 @@ class LogSegment : public BaseSegment {
     tail_ -= sz; 
     assert(tail_ >= data_start_);
 #ifdef LOG_BATCHING
-    flush_tail_ == tail_;
+    if(tail_ < flush_tail_) 
+      flush_tail_ = tail_;
 #endif
   }
 
@@ -253,11 +255,6 @@ class LogSegment : public BaseSegment {
   void Close() {
     header_->status = StatusClosed;
     close_time_ = NowMicros();
-    // if (HasSpaceFor(sizeof(KVItem))) {
-    //   KVItem *end = new (tail_) KVItem();
-    //   end->Flush();
-    //   tail_ += sizeof(KVItem);
-    // }
 #ifdef GC_SHORTCUT
     if (shortcut_buffer_) {
       assert(tail_ + shortcut_buffer_->size() * sizeof(Shortcut) <= end_);
@@ -322,10 +319,14 @@ class LogSegment : public BaseSegment {
 
 #ifdef LOG_BATCHING
   int FlushRemain() {
-    clwb_fence(flush_tail_, tail_ - flush_tail_);
-    flush_tail_ = tail_;
-    int persist_cnt = not_flushed_cnt_;
-    not_flushed_cnt_ = 0;
+    int persist_cnt = 0;
+    if(not_flushed_cnt_)
+    {
+      clwb_fence(flush_tail_, tail_ - flush_tail_);
+      flush_tail_ = tail_;
+      persist_cnt = not_flushed_cnt_;
+      not_flushed_cnt_ = 0;
+    }
     return persist_cnt;
   }
 
@@ -340,7 +341,7 @@ class LogSegment : public BaseSegment {
     }
     uint16_t cur_num = num_kvs;
     KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
-    if(class_ != 0)
+    if(class_ > 0)
     {
       roll_back_map[cur_num].kv_sz = (uint16_t)(sz/kv_align);
       num_kvs ++;
@@ -349,7 +350,15 @@ class LogSegment : public BaseSegment {
     tail_ += sz;
     ++cur_cnt_;
     char *align_addr = (char *)((uint64_t)tail_ & ~(LOG_BATCHING_SIZE - 1));
-    if (align_addr - flush_tail_ >= LOG_BATCHING_SIZE) {
+    // if (align_addr > flush_tail_ &&
+    //     align_addr - flush_tail_ >= LOG_BATCHING_SIZE) {
+    //   while(align_addr - flush_tail_ >= LOG_BATCHING_SIZE)
+    //   {
+    //     clwb_fence(flush_tail_, LOG_BATCHING_SIZE);
+    //     flush_tail_ += LOG_BATCHING_SIZE;
+    //   }
+    if (align_addr > flush_tail_ && 
+        align_addr - flush_tail_ >= LOG_BATCHING_SIZE) {
       clwb_fence(flush_tail_, align_addr - flush_tail_);
       flush_tail_ = align_addr;
       if (tail_ == align_addr) {
@@ -362,12 +371,6 @@ class LogSegment : public BaseSegment {
     } else {
       *persist_cnt = 0;
     }
-    if(*persist_cnt != 0 && *persist_cnt != 10 && *persist_cnt != 9)
-    {
-      printf("*presist_cnt = %d, not_flush_cnt = %d\n",
-        *persist_cnt, not_flushed_cnt_);
-    }
-    assert(*persist_cnt == 0 || *persist_cnt == 10 || *persist_cnt == 9);
     return TaggedPointer((char *)kv, sz, cur_num, class_);
   }
 #endif

@@ -88,8 +88,8 @@ class DB {
     // lazily update garbage bytes for cleaner, avoid too many FAAs
     std::vector<size_t> tmp_cleaner_garbage_bytes_;
 
-    ValueType MakeKVItem(const Slice &key, const Slice &value, int class_, uint32_t *version);
-    void UpdateIndex(const Slice &key, ValueType val, const Slice &value, int class_, uint32_t version);
+    ValueType MakeKVItem(const Slice &key, const Slice &value, int class_);
+    void UpdateIndex(const Slice &key, ValueType val, const Slice &value, int class_);
     void MarkGarbage(ValueType tagged_val);
     void Roll_Back(LogSegment *segment);
     void FreezeSegment(LogSegment *segment, int class_);
@@ -97,7 +97,7 @@ class DB {
 #ifdef LOG_BATCHING
     void BatchIndexInsert(int cnt, int class_);
 
-    std::vector<std::queue<std::pair<KeyType, ValueType>>> buffer_queue_;
+    std::vector<std::queue<std::pair<std::pair<KeyType, ValueType>, const char*>>> buffer_queue_;
 #endif
 
     DISALLOW_COPY_AND_ASSIGN(Worker);
@@ -119,6 +119,8 @@ class DB {
   std::atomic<uint64_t> UDI_T = 0;
   std::atomic<uint64_t> PID_T = 0;
   std::atomic<uint64_t> MKG_T = 0;
+
+  uint64_t c = 0;
 
   // statistics
   void StartCleanStatistics();
@@ -168,7 +170,7 @@ class DB {
   bool has_key_in_sc(KeyType key, std::string *value);
   void GetValue(KeyType key, std::string *value);
   void update_hot_sc(const Slice &Key, LogEntryHelper &le_helper,
-                     const Slice &value, uint32_t version);
+                     const Slice &value);
   void GC_update_hot_sc(const KeyType &key, ValueType tagged_addr);
   void check_val_addr(const Slice key, ValueType addr);
 #endif

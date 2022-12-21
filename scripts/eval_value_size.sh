@@ -64,8 +64,9 @@ cat /dev/null > ${OUTPUT_FILE}
 # disable cpu scaling
 # sudo cpupower frequency-set --governor performance > /dev/null
 
-# VALUE_SIZE=(28 60 124 252 508 1020)
-VALUE_SIZE=(508 1020)
+# VALUE_SIZE=(32 64 128 256 512)
+VALUE_SIZE=(128 256 512)
+# VALUE_SIZE=(32 64 128)
 
 # it may take long to get third-party dependencies, so don't delete _deps
 ls | grep -v _deps | xargs rm -rf
