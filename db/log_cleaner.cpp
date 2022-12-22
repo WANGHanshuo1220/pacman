@@ -197,7 +197,7 @@ void LogCleaner::CopyValidItemToBuffer123(LogSegment *segment) {
     }
 #endif
     KVItem *kv = reinterpret_cast<KVItem *>(p);
-    uint32_t sz = sizeof(KVItem) + (kv->key_size + kv->val_size);
+    uint32_t sz = sizeof(KVItem) + (kv->key_size + kv->val_size) * kv_align;
     read_times[tier] ++;
     if (!volatile_segment_->HasSpaceFor(sz)) {
       // flush reserved segment
@@ -252,7 +252,7 @@ void LogCleaner::CopyValidItemToBuffer0(LogSegment *segment, bool help) {
     }
 #endif
     KVItem *kv = reinterpret_cast<KVItem *>(p);
-    uint32_t sz = sizeof(KVItem) + (kv->key_size + kv->val_size);
+    uint32_t sz = sizeof(KVItem) + (kv->key_size + kv->val_size) * kv_align;
     read_times[tier] ++;
     if (!volatile_segment->HasSpaceFor(sz)) {
       // flush reserved segment
