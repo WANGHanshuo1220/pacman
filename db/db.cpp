@@ -60,14 +60,9 @@ DB::DB(std::string db_path[], size_t log_size, int num_workers, int num_cleaners
 };
 
 DB::~DB() {
-  // printf("avg MKI_T = %.2f us\n", (double)MKI_T.load()/t_put_c);
-  // printf("avg UDI_T = %.2f us\n", (double)UDI_T.load()/t_put_c);
-  // printf("avg PID_T = %.2f us\n", (double)PID_T.load()/t_put_c);
-  // printf("avg MKG_T = %.2f us\n", (double)MKG_T.load()/t_put_c);
-  // printf("read_c = %ld, read_t = %ld ns ( %.2f ns )\n",
-  //   t_get_c.load(), t_get_time.load(), 
-  //   (float)t_get_time.load()/t_get_c.load());
-
+  // printf("get = %.2f\n", (double)t_get_t.load()/t_get_c.load());
+  // printf("put = %.2f\n", (double)t_put_t.load()/t_put_c.load());
+  
   delete log_;
   delete index_;
   delete g_index_allocator;
@@ -262,10 +257,14 @@ DB::Worker::Worker(DB *db) : db_(db) {
 }
 
 DB::Worker::~Worker() {
-  // db_->t_get_time += get_time;
-  // db_->t_put_time += put_time;
+  // db_->t_get_t += get_t;
+  // db_->t_put_t += put_t;
   // db_->t_get_c += get_c;
   // db_->t_put_c += put_c;
+  // db_->t_put_c[0] += put_c[0];
+  // db_->t_put_c[1] += put_c[1];
+  // db_->t_put_c[2] += put_c[2];
+  // db_->t_put_c[3] += put_c[3];
   // db_->MKI_T += MKI_t;
   // db_->UDI_T += UDI_t;
   // db_->PID_T += PID_t;
@@ -291,7 +290,6 @@ DB::Worker::~Worker() {
 }
 
 bool DB::Worker::Get(const Slice &key, std::string *value) {
-  // get_c++;
   bool ret = false;
   ValueType val;
 #ifdef HOT_SC
@@ -315,10 +313,7 @@ bool DB::Worker::Get(const Slice &key, std::string *value) {
   }
 #else
   db_->thread_status_.rcu_progress(worker_id_);
-  {
-    // Timer time(get_time);
-    val = db_->index_->Get(key);
-  }
+  val = db_->index_->Get(key);
   if (val != INVALID_VALUE) {
     TaggedPointer(val).GetKVItem()->GetValue(*value);
     ret = true;
@@ -335,26 +330,17 @@ bool DB::Worker::Get(const Slice &key, std::string *value) {
 *    3. update index
 */
 void DB::Worker::Put(const Slice &key, const Slice &value) {
-  // put_c++;
-  // Timer time(put_time);
 
   // sub-opr 1 : check the hotness of the key;
   int class_t = db_->hot_key_set_->Exist(key);
 
   // sub-opr 2 : make a new kv item, append it at the end of the segment;
-  ValueType tagged_addr;
-  {
-    // Timer time1(MKI_t);
-    tagged_addr = MakeKVItem(key, value, class_t);
-  }
+  ValueType tagged_addr = MakeKVItem(key, value, class_t);
 
   // sub-opr 3 : update index;
-  // {
-    // Timer time2(UDI_t);
 #ifndef LOG_BATCHING
   UpdateIndex(key, tagged_addr, value, class_t);
 #endif
-  // }
 }
 
 size_t DB::Worker::Scan(const Slice &key, int cnt) {
@@ -374,7 +360,6 @@ bool DB::Worker::Delete(const Slice &key) { ERROR_EXIT("not implemented yet"); }
 
 #ifdef LOG_BATCHING
 void DB::Worker::BatchIndexInsert(int cnt, int class_) {
-  assert(cnt >= 0);
   std::queue<std::pair<std::pair<KeyType, ValueType>, const char*>> &queue =
     buffer_queue_[class_+1];
   while (cnt--) {
@@ -437,7 +422,6 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     if (segment) {
       persist_cnt = segment->FlushRemain();
       BatchIndexInsert(persist_cnt, class_t);
-      assert(queue.size() == 0);
       FreezeSegment(segment, class_t);
     }
     segment = db_->log_->NewSegment(class_t);
@@ -510,44 +494,6 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
     else  log_head_class[class_t] = segment;
   }
 
-  // int a = class_t + 1;
-  // do
-  // {
-  //   if(segment == nullptr)
-  //   {
-  //     FreezeSegment(segment, class_t);
-  //     segment = db_->log_->NewSegment(class_t);
-  //     if(class_t > 0)
-  //     {
-  //       accumulative_sz_class[class_t] = sz;
-  //       db_->log_->set_class_segment_(class_t, class_seg_working_on[class_t], segment);
-  //     }
-  //     if(class_t == -1) log_head_cold_class0_ = segment;
-  //     else  log_head_class[class_t] = segment;
-  //   }
-  //   else
-  //   {
-  //     {
-  //       Timer time(append_t[a]);
-  //       ret = segment->Append(key, value, epoch);
-  //     }
-  //     if(ret == INVALID_VALUE)
-  //     {
-  //       Timer time2(new_seg_t[a]);
-  //       FreezeSegment(segment, class_t);
-  //       segment = db_->log_->NewSegment(class_t);
-  //       if(class_t > 0)
-  //       {
-  //         accumulative_sz_class[class_t] = sz;
-  //         db_->log_->set_class_segment_(class_t, class_seg_working_on[class_t], segment);
-  //       }
-  //       if(class_t == -1) log_head_cold_class0_ = segment;
-  //       else  log_head_class[class_t] = segment;
-  //     }
-  //   }
-  // } while (ret == INVALID_VALUE);
-  
-
   assert(ret);
   return ret;
 }
@@ -556,8 +502,6 @@ ValueType DB::Worker::MakeKVItem(const Slice &key, const Slice &value,
 void DB::Worker::UpdateIndex(const Slice &key, ValueType tagged_addr, 
                  const Slice &value, int class_t) {
   LogEntryHelper le_helper(tagged_addr);
-  // {
-    // Timer time1(PID_t);
 #ifdef HOT_SC
   if(class_t > 0)
   {
@@ -577,7 +521,6 @@ void DB::Worker::UpdateIndex(const Slice &key, ValueType tagged_addr,
 #else
   db_->index_->Put(key, le_helper);
 #endif
-  // }
 
 #ifdef GC_SHORTCUT
 #ifdef HOT_COLD_SEPARATE
@@ -591,9 +534,6 @@ void DB::Worker::UpdateIndex(const Slice &key, ValueType tagged_addr,
 #endif
 #endif
 
-  // mark old garbage
-  // {
-    // Timer time2(MKG_t);
   if (le_helper.old_val != INVALID_VALUE) {
 #ifdef HOT_COLD_SEPARATE
     db_->thread_status_.rcu_progress(worker_id_);
@@ -603,7 +543,6 @@ void DB::Worker::UpdateIndex(const Slice &key, ValueType tagged_addr,
 
     MarkGarbage(le_helper.old_val);
   }
-  // }
 }
 
 void DB::Worker::MarkGarbage(ValueType tagged_val) {
@@ -628,24 +567,8 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
   else
   {
     uint16_t num_ = tp.size_or_num;
-    if(num_ == 0xFFFF)
-    {
-      ERROR_EXIT("num == 0xFFFF\n");
-      num_ = tp.GetKVItem()->num;
-    }
-
     uint32_t sz = segment->roll_back_map[num_].kv_sz * kv_align;
     segment->add_garbage_bytes(sz);
-    // if(segment->roll_back_map[num_].is_garbage != 0)
-    // {
-    //   printf("rb_c = %d\n", segment->rb_c);
-    //   printf("gc_c = %d\n", segment->gc_c);
-    //   printf("seg_id = %ld\n", segment->get_seg_id());
-    //   printf("seg_c = %d\n", segment->get_class());
-    //   printf("num_ = %d\n", num_);
-    //   printf("num_kv = %d\n", segment->num_kvs);
-    // }
-    // assert(segment->roll_back_map[num_].is_garbage == 0);
     segment->roll_back_map[num_].is_garbage = 1;
   }
 }

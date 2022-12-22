@@ -45,8 +45,8 @@ class DB {
     size_t Scan(const Slice &key, int cnt);
     bool Delete(const Slice &key);
 
-    uint64_t get_time = 0;
-    uint64_t put_time = 0;
+    uint64_t get_t = 0;
+    uint64_t put_t = 0;
     uint64_t get_c = 0;
     uint64_t put_c = 0;
 
@@ -110,8 +110,8 @@ class DB {
     return std::make_unique<Worker>(this);
   }
 
-  std::atomic<uint64_t> t_get_time = 0;
-  std::atomic<uint64_t> t_put_time = 0;
+  std::atomic<uint64_t> t_get_t = 0;
+  std::atomic<uint64_t> t_put_t = 0;
   std::atomic<uint64_t> t_get_c = 0;
   std::atomic<uint64_t> t_put_c = 0;
   
@@ -146,10 +146,6 @@ class DB {
   }
 
   uint32_t get_threshold(int class_) { return change_seg_threshold_class[class_]; }
-  // std::atomic<int> RB_class[num_class] = {0, 0, 0};
-  // std::atomic<uint64_t> put_c[num_class+1] = {0, 0, 0, 0};
-  // std::atomic<uint64_t> puts = 0;
-  // std::atomic<uint64_t> get_c = 0;
 
   std::vector<int>* get_next_class_segment(int i)
   {
@@ -208,10 +204,6 @@ class DB {
     size_t idx = i_key % EPOCH_MAP_SIZE;
     return epoch_map_[idx].fetch_add(1, std::memory_order_relaxed);
   }
-
-#ifdef INTERLEAVED
-  void roll_back_();
-#endif
 
   friend class LogCleaner;
   friend class HotKeySet;

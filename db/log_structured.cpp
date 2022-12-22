@@ -221,16 +221,6 @@ LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
   printf("num_segs = %d\n", num_segments_);
   printf("workers = %d, cleaners = %d\n", num_workers, num_cleaners);
 
-  // for(int i = 0; i < num_channel; i ++)
-  // {
-  //   printf("ch %d : ", i);
-  //   for(int j = 0; j < num_class; j++)
-  //   {
-  //     printf("%p ~ %p ", class_pool_start_[j][i], class_pool_end_[j][i]);
-  //   }
-  //   printf("\n");
-  // }
-
   for(int i = 1; i < num_class; i ++) 
   {
     db->db_num_class_segs[i] = get_num_class_segments_(i);
@@ -245,15 +235,6 @@ LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
     stop_flag_.store(true, std::memory_order_release);
   }
 }
-
-#ifdef INTERLEAVED
-  void LogStructured::start_GCThreads()
-  {
-    for (int j = 0; j < num_cleaners_; j++) {
-      log_cleaners_[j]->StartGCThread();
-    }
-  }
-#endif
 
 void LogStructured::get_seg_usage_info()
 {
@@ -438,9 +419,8 @@ out:
 
 // out:
   // not store shortcuts for hot segment
-  bool has_sc = (class_t_ > 0) ? false : true;
   bool hot = (class_t == -1) ? false : true;
-  ret->StartUsing(hot, has_sc);
+  ret->StartUsing(hot, !hot);
 
   UpdateCleanThreshold(class_t_);
   return ret;
@@ -487,18 +467,6 @@ int LogStructured::GetSegmentID(const char *addr) {
   }
 
 out:
-  // if(addr < GetSegment(seg_id)->get_segment_start() ||
-  //    addr > GetSegment(seg_id)->get_end())
-  // {
-  //   printf("%d\taddr  = %p\n", seg_id, addr);
-  //   printf("%d\tstart = %p\n", seg_id, GetSegment(seg_id)->get_segment_start());
-  //   printf("%d\tend   = %p\n", seg_id, GetSegment(seg_id)->get_end());
-  //   printf("%d\tid    = %ld\n", seg_id, GetSegment(seg_id)->get_seg_id());
-  //   printf("%d\tclass = %d\n", seg_id, GetSegment(seg_id)->get_class());
-  //   printf("%d\ti,j,k = %d %d %d\n", seg_id, i, j, k);
-  // }
-  // assert(GetSegment(seg_id)->get_segment_start() <= addr);
-  // assert(GetSegment(seg_id)->get_end() > addr);
   return seg_id;
 }
 

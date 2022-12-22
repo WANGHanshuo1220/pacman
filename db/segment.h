@@ -15,11 +15,7 @@
 #define TIMEDIFF(s, e) (e.tv_sec - s.tv_sec) * 1000000 + (e.tv_usec - s.tv_usec) //us
 
 // static constexpr int NUM_HEADERS = 1;
-#ifdef INTERLEAVED
 static constexpr int HEADER_ALIGN_SIZE = 256;
-#else
-static constexpr int HEADER_ALIGN_SIZE = 256;
-#endif
 // weird slow when 4 * 64
 // rotating counter with multi logs reduce performance
 
@@ -304,7 +300,7 @@ class LogSegment : public BaseSegment {
       return INVALID_VALUE;
     }
     uint32_t cur_num = num_kvs;
-    KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
+    KVItem *kv = new (tail_) KVItem(key, value, epoch);
     if(class_ > 0)
     {
       roll_back_map[cur_num].kv_sz = (uint16_t)(sz/kv_align);
@@ -332,15 +328,12 @@ class LogSegment : public BaseSegment {
 
   ValueType AppendBatchFlush(const Slice &key, const Slice &value,
                              uint32_t epoch, int *persist_cnt) {
-#ifdef INTERLEAVED
-    // get_seg_info();
-#endif
     uint32_t sz = sizeof(KVItem) + key.size() + value.size();
     if (!HasSpaceFor(sz)) {
       return INVALID_VALUE;
     }
     uint16_t cur_num = num_kvs;
-    KVItem *kv = new (tail_) KVItem(key, value, epoch, cur_num);
+    KVItem *kv = new (tail_) KVItem(key, value, epoch);
     if(class_ > 0)
     {
       roll_back_map[cur_num].kv_sz = (uint16_t)(sz/kv_align);

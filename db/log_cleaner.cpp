@@ -197,7 +197,7 @@ void LogCleaner::CopyValidItemToBuffer123(LogSegment *segment) {
     }
 #endif
     KVItem *kv = reinterpret_cast<KVItem *>(p);
-    uint32_t sz = sizeof(KVItem) + (kv->key_size + kv->val_size) * kv_align;
+    uint32_t sz = sizeof(KVItem) + (kv->key_size + kv->val_size);
     read_times[tier] ++;
     if (!volatile_segment_->HasSpaceFor(sz)) {
       // flush reserved segment
@@ -252,7 +252,7 @@ void LogCleaner::CopyValidItemToBuffer0(LogSegment *segment, bool help) {
     }
 #endif
     KVItem *kv = reinterpret_cast<KVItem *>(p);
-    uint32_t sz = sizeof(KVItem) + (kv->key_size + kv->val_size) * kv_align;
+    uint32_t sz = sizeof(KVItem) + (kv->key_size + kv->val_size);
     read_times[tier] ++;
     if (!volatile_segment->HasSpaceFor(sz)) {
       // flush reserved segment
@@ -713,12 +713,6 @@ void LogCleaner::MarkGarbage123(ValueType tagged_val) {
   TaggedPointer tp(tagged_val);
 
   uint16_t num_ = tp.size_or_num;
-  if(num_ == 0xFFFF)
-  {
-    printf("num == 0xFFFF\n");
-    num_ = tp.GetKVItem()->num;
-  }
-
   reserved_segment_->roll_back_map[num_].is_garbage = 1;
   reserved_segment_->add_garbage_bytes(reserved_segment_->roll_back_map[num_].kv_sz);
 }

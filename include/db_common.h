@@ -18,7 +18,7 @@ static constexpr ValueType INVALID_VALUE = 0;
 static constexpr uint64_t num_class     = 3;
 static constexpr uint64_t kv_align      = 4;
 static constexpr uint64_t SEGMENT_SIZE[num_class] = 
-    {4ul << 20, 1ul << 19, 1ul << 17};
+    {4ul << 20, 1ul << 10, 1ul << 10};
     // {4ul << 20, 1ul << 21, 1ul << 20};
 
 // shortcut
@@ -56,19 +56,19 @@ static_assert(sizeof(Shortcut) == 6);
 
 // KVItem: log entry
 struct alignas(kv_align) KVItem {
-  union
-  {
-    uint16_t kv_sz;
-    struct
-    {
-      uint16_t key_size: 6;
-      uint16_t val_size: 10;
-    };
-  };
-  // uint16_t key_size;
-  // uint16_t val_size;
+  // union
+  // {
+  //   uint16_t kv_sz;
+  //   struct
+  //   {
+  //     uint16_t key_size: 6;
+  //     uint16_t val_size: 10;
+  //   };
+  // };
+  uint16_t key_size;
+  uint16_t val_size;
   // uint64_t epoch;
-  uint16_t num; // max kvs in a segment = 2^16
+  // uint16_t num; // max kvs in a segment = 2^16
   uint32_t epoch;
   // uint64_t magic = 0xDEADBEAF;
   uint8_t kv_pair[0];
@@ -77,49 +77,46 @@ struct alignas(kv_align) KVItem {
     memset(this, 0, sizeof(KVItem));
   }
 
+  // KVItem(const Slice &_key, const Slice &_val, 
+  //        uint32_t _epoch, uint32_t _num)
+  //     : key_size(_key.size()/kv_align), val_size(_val.size()/kv_align), 
+  //       epoch(_epoch), num(_num) {
+  //   memcpy(kv_pair, _key.data(), key_size * kv_align);
+  //   memcpy(kv_pair + key_size * kv_align, _val.data(), val_size * kv_align);
+  //   // CalcChecksum();
+  // }
+
+  // Slice GetKey() {
+  //   return Slice((char *)kv_pair, key_size * kv_align);
+  // }
+
+  // Slice GetValue() {
+  //   return Slice((char *)kv_pair + key_size * kv_align, val_size * kv_align);
+  // }
+
+  // void GetValue(std::string &value) {
+  //   value.assign((char *)kv_pair + key_size * kv_align, val_size * kv_align);
+  // }
+
   KVItem(const Slice &_key, const Slice &_val, 
-         uint32_t _epoch, uint32_t _num)
-      : key_size(_key.size()/kv_align), val_size(_val.size()/kv_align), 
-        epoch(_epoch), num(_num) {
-    memcpy(kv_pair, _key.data(), key_size * kv_align);
-    memcpy(kv_pair + key_size * kv_align, _val.data(), val_size * kv_align);
+         uint32_t _epoch)
+      : key_size(_key.size()), val_size(_val.size()), epoch(_epoch) {
+    memcpy(kv_pair, _key.data(), key_size);
+    memcpy(kv_pair + key_size, _val.data(), val_size);
     // CalcChecksum();
   }
 
   Slice GetKey() {
-    return Slice((char *)kv_pair, key_size * kv_align);
+    return Slice((char *)kv_pair, key_size);
   }
 
   Slice GetValue() {
-    return Slice((char *)kv_pair + key_size * kv_align, val_size * kv_align);
+    return Slice((char *)kv_pair + key_size, val_size);
   }
 
   void GetValue(std::string &value) {
-    value.assign((char *)kv_pair + key_size * kv_align, val_size * kv_align);
+    value.assign((char *)kv_pair + key_size, val_size);
   }
-
-  // void CalcChecksum() {
-  //   // checksum = 0;
-  //   // uint64_t *p = (uint64_t *)this;
-  //   // uint64_t x_sum = 0;
-  //   // size_t sz = sizeof(KVItem) + key_size + val_size;
-  //   // for (size_t i = 0; i < sz / sizeof(uint64_t); i++) {
-  //   //   x_sum ^= p[i];
-  //   // }
-  //   // checksum = x_sum ^ (x_sum >> 32);
-  // }
-
-  // bool VerifyChecksum() {
-  //   // uint64_t *p = (uint64_t *)this;
-  //   // uint64_t x_sum = 0;
-  //   // size_t sz = sizeof(KVItem) + key_size + val_size;
-  //   // for (size_t i = 0; i < sz / sizeof(uint64_t); i++) {
-  //   //   x_sum ^= p[i];
-  //   // }
-  //   // uint32_t res = x_sum ^ (x_sum >> 32);
-  //   // return (res == 0);
-  //   return true;
-  // }
 
   void Flush() {
 #ifdef LOG_PERSISTENT

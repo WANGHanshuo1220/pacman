@@ -92,8 +92,6 @@ class LogStructured {
 
   const uint64_t class1_sz = 320/2; // MB
   const uint64_t class2_sz = 240/2; // MB
-  // const uint64_t class1_sz = (1 << 10) * 4; // MB
-  // const uint64_t class2_sz = (1 << 9) * 4; // MB
   std::vector<uint64_t> class_sz = {0, class1_sz, class2_sz};
 
   std::atomic<int> alloc_counter_{0};
