@@ -98,8 +98,12 @@ if (LOGGING)
 endif()
 
 #################################################################
+# find_library(PMEM pmem /home/wanghanshuo/pmdk_install/lib/libpmem.a)
+# find_library(PMEMOBJ pmemobj /home/wanghanshuo/pmdk_install/lib/libpmemobj.so)
 find_library(PMEM pmem)
 find_library(PMEMOBJ pmemobj)
+
+# link_libraries(/home/wanghanshuo/pmdk_install/lib)
 
 include_directories(
   "${PROJECT_SOURCE_DIR}/include"

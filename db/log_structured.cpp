@@ -73,7 +73,7 @@ LogStructured::LogStructured(std::string db_path[], size_t log_size, DB *db,
                                MAP_SHARED, log_pool_fd[i], 0);
     pool_end_[i] = pool_start_[i] + ch_sz[i];
     close(log_pool_fd[i]);
-    if (pool_start_ == nullptr || pool_start_ == MAP_FAILED) {
+    if (pool_start_[i] == nullptr || pool_start_[i] == MAP_FAILED) {
       ERROR_EXIT("mmap failed");
     }
   }
