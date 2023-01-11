@@ -37,7 +37,7 @@ NUMA_AFFINITY=0
 NUM=200000000
 NUM_OPS=100000000
 INIT_UTIL=50
-VALUE_SIZE=44
+VALUE_SIZE=256
 
 SERVICE_THREADS=24  # number of workload threads
 GC_THREADS=4        # number of compaction threads and recovery threads

@@ -35,7 +35,7 @@ if (PACMAN)
   endif()
 endif()
 
-set(HOT_SC ON)
+set(HOT_SC OFF)
 
 message(STATUS "SET USE_NUMA_NODE ${USE_NUMA_NODE}")
 message(STATUS "SET INDEX_TYPE ${INDEX_TYPE}")

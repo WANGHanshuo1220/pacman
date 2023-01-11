@@ -262,6 +262,7 @@ class LogCleaner {
   void CompactSegment0(LogSegment *segment, bool help);
   void CompactSegment123(LogSegment *segment);
   void FreezeReservedAndGetNew(bool help);
+  void MarkGarbage_recovery(ValueType tagged_val);
   void MarkGarbage0(ValueType tagged_val);
   void MarkGarbage123(ValueType tagged_val);
   void DoMemoryClean(bool help);

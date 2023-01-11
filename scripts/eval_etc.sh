@@ -83,6 +83,7 @@ fi
 # it may take long to get third-party dependencies, so don't delete _deps
 ls | grep -v _deps | xargs rm -rf
 # build
+PKG_CONFIG_PATH=/home/wanghanshuo/pmdk_install/lib/pkgconfig \
 cmake -DCMAKE_BUILD_TYPE=Release -DUSE_NUMA_NODE=${NUMA_AFFINITY} \
   ${WITH_OTHERS} -DINDEX_TYPE=${INDEX_TYPE} ${IDX_PERSISTENT} \
   -DLOG_BATCHING=${LOG_BATCHING} ${PACMAN_OPT} -DNUM_WARMUP_OPS_PER_THREAD=25000000\

@@ -595,11 +595,17 @@ void LogStructured::RecoverySegments(DB *db) {
   }
 
   uint64_t free_segs = 0, num_free_segs = 0;
-  for(int i = 0; i < num_class; i++)
+  for(int i = 1; i < num_class; i++)
   {
     free_segs += free_segments_class[i].size();
     num_free_segs += num_free_list_class[i];
   }
+  num_free_segs += num_free_list_class[0];
+  for(int i = 0; i < num_channel; i++)
+  {
+    free_segs += free_segments_class0[i].size();
+  }
+  printf("%ld %ld\n", free_segs, num_free_segs);
   assert(free_segs == num_free_segs);
   printf("before recovery: %ld free segments\n", free_segs);
   
@@ -611,9 +617,18 @@ void LogStructured::RecoverySegments(DB *db) {
     }
     num_free_list_class[i] = 0;
   }
+  
+  for(int i = 0; i < num_channel; i++)
+  {
+    while (!free_segments_class0[i].empty()) {
+      free_segments_class0[i].pop_back();
+    }
+  }
 
   for (int i = 0; i < num_segments_; i++) {
     if (all_segments_[i]) {
+      if(all_segments_[i]->is_segment_using()) 
+        all_segments_[i]->Flush_Header();
       delete all_segments_[i];
     }
   }
@@ -648,10 +663,15 @@ void LogStructured::RecoverySegments(DB *db) {
   }
   TIMER_STOP(rec_time);
   uint64_t free_segs_ = 0, num_free_segs_ = 0;
-  for(int i = 0; i < num_class; i++)
+  for(int i = 1; i < num_class; i++)
   {
     free_segs_ += free_segments_class[i].size();
     num_free_segs_ += num_free_list_class[i];
+  }
+  num_free_segs_ += num_free_list_class[0];
+  for(int i = 0; i < num_channel; i++)
+  {
+    free_segs_ += free_segments_class0[i].size();
   }
   printf("after recovery: %ld free segments\n", free_segs_);
   assert(free_segs_ == num_free_segs_);
@@ -697,21 +717,35 @@ void LogStructured::RecoveryAll(DB *db) {
   }
 
   uint64_t free_segs = 0, num_free_segs = 0;
-  for(int i = 0; i < num_class; i++)
+  for(int i = 1; i < num_class; i++)
   {
     free_segs += free_segments_class[i].size();
     num_free_segs += num_free_list_class[i];
   }
+  num_free_segs += num_free_list_class[0];
+  for(int i = 0; i < num_channel; i++)
+  {
+    free_segs += free_segments_class0[i].size();
+  }
+  printf("%ld %ld\n", free_segs, num_free_segs);
   assert(free_segs == num_free_segs);
   printf("before recovery: %ld free segments\n", free_segs);
 
   // clear old segments
+  assert(free_segments_class[0].size() == 0);
   for(int i = 0; i < num_class; i++)
   {
     while (!free_segments_class[i].empty()) {
       free_segments_class[i].pop_back();
     }
     num_free_list_class[i] = 0;
+  }
+
+  for(int i = 0; i < num_channel; i++)
+  {
+    while (!free_segments_class0[i].empty()) {
+      free_segments_class0[i].pop_back();
+    }
   }
 
   for (int i = 0; i < num_segments_; i++) {
@@ -755,10 +789,15 @@ void LogStructured::RecoveryAll(DB *db) {
   }
   TIMER_STOP(rec_time);
   uint64_t free_segs_ = 0, num_free_segs_ = 0;
-  for(int i = 0; i < num_class; i++)
+  for(int i = 1; i < num_class; i++)
   {
     free_segs_ += free_segments_class[i].size();
     num_free_segs_ += num_free_list_class[i];
+  }
+  num_free_segs_ += num_free_list_class[0];
+  for(int i = 0; i < num_channel; i++)
+  {
+    free_segs_ += free_segments_class0[i].size();
   }
   printf("after recovery: %ld free segments\n", free_segs_);
   assert(free_segs_ == num_free_segs_);

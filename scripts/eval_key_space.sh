@@ -47,7 +47,7 @@ if [[ $2 == 1 ]]; then
   PACMAN_OPT="-DPACMAN=ON"
 fi
 
-FILTER="--benchmark_filter=/(80)/.*/threads:(12)$"
+FILTER="--benchmark_filter=/(50)/.*/threads:(30)$"
 SKEW="true" # true (Zipfian), false (uniform)
 
 NUMA_AFFINITY=0
@@ -62,14 +62,14 @@ TMP_OUTPUT=../results/key_space_$1_$2_tmp
 cat /dev/null > ${OUTPUT_FILE}
 
 # disable cpu scaling
-sudo cpupower frequency-set --governor performance > /dev/null
+# sudo cpupower frequency-set --governor performance > /dev/null
 
 NUM_KEYS=(
-  50000000
-  100000000
-  200000000
-  400000000
-  800000000
+  # 50000000
+  # 100000000
+  # 200000000
+  # 400000000
+  600000000
 )
 
 # it may take long to get third-party dependencies, so don't delete _deps
@@ -87,7 +87,7 @@ for num in "${NUM_KEYS[@]}"; do
 
   make ${TARGET} -j
   # clean cache
-  sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
+  # sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
 
   numactl --membind=${NUMA_AFFINITY} --cpunodebind=${NUMA_AFFINITY} \
     ${TARGET_CMD} --benchmark_repetitions=1 ${FILTER} \
@@ -98,4 +98,4 @@ for num in "${NUM_KEYS[@]}"; do
 done
 rm ${TMP_OUTPUT}
 
-sudo cpupower frequency-set --governor powersave > /dev/null
+# sudo cpupower frequency-set --governor powersave > /dev/null

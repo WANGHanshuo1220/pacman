@@ -26,6 +26,50 @@ class FastFairIndex : public Index {
 #else
     bt_->btree_insert(*(KeyType *)key.data(), le_helper);
 #endif
+
+// #ifdef GC_SHORTCUT
+// #ifdef HOT_SC
+//     if(le_helper.is_hot_sc)
+//     {
+//       ValueType old_val = le_helper.old_val;
+//       ValueType new_val = le_helper.new_val;
+//       if(!CAS(&(*(db_->hot_sc))[k]->addr, &old_val, new_val))
+//       {
+//         le_helper.old_val = le_helper.new_val;
+//       }
+//     }
+//     else
+//     {
+//       if (le_helper.shortcut.None() ||
+//           !bt_->TryGCUpdate(k, le_helper)) {
+//         bt_->Insert(k, le_helper);
+//       }
+//     }
+// #else
+//     if (le_helper.shortcut.None() ||
+//         !bt_->TryGCUpdate(k, le_helper)) {
+//       bt_->Insert(k, le_helper);
+//     }
+// #endif
+// #else
+// #ifdef HOT_SC
+//     if(le_helper.is_hot_sc)
+//     {
+//       ValueType old_val = le_helper.old_val;
+//       ValueType new_val = le_helper.new_val;
+//       if(!CAS(&(*(db_->hot_sc))[k]->addr, &old_val, new_val))
+//       {
+//         le_helper.old_val = le_helper.new_val;
+//       }
+//     }
+//     else
+//     {
+//       bt_->Insert(k, le_helper);
+//     }
+// #else
+//     bt_->Insert(k, le_helper);
+// #endif
+// #endif
   }
 
   virtual void Delete(const Slice &key) override {

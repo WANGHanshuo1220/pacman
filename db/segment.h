@@ -406,6 +406,13 @@ class LogSegment : public BaseSegment {
 
   void MarkGarbage(char *p, uint32_t sz) {
 #ifdef WRITE_TOMBSTONE
+    // if(p < data_start_ || p >= tail_)
+    // {
+    //   printf("p = %p\n", p);
+    //   printf("s = %p\n", data_start_);
+    //   printf("t = %p\n", tail_);
+    //   printf("seg id = %ld\n", seg_id);
+    // }
     assert(p >= data_start_ && p < tail_);
     assert(volatile_tombstone_);
 #ifdef REDUCE_PM_ACCESS

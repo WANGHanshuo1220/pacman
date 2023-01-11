@@ -20,8 +20,8 @@ static inline uint64_t getKey(uint64_t k) {
 static int FLAGS_num = 10000000;
 static int FLAGS_num_total_ops = 1000000;
 static int FLAGS_num_ops = 1000000;
-int FLAGS_threads = 4;
-int FLAGS_gc_threads = 1;
+int FLAGS_threads = 24;
+int FLAGS_gc_threads = 4;
 int FLAGS_value_size = 100;
 static bool FLAGS_YCSB_zipf = 1;
 uint64_t FLAGS_log_size = 20ul << 30;

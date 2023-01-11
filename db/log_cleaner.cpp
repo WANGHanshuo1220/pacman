@@ -716,3 +716,31 @@ void LogCleaner::MarkGarbage123(ValueType tagged_val) {
   reserved_segment_->roll_back_map[num_].is_garbage = 1;
   reserved_segment_->add_garbage_bytes(reserved_segment_->roll_back_map[num_].kv_sz);
 }
+
+void LogCleaner::MarkGarbage_recovery(ValueType tagged_val) {
+  TaggedPointer tp(tagged_val);
+
+  int segment_id = db_->log_->GetSegmentID(tp.GetAddr());
+  LogSegment *segment = db_->log_->GetSegment(segment_id);
+  int class_t = segment->get_class();
+
+  if(class_t == 0)
+  {
+    uint32_t sz = tp.size_or_num;
+    if (sz == 0) {
+      ERROR_EXIT("size == 0");
+      KVItem *kv = tp.GetKVItem();
+      sz = sizeof(KVItem) + (kv->key_size + kv->val_size) * kv_align;
+    }
+    segment->MarkGarbage(tp.GetAddr(), sz);
+    int cleaner_id = db_->log_->GetSegmentCleanerID(tp.GetAddr());
+    tmp_cleaner_garbage_bytes_[cleaner_id] += sz;
+  }
+  else
+  {
+    uint16_t num_ = tp.size_or_num;
+    uint32_t sz = segment->roll_back_map[num_].kv_sz * kv_align;
+    segment->add_garbage_bytes(sz);
+    segment->roll_back_map[num_].is_garbage = 1;
+  }
+}
