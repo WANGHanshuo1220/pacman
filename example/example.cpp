@@ -17,7 +17,7 @@
 #define TIMEDIFF(s, e) (e.tv_sec - s.tv_sec) * 1000000 + (e.tv_usec - s.tv_usec) //us
 
 #define prefilling_rate 0.75
-uint64_t log_size = 1ul << 30;
+uint64_t log_size = 1ul << 29;
 // std::string db_path = std::string(PMEM_DIR) + "log_kvs_IGC";
 std::string db_path[4] = {std::string(PMEM_DIR[0]) + "log_kvs_IGC",
                           std::string(PMEM_DIR[1]) + "log_kvs_IGC",
@@ -234,7 +234,7 @@ static void BM_job3(benchmark::State& st)
 BENCHMARK(BM_job3)
   ->Iterations(1)
   // ->DenseThreadRange(6, 12, 6)
-  ->Threads(1)
+  ->Threads(2)
   ->Unit(benchmark::kMicrosecond)
   ->UseRealTime();
 

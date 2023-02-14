@@ -569,6 +569,7 @@ void DB::Worker::MarkGarbage(ValueType tagged_val) {
     uint16_t num_ = tp.size_or_num;
     uint32_t sz = segment->roll_back_map[num_].kv_sz * kv_align;
     segment->add_garbage_bytes(sz);
+    assert(segment->roll_back_map[num_].is_garbage == 0);
     segment->roll_back_map[num_].is_garbage = 1;
   }
 }

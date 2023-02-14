@@ -467,6 +467,8 @@ int LogStructured::GetSegmentID(const char *addr) {
   }
 
 out:
+  assert(addr >= GetSegment(seg_id)->get_segment_start());
+  assert(addr < GetSegment(seg_id)->get_end());
   return seg_id;
 }
 
