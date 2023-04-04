@@ -65,12 +65,12 @@ cat /dev/null > ${OUTPUT_FILE}
 # sudo cpupower frequency-set --governor performance > /dev/null
 
 WORKLOAD_TYPE=(
-  YCSB_W0
-  YCSB_W20
-  YCSB_W40
-  YCSB_W60
+  # YCSB_W0
+  # YCSB_W20
+  # YCSB_W40
+  # YCSB_W60
   YCSB_W80
-  YCSB_W100
+  # YCSB_W100
 )
 
 # it may take long to get third-party dependencies, so don't delete _deps
