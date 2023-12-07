@@ -43,7 +43,7 @@ elseif (INDEX_TYPE EQUAL 3)
   target_link_libraries(recovery_test masstree)
 endif()
 
-if (EVAL_OTHER_SYSTEMS)
-  add_subdirectory(other)
-endif()
+# if (EVAL_OTHER_SYSTEMS)
+#   add_subdirectory(other)
+# endif()
 

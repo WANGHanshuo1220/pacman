@@ -78,6 +78,7 @@ configure_file(
 ############
 
 option(EVAL_OTHER_SYSTEMS "build and evaluate other systems" OFF)
+Set(EVAL_OTHER_SYSTEMS ON)
 if (EVAL_OTHER_SYSTEMS)
   message(STATUS "Will build and evaluate other systems")
 endif()

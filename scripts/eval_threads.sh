@@ -49,7 +49,8 @@ fi
 
 # THREADS="1|6|12"
 # THREADS="1|6|12|18|24|30|36"
-THREADS="18|24|30|36"
+# THREADS="18|24|30|36"
+THREADS="30"
 FILTER="--benchmark_filter=/(50)/.*/threads:(${THREADS})$"
 # skew (Zipfian) or uniform
 SKEW="true" # true (Zipfian), false (uniform)
